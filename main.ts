@@ -7,7 +7,7 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion safely
+// Helper function to handle table cell conversion safely with improved position calculation
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -65,32 +65,66 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         replacement = `[[${finalPath}|${escapedText}]]`;
     }
     
-    // Perform the replacement IN THE TABLE CELL with corrected position calculation
+    // Perform the replacement with corrected table cell position calculation
     const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
     if (editor) {
-        // Get the actual position in the editor
-        const fromPos = editor.offsetToPos(from);
-        const toPos = editor.offsetToPos(to);
+        // Method 1: Try direct position conversion first
+        let fromPos = editor.offsetToPos(from);
+        let toPos = editor.offsetToPos(to);
         
         if (fromPos && toPos) {
-            // Validate that we're actually in a table context
-            const currentLineText = editor.getLine(fromPos.line);
-            console.log('Current line text:', currentLineText);
-            console.log('Replacing from:', from, 'to:', to);
-            console.log('Positions:', fromPos, 'to:', toPos);
-            
-            // Double-check that we're not accidentally replacing at document start
+            // Validate positions - if at document start, try alternative calculation
             if (fromPos.line === 0 && fromPos.ch === 0) {
-                console.warn('Warning: Attempting to replace at document start - this might be incorrect positioning');
-                // Try to find the actual table cell position
+                console.warn('Detected document start position, attempting table-aware recalculation...');
+                
+                // Method 2: Calculate relative to table cell content
                 const tableCellElement = targetElement.closest('td, th');
                 if (tableCellElement) {
-                    console.log('Found table cell element, recalculating position...');
-                    // This is a safety check - the position should already be correct
+                    // Get the actual text content of the table cell
+                    const cellText = tableCellElement.textContent || '';
+                    const originText = targetElement.getAttribute('origin-text') || '';
+                    
+                    // Find the position of the virtual link text within the cell
+                    const textIndex = cellText.indexOf(originText);
+                    if (textIndex !== -1) {
+                        // Calculate the actual document position
+                        // This is a simplified approach - in reality, we'd need to account for 
+                        // the table structure and other content
+                        
+                        // For now, let's try a different approach: find the line containing the table
+                        const docText = editor.getValue();
+                        const lines = docText.split('\n');
+                        
+                        // Find which line contains our table cell content
+                        let targetLine = -1;
+                        let lineOffset = 0;
+                        
+                        for (let i = 0; i < lines.length; i++) {
+                            if (lines[i].includes(cellText.substring(0, Math.min(20, cellText.length)))) {
+                                targetLine = i;
+                                lineOffset = lines[i].indexOf(originText);
+                                break;
+                            }
+                        }
+                        
+                        if (targetLine !== -1 && lineOffset !== -1) {
+                            fromPos = { line: targetLine, ch: lineOffset };
+                            toPos = { line: targetLine, ch: lineOffset + originText.length };
+                            console.log('Recalculated positions:', fromPos, 'to:', toPos);
+                        } else {
+                            console.warn('Could not recalculate position, falling back to original positions');
+                        }
+                    }
                 }
             }
             
-            // Direct replacement in table cell - this should work correctly now
+            // Log the operation for debugging
+            const currentLineText = editor.getLine(fromPos.line);
+            console.log('Current line text:', currentLineText);
+            console.log('Replacing from:', from, 'to:', to);
+            console.log('Final positions:', fromPos, 'to:', toPos);
+            
+            // Perform the replacement
             editor.replaceRange(replacement, fromPos, toPos);
             updateManager.update();
         } else {
