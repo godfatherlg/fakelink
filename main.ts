@@ -7,7 +7,7 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion safely with improved position calculation
+// Helper function to handle table cell conversion safely with precise position calculation
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -65,7 +65,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         replacement = `[[${finalPath}|${escapedText}]]`;
     }
     
-    // Perform the replacement with corrected table cell position calculation
+    // Perform the replacement with precise table cell position calculation
     const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
     if (editor) {
         // Method 1: Try direct position conversion first
@@ -77,56 +77,71 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             if (fromPos.line === 0 && fromPos.ch === 0) {
                 console.warn('Detected document start position, attempting table-aware recalculation...');
                 
-                // Method 2: Calculate relative to table cell content
+                // Method 2: Calculate relative to table cell content with higher precision
                 const tableCellElement = targetElement.closest('td, th');
                 if (tableCellElement) {
                     // Get the actual text content of the table cell
                     const cellText = tableCellElement.textContent || '';
                     const originText = targetElement.getAttribute('origin-text') || '';
                     
-                    // Find the position of the virtual link text within the cell
+                    // Find the precise position of the virtual link text within the cell
                     const textIndex = cellText.indexOf(originText);
                     if (textIndex !== -1) {
-                        // Calculate the actual document position
-                        // This is a simplified approach - in reality, we'd need to account for 
-                        // the table structure and other content
-                        
-                        // For now, let's try a different approach: find the line containing the table
+                        // Get the full document text to find the exact line
                         const docText = editor.getValue();
                         const lines = docText.split('\n');
                         
-                        // Find which line contains our table cell content
+                        // Find which line contains our table and the specific cell content
                         let targetLine = -1;
-                        let lineOffset = 0;
+                        let preciseOffset = -1;
                         
+                        // Look for lines that contain table structure and our target text
                         for (let i = 0; i < lines.length; i++) {
-                            if (lines[i].includes(cellText.substring(0, Math.min(20, cellText.length)))) {
-                                targetLine = i;
-                                lineOffset = lines[i].indexOf(originText);
-                                break;
+                            const line = lines[i];
+                            // Check if this line contains table structure and our target content
+                            if (line.includes('|') && line.includes(originText)) {
+                                // Find the exact position of the origin text within this line
+                                const lineTextIndex = line.indexOf(originText);
+                                if (lineTextIndex !== -1) {
+                                    targetLine = i;
+                                    preciseOffset = lineTextIndex;
+                                    break;
+                                }
                             }
                         }
                         
-                        if (targetLine !== -1 && lineOffset !== -1) {
-                            fromPos = { line: targetLine, ch: lineOffset };
-                            toPos = { line: targetLine, ch: lineOffset + originText.length };
-                            console.log('Recalculated positions:', fromPos, 'to:', toPos);
+                        if (targetLine !== -1 && preciseOffset !== -1) {
+                            fromPos = { line: targetLine, ch: preciseOffset };
+                            toPos = { line: targetLine, ch: preciseOffset + originText.length };
+                            console.log('Precisely recalculated positions:', fromPos, 'to:', toPos);
                         } else {
-                            console.warn('Could not recalculate position, falling back to original positions');
+                            console.warn('Could not precisely recalculate position, falling back to original positions');
                         }
                     }
                 }
             }
             
-            // Log the operation for debugging
+            // Critical: Validate that we're replacing exactly the intended text
             const currentLineText = editor.getLine(fromPos.line);
+            const originalTextAtPosition = currentLineText.substring(fromPos.ch, toPos.ch);
+            const expectedText = targetElement.getAttribute('origin-text') || '';
+            
             console.log('Current line text:', currentLineText);
+            console.log('Original text at position:', originalTextAtPosition);
+            console.log('Expected text:', expectedText);
             console.log('Replacing from:', from, 'to:', to);
             console.log('Final positions:', fromPos, 'to:', toPos);
             
-            // Perform the replacement
-            editor.replaceRange(replacement, fromPos, toPos);
-            updateManager.update();
+            // Safety check: only proceed if the text at the calculated position matches expected text
+            if (originalTextAtPosition === expectedText) {
+                editor.replaceRange(replacement, fromPos, toPos);
+                updateManager.update();
+                console.log('Successfully replaced text in table cell');
+            } else {
+                console.error('Text mismatch - aborting replacement to prevent corruption');
+                console.error('Expected:', expectedText);
+                console.error('Found:', originalTextAtPosition);
+            }
         } else {
             console.error('Failed to convert positions:', from, to);
         }
