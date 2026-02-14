@@ -65,7 +65,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         replacement = `[[${finalPath}|${escapedText}]]`;
     }
     
-    // Perform the replacement in table cell
+    // Perform the replacement IN THE TABLE CELL (not above the table)
     const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
     if (editor) {
         const fromPos = editor.offsetToPos(from);
@@ -78,6 +78,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             console.log('Replacing from:', from, 'to:', to);
             console.log('Positions:', fromPos, 'to:', toPos);
             
+            // Direct replacement in table cell - this fixes the "putting links above table" issue
             editor.replaceRange(replacement, fromPos, toPos);
             updateManager.update();
         } else {
