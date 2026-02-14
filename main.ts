@@ -7,7 +7,7 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion safely with precise position calculation
+// Helper function to handle table cell conversion safely with correct link generation
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -26,28 +26,39 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         return;
     }
 
-    // Get the target file path from the href attribute
+    // Get the target file path from the href attribute - this should be the correct relative path
     const href = targetElement.getAttribute('href');
     if (!href) {
         console.error('No href attribute found');
         return;
     }
 
-    // Extract file path (remove hash part for header)
-    const targetPath = href.split('#')[0];
+    // Extract file path and header from href
+    let targetPath = href;
+    let finalHeaderId = headerId;
     
-    // Create table-safe link using the same logic as standard conversion
-    const activeFilePath = activeFile.path;
-    let relativePath = path.relative(path.dirname(activeFilePath), path.dirname(targetPath)) + '/' + path.basename(targetPath);
-    relativePath = relativePath.replace(/\\/g, '/');
-    
-    // Remove .md extension if present
-    if (relativePath.endsWith('.md')) {
-        relativePath = relativePath.slice(0, -3);
+    // If href contains #, split it
+    if (href.includes('#')) {
+        const parts = href.split('#');
+        targetPath = parts[0];
+        finalHeaderId = parts[1] || headerId;
     }
     
+    // Create proper link path - use the same logic as standard conversion
+    const activeFilePath = activeFile.path;
+    
+    // Use Obsidian's built-in link text generation for proper relative paths
+    const targetFile = app.metadataCache.getFirstLinkpathDest(targetPath, activeFilePath);
+    if (!targetFile) {
+        console.error('Target file not found:', targetPath);
+        return;
+    }
+    
+    // Generate the proper relative link path
+    const linkPath = app.metadataCache.fileToLinktext(targetFile, activeFilePath);
+    
     // Add header if exists
-    const finalPath = headerId ? `${relativePath}#${headerId}` : relativePath;
+    const finalPath = finalHeaderId ? `${linkPath}#${finalHeaderId}` : linkPath;
     
     // Apply link format based on settings
     const useMarkdownLinks = settings.useDefaultLinkStyleForConversion 
@@ -129,6 +140,8 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             console.log('Current line text:', currentLineText);
             console.log('Original text at position:', originalTextAtPosition);
             console.log('Expected text:', expectedText);
+            console.log('Target path:', targetPath);
+            console.log('Final path:', finalPath);
             console.log('Replacing from:', from, 'to:', to);
             console.log('Final positions:', fromPos, 'to:', toPos);
             
