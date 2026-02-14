@@ -7,7 +7,45 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion with comprehensive debugging
+// Helper function to calculate text similarity (0-1)
+function calculateSimilarity(text1: string, text2: string): number {
+    if (!text1 || !text2) return 0;
+    
+    // Remove all spaces for comparison
+    const s1 = text1.replace(/\s+/g, '').toLowerCase();
+    const s2 = text2.replace(/\s+/g, '').toLowerCase();
+    
+    if (s1 === s2) return 1;
+    
+    // If one contains the other, high similarity
+    if (s1.includes(s2)) return s2.length / s1.length;
+    if (s2.includes(s1)) return s1.length / s2.length;
+    
+    // Calculate character-level similarity (longest common subsequence ratio)
+    const lcs = longestCommonSubsequence(s1, s2);
+    return lcs / Math.max(s1.length, s2.length);
+}
+
+// Helper function for longest common subsequence length
+function longestCommonSubsequence(s1: string, s2: string): number {
+    const m = s1.length;
+    const n = s2.length;
+    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    
+    for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+            if (s1[i - 1] === s2[j - 1]) {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+            }
+        }
+    }
+    
+    return dp[m][n];
+}
+
+// Helper function to handle table cell conversion with simplified approach
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -61,33 +99,18 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     
     let replacement = '';
     if (useMarkdownLinks) {
-        // Markdown links - escape pipes in both text and path
-        const escapedText = text.replace(/\|/g, '\\|');
-        const escapedPath = finalPath.replace(/\|/g, '\\|');
-        replacement = `[${escapedText}](${escapedPath})`;
+        // Markdown links - escape special characters in text
+        const escapedText = text.replace(/[\\|]/g, '\\$&');
+        replacement = `[${escapedText}](${finalPath})`;
     } else {
-        // Wiki links - this is where the issue occurs
-        console.log('=== WIKI LINK GENERATION DEBUG ===');
-        console.log('Original text:', text);
-        console.log('Link path:', finalPath);
-        console.log('Contains pipe in text:', text.includes('|'));
+        // For wiki links in tables, we need to properly escape the text part
+        // The issue is that special characters in the link text (especially pipe |) need to be escaped
+        // when they appear in a table cell, as they can interfere with table parsing
         
-        // Try different escaping methods
-        const methods = [
-            { name: 'HTML Entity', value: text.replace(/\|/g, '&#124;') },
-            { name: 'Double Backslash', value: text.replace(/\|/g, '\\\\|') },
-            { name: 'Single Backslash', value: text.replace(/\|/g, '\\|') },
-            { name: 'Raw Text', value: text }
-        ];
-        
-        methods.forEach(method => {
-            const testLink = `[[${finalPath}|${method.value}]]`;
-            console.log(`${method.name} method result:`, testLink);
-        });
-        
-        // Use the working method - let's try raw text first to see if the issue is elsewhere
-        replacement = `[[${finalPath}|${text}]]`;
-        console.log('Final replacement:', replacement);
+        // Escape pipe character in the text to prevent table disruption
+        const escapedText = text.replace(/[\\|]/g, '\\$&');
+        // In table cells, escape the wiki link separator pipe to prevent table parsing issues
+        replacement = `[[${finalPath}\\|${escapedText}]]`;
     }
     
     // Perform the replacement
@@ -97,22 +120,154 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         let toPos = editor.offsetToPos(to);
         
         if (fromPos && toPos) {
-            // Position recalculation if needed
-            if (fromPos.line === 0 && fromPos.ch === 0) {
-                console.warn('Document start position detected, recalculating...');
-                const tableCellElement = targetElement.closest('td, th');
-                if (tableCellElement) {
-                    const cellText = tableCellElement.textContent || '';
-                    const originText = targetElement.getAttribute('origin-text') || '';
-                    const textIndex = cellText.indexOf(originText);
+            // Always recalculate positions for table cells to ensure accuracy
+            const tableCellElement = targetElement.closest('td, th');
+            
+            if (tableCellElement) {
+                const cellText = tableCellElement.textContent || '';
+                const originText = targetElement.getAttribute('origin-text') || '';
+                
+                // Try to find the text in cell text, handling potential escaped characters
+                let textIndex = cellText.indexOf(originText);
+                if (textIndex === -1) {
+                    // The text might be escaped in the cell (e.g., pipe | becomes \|)
+                    // Try escaping special characters for search
+                    const escapedOriginText = originText.replace(/[\\|]/g, '\\$&');
+                    textIndex = cellText.indexOf(escapedOriginText);
+                }
+                
+                if (textIndex !== -1) {
+                    const docText = editor.getValue();
+                    const lines = docText.split('\n');
                     
-                    if (textIndex !== -1) {
-                        const docText = editor.getValue();
-                        const lines = docText.split('\n');
+                    let targetLine = -1;
+                    let preciseOffset = -1;
+                    
+                    // Get the table row to find a more unique identifier
+                    const tableRowElement = tableCellElement.closest('tr');
+                    if (tableRowElement) {
+                        // Get the cell index in the DOM row
+                        const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
                         
-                        let targetLine = -1;
-                        let preciseOffset = -1;
+                        // Search for the table row in the document
+                        // Instead of comparing row text (which differs due to link expansion),
+                        // we search for lines where the cell at cellIndex matches cellText
                         
+                        // Helper function to split table row correctly (handle escaped pipes in links)
+                        const splitTableRow = (rowLine: string): string[] => {
+                            const cells: string[] = [];
+                            let currentCell = '';
+                            let inLink = false;
+                            
+                            for (let i = 0; i < rowLine.length; i++) {
+                                const char = rowLine[i];
+                                const nextChar = rowLine[i + 1];
+                                
+                                if (char === '[' && nextChar === '[') {
+                                    inLink = true;
+                                    currentCell += char;
+                                } else if (char === ']' && nextChar === ']' && inLink) {
+                                    inLink = false;
+                                    currentCell += char;
+                                } else if (char === '|' && !inLink) {
+                                    cells.push(currentCell);
+                                    currentCell = '';
+                                } else {
+                                    currentCell += char;
+                                }
+                            }
+                            cells.push(currentCell);
+                            return cells;
+                        };
+                        
+                        let bestMatch = { line: -1, offset: -1, similarity: 0 };
+                        
+                        for (let i = 0; i < lines.length; i++) {
+                            const line = lines[i];
+                            
+                            // Must be a table row (starts with |)
+                            if (!line.trim().startsWith('|')) continue;
+                            
+                            // Split by | correctly (handle escaped pipes in wiki links)
+                            const cells = splitTableRow(line);
+                            
+                            // cellIndex in DOM corresponds to cells[cellIndex + 1]
+                            // because cells[0] is empty (before first |)
+                            const mdCellIndex = cellIndex + 1;
+                            
+                            if (mdCellIndex < cells.length) {
+                                const cellContent = cells[mdCellIndex].trim();
+                                
+                                // Check if originText exists in this cell
+                                const cellTextIndex = cellContent.indexOf(originText);
+                                
+                                if (cellTextIndex !== -1) {
+                                    // Check if cellContent matches cellText
+                                    const cleanCellContent = cellContent
+                                        .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                        .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                        .replace(/<br\s*\/?>/gi, ' ')
+                                        .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                        .replace(/\s+/g, ' ')
+                                        .trim();
+                                    
+                                    const similarity = calculateSimilarity(cleanCellContent, cellText);
+                                    
+                                    // Keep track of the best match
+                                    if (similarity > bestMatch.similarity) {
+                                        // Calculate precise offset
+                                        let offset = 0;
+                                        let pipeCount = 0;
+                                        
+                                        for (let c = 0; c < line.length; c++) {
+                                            const char = line[c];
+                                            // Check if this pipe is part of a wiki link
+                                            const isInWikiLink = () => {
+                                                // Look backwards for [[
+                                                let depth = 0;
+                                                for (let j = c - 1; j >= 0; j--) {
+                                                    if (line[j] === ']' && line[j - 1] === ']') {
+                                                        depth++;
+                                                        j--;
+                                                    } else if (line[j] === '[' && line[j - 1] === '[') {
+                                                        depth--;
+                                                        j--;
+                                                        if (depth < 0) return true;
+                                                    }
+                                                }
+                                                return false;
+                                            };
+                                            
+                                            if (char === '|' && !isInWikiLink()) {
+                                                pipeCount++;
+                                                if (pipeCount === mdCellIndex) {
+                                                    offset = c + 1;
+                                                    while (offset < line.length && line[offset] === ' ') {
+                                                        offset++;
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        
+                                        bestMatch = {
+                                            line: i,
+                                            offset: offset + cellTextIndex,
+                                            similarity: similarity
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (bestMatch.similarity > 0.5) {
+                            targetLine = bestMatch.line;
+                            preciseOffset = bestMatch.offset;
+                        }
+                    }
+                    
+                    // Fallback to original search if row-based search failed
+                    if (targetLine === -1 || preciseOffset === -1) {
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
                             if (line.includes('|') && line.includes(originText)) {
@@ -124,11 +279,11 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                 }
                             }
                         }
-                        
-                        if (targetLine !== -1 && preciseOffset !== -1) {
-                            fromPos = { line: targetLine, ch: preciseOffset };
-                            toPos = { line: targetLine, ch: preciseOffset + originText.length };
-                        }
+                    }
+                    
+                    if (targetLine !== -1 && preciseOffset !== -1) {
+                        fromPos = { line: targetLine, ch: preciseOffset };
+                        toPos = { line: targetLine, ch: preciseOffset + originText.length };
                     }
                 }
             }
@@ -138,19 +293,180 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             const originalTextAtPosition = currentLineText.substring(fromPos.ch, toPos.ch);
             const expectedText = targetElement.getAttribute('origin-text') || '';
             
-            console.log('=== CONVERSION EXECUTION ===');
-            console.log('Current line:', currentLineText);
-            console.log('Text at position:', originalTextAtPosition);
-            console.log('Expected text:', expectedText);
-            console.log('Positions:', fromPos, 'to:', toPos);
-            console.log('Generated replacement:', replacement);
-            
             if (originalTextAtPosition === expectedText) {
-                console.log('Executing replacement...');
                 editor.replaceRange(replacement, fromPos, toPos);
                 updateManager.update();
-                console.log('Replacement completed successfully');
+                
+                // Add post-execution verification
+                setTimeout(() => {
+                    const postLineText = editor.getLine(fromPos.line);
+                    const replacedText = postLineText.substring(fromPos.ch, fromPos.ch + replacement.length);
+                }, 100);
             } else {
+                // Text mismatch - try to find the correct position in table cell
+                const tableCellElement = targetElement.closest('td, th');
+                if (tableCellElement) {
+                    const cellText = tableCellElement.textContent || '';
+                    
+                    // Try to find expected text in cell text (with escape handling)
+                    let textIndex = cellText.indexOf(expectedText);
+                    if (textIndex === -1) {
+                        // Try with escaped version
+                        const escapedExpectedText = expectedText.replace(/[\\|]/g, '\\$&');
+                        textIndex = cellText.indexOf(escapedExpectedText);
+                    }
+                    
+                    if (textIndex !== -1) {
+                        // Found in cell text, now find the exact line position
+                        const docText = editor.getValue();
+                        const lines = docText.split('\n');
+                        
+                        let targetLine = -1;
+                        let preciseOffset = -1;
+                        
+                        // Get the table row to find a more unique identifier
+                        const tableRowElement = tableCellElement.closest('tr');
+                        if (tableRowElement) {
+                            const rowText = tableRowElement.textContent || '';
+                            // Clean row text: remove extra whitespace and newlines
+                            const cleanedRowText = rowText.replace(/\s+/g, ' ').trim();
+                            
+                            // Get the cell index in the DOM row
+                            const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
+                            
+                            // Search for the table row in the document
+                            // Use splitTableRow to correctly handle wiki links
+                            const splitTableRow = (rowLine: string): string[] => {
+                                const cells: string[] = [];
+                                let currentCell = '';
+                                let inLink = false;
+                                
+                                for (let k = 0; k < rowLine.length; k++) {
+                                    const char = rowLine[k];
+                                    const nextChar = rowLine[k + 1];
+                                    
+                                    if (char === '[' && nextChar === '[') {
+                                        inLink = true;
+                                        currentCell += char;
+                                    } else if (char === ']' && nextChar === ']' && inLink) {
+                                        inLink = false;
+                                        currentCell += char;
+                                    } else if (char === '|' && !inLink) {
+                                        cells.push(currentCell);
+                                        currentCell = '';
+                                    } else {
+                                        currentCell += char;
+                                    }
+                                }
+                                cells.push(currentCell);
+                                return cells;
+                            };
+                            
+                            let bestMatch = { line: -1, offset: -1, similarity: 0 };
+                            
+                            for (let i = 0; i < lines.length; i++) {
+                                const line = lines[i];
+                                
+                                // Must be a table row (starts with |)
+                                if (!line.trim().startsWith('|')) continue;
+                                
+                                // Split by | correctly (handle escaped pipes in wiki links)
+                                const cells = splitTableRow(line);
+                                const mdCellIndex = cellIndex + 1;
+                                
+                                if (mdCellIndex < cells.length) {
+                                    const cellContent = cells[mdCellIndex].trim();
+                                    const cellTextIndex = cellContent.indexOf(expectedText);
+                                    
+                                    if (cellTextIndex !== -1) {
+                                        // Check similarity with cellText
+                                        const cleanCellContent = cellContent
+                                            .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                            .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                            .replace(/<br\s*\/?>/gi, ' ')
+                                            .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                            .replace(/\s+/g, ' ')
+                                            .trim();
+                                        
+                                        const similarity = calculateSimilarity(cleanCellContent, cellText);
+                                        
+                                        if (similarity > bestMatch.similarity) {
+                                            // Calculate precise offset
+                                            let offset = 0;
+                                            let pipeCount = 0;
+                                            
+                                            for (let c = 0; c < line.length; c++) {
+                                                const char = line[c];
+                                                const isInWikiLink = () => {
+                                                    let depth = 0;
+                                                    for (let j = c - 1; j >= 0; j--) {
+                                                        if (line[j] === ']' && line[j - 1] === ']') {
+                                                            depth++;
+                                                            j--;
+                                                        } else if (line[j] === '[' && line[j - 1] === '[') {
+                                                            depth--;
+                                                            j--;
+                                                            if (depth < 0) return true;
+                                                        }
+                                                    }
+                                                    return false;
+                                                };
+                                                
+                                                if (char === '|' && !isInWikiLink()) {
+                                                    pipeCount++;
+                                                    if (pipeCount === mdCellIndex) {
+                                                        offset = c + 1;
+                                                        while (offset < line.length && line[offset] === ' ') {
+                                                            offset++;
+                                                        }
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            
+                                            bestMatch = {
+                                                line: i,
+                                                offset: offset + cellTextIndex,
+                                                similarity: similarity
+                                            };
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (bestMatch.similarity > 0.5) {
+                                targetLine = bestMatch.line;
+                                preciseOffset = bestMatch.offset;
+                            }
+                        }
+                        
+                        // Fallback to original search if row-based search failed
+                        if (targetLine === -1 || preciseOffset === -1) {
+                            for (let i = 0; i < lines.length; i++) {
+                                const line = lines[i];
+                                if (line.includes('|') && line.includes(expectedText)) {
+                                    const lineTextIndex = line.indexOf(expectedText);
+                                    if (lineTextIndex !== -1) {
+                                        targetLine = i;
+                                        preciseOffset = lineTextIndex;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if (targetLine !== -1 && preciseOffset !== -1) {
+                            fromPos = { line: targetLine, ch: preciseOffset };
+                            toPos = { line: targetLine, ch: preciseOffset + expectedText.length };
+                            
+                            // Retry replacement with corrected positions
+                            editor.replaceRange(replacement, fromPos, toPos);
+                            updateManager.update();
+                            return;
+                        }
+                    }
+                }
+                
                 console.error('Text validation failed - aborting');
                 console.error('Expected:', expectedText);
                 console.error('Found:', originalTextAtPosition);
@@ -439,9 +755,21 @@ export default class LinkerPlugin extends Plugin {
                                    linkFormat === 'relative' ? relativePath :
                                    absolutePath;
 
-                        replacement = useMarkdownLinks ?
-                            `[${link.text}](${path})` :
-                            `[[${path}|${link.text}]]`;
+                        if (useMarkdownLinks) {
+                            replacement = `[${link.text}](${path})`;
+                        } else {
+                            // For wiki links in tables, escape pipe characters and use appropriate format
+                            const isInTable = this.isInTableEnvironment(editor, link.from, link.to);
+                            
+                            if (isInTable) {
+                                // Escape pipe character in text when in table environment
+                                const escapedText = link.text.replace(/[\\|]/g, '\\$&');
+                                // In table cells, escape the wiki link separator pipe to prevent table parsing issues
+                                replacement = `[[${path}\\|${escapedText}]]`;
+                            } else {
+                                replacement = `[[${path}|${link.text}]]`;
+                            }
+                        }
                     }
                     replacements.push({
                         from: link.from,
@@ -454,11 +782,74 @@ export default class LinkerPlugin extends Plugin {
                 for (const replacement of replacements.reverse()) {
                     const fromPos = editor.offsetToPos(replacement.from);
                     const toPos = editor.offsetToPos(replacement.to);
-                    editor.replaceRange(replacement.text, fromPos, toPos);
+                    // Try different approaches for table-safe replacement
+                    try {
+                        // Method 1: Direct replacement
+                        editor.replaceRange(replacement.text, fromPos, toPos);
+                        console.log('Direct replacement executed');
+                        
+                        // Immediate verification
+                        const immediateResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
+                        
+                        // Wait a bit and check again (to catch async issues)
+                        setTimeout(() => {
+                            const delayedResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
+                            const fullLine = editor.getLine(fromPos.line);
+                        }, 100);
+                        
+                        // If we're in table and verification fails, try alternative approach
+                        if (this.isInTableEnvironment(editor, replacement.from, replacement.to)) {
+                            const afterReplacement = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
+                            if (replacement.text !== afterReplacement) {
+                                // Delete original content first
+                                editor.replaceRange('', fromPos, toPos);
+                                
+                                // Insert character by character for better table compatibility
+                                for (let i = 0; i < replacement.text.length; i++) {
+                                    const insertPos = editor.offsetToPos(replacement.from + i);
+                                    editor.replaceRange(replacement.text[i], insertPos, insertPos);
+                                }
+                                
+                                // Verify fallback result
+                                setTimeout(() => {
+                                    const fallbackResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
+                                }, 150);
+                            }
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error during replacement:', error);
+                    }
                 }
             }
         });
 
+    }
+
+    private isInTableEnvironment(editor: MarkdownView['editor'], fromOffset: number, toOffset: number): boolean {
+        try {
+            const fromPos = editor.offsetToPos(fromOffset);
+            // Check for table syntax: lines starting with | or containing | characters
+            const line = editor.getLine(fromPos.line);
+            const isTableLine = line.trim().startsWith('|') || line.includes('|');
+            
+            if (isTableLine) {
+                return true;
+            }
+            
+            // Additional check: look for table markers in surrounding lines
+            const contextLines = 3;
+            for (let i = Math.max(0, fromPos.line - contextLines); i <= Math.min(editor.lineCount() - 1, fromPos.line + contextLines); i++) {
+                const contextLine = editor.getLine(i);
+                if (contextLine.trim().startsWith('|') || contextLine.includes('|')) {
+                    return true;
+                }
+            }
+            
+            return false;
+        } catch (error) {
+            return false;
+        }
     }
 
     private isPosWithinRange(
@@ -643,7 +1034,16 @@ export default class LinkerPlugin extends Plugin {
                                         if (markdownStyle) {
                                             return `[${text}](${replacementPath})`;
                                         } else {
-                                            return `[[${replacementPath}|${text}]]`;
+                                            // Check if we are in a table environment and escape the text accordingly
+                                            const tableCellElement = targetElement.closest('td, th');
+                                            if (tableCellElement) {
+                                                // In table cells, escape pipe characters to prevent table disruption
+                                                const escapedText = text.replace(/[\\|]/g, '\\$&');
+                                                // In table cells, escape the wiki link separator pipe to prevent table parsing issues
+                                                return `[[${replacementPath}\\|${escapedText}]]`;
+                                            } else {
+                                                return `[[${replacementPath}|${text}]]`;
+                                            }
                                         }
                                     };
 
