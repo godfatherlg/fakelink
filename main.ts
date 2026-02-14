@@ -7,7 +7,7 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion safely with proper pipe escaping
+// Helper function to handle table cell conversion with comprehensive debugging
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -26,7 +26,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         return;
     }
 
-    // Get the target file path from the href attribute - this should be the correct relative path
+    // Get the target file path from the href attribute
     const href = targetElement.getAttribute('href');
     if (!href) {
         console.error('No href attribute found');
@@ -37,27 +37,21 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     let targetPath = href;
     let finalHeaderId = headerId;
     
-    // If href contains #, split it
     if (href.includes('#')) {
         const parts = href.split('#');
         targetPath = parts[0];
         finalHeaderId = parts[1] || headerId;
     }
     
-    // Create proper link path - use the same logic as standard conversion
+    // Generate proper relative link path
     const activeFilePath = activeFile.path;
-    
-    // Use Obsidian's built-in link text generation for proper relative paths
     const targetFile = app.metadataCache.getFirstLinkpathDest(targetPath, activeFilePath);
     if (!targetFile) {
         console.error('Target file not found:', targetPath);
         return;
     }
     
-    // Generate the proper relative link path
     const linkPath = app.metadataCache.fileToLinktext(targetFile, activeFilePath);
-    
-    // Add header if exists
     const finalPath = finalHeaderId ? `${linkPath}#${finalHeaderId}` : linkPath;
     
     // Apply link format based on settings
@@ -67,53 +61,61 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     
     let replacement = '';
     if (useMarkdownLinks) {
-        // For markdown links, escape pipe characters in both link text and path
+        // Markdown links - escape pipes in both text and path
         const escapedText = text.replace(/\|/g, '\\|');
         const escapedPath = finalPath.replace(/\|/g, '\\|');
         replacement = `[${escapedText}](${escapedPath})`;
     } else {
-        // For wiki links, escape pipe characters in the alias part
-        // CRITICAL: The pipe in the alias part needs special handling in tables
-        const escapedText = text.replace(/\|/g, '&#124;'); // Use HTML entity for pipe
-        replacement = `[[${finalPath}|${escapedText}]]`;
+        // Wiki links - this is where the issue occurs
+        console.log('=== WIKI LINK GENERATION DEBUG ===');
+        console.log('Original text:', text);
+        console.log('Link path:', finalPath);
+        console.log('Contains pipe in text:', text.includes('|'));
+        
+        // Try different escaping methods
+        const methods = [
+            { name: 'HTML Entity', value: text.replace(/\|/g, '&#124;') },
+            { name: 'Double Backslash', value: text.replace(/\|/g, '\\\\|') },
+            { name: 'Single Backslash', value: text.replace(/\|/g, '\\|') },
+            { name: 'Raw Text', value: text }
+        ];
+        
+        methods.forEach(method => {
+            const testLink = `[[${finalPath}|${method.value}]]`;
+            console.log(`${method.name} method result:`, testLink);
+        });
+        
+        // Use the working method - let's try raw text first to see if the issue is elsewhere
+        replacement = `[[${finalPath}|${text}]]`;
+        console.log('Final replacement:', replacement);
     }
     
-    // Perform the replacement with precise table cell position calculation
+    // Perform the replacement
     const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
     if (editor) {
-        // Method 1: Try direct position conversion first
         let fromPos = editor.offsetToPos(from);
         let toPos = editor.offsetToPos(to);
         
         if (fromPos && toPos) {
-            // Validate positions - if at document start, try alternative calculation
+            // Position recalculation if needed
             if (fromPos.line === 0 && fromPos.ch === 0) {
-                console.warn('Detected document start position, attempting table-aware recalculation...');
-                
-                // Method 2: Calculate relative to table cell content with higher precision
+                console.warn('Document start position detected, recalculating...');
                 const tableCellElement = targetElement.closest('td, th');
                 if (tableCellElement) {
-                    // Get the actual text content of the table cell
                     const cellText = tableCellElement.textContent || '';
                     const originText = targetElement.getAttribute('origin-text') || '';
-                    
-                    // Find the precise position of the virtual link text within the cell
                     const textIndex = cellText.indexOf(originText);
+                    
                     if (textIndex !== -1) {
-                        // Get the full document text to find the exact line
                         const docText = editor.getValue();
                         const lines = docText.split('\n');
                         
-                        // Find which line contains our table and the specific cell content
                         let targetLine = -1;
                         let preciseOffset = -1;
                         
-                        // Look for lines that contain table structure and our target text
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
-                            // Check if this line contains table structure and our target content
                             if (line.includes('|') && line.includes(originText)) {
-                                // Find the exact position of the origin text within this line
                                 const lineTextIndex = line.indexOf(originText);
                                 if (lineTextIndex !== -1) {
                                     targetLine = i;
@@ -126,40 +128,33 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         if (targetLine !== -1 && preciseOffset !== -1) {
                             fromPos = { line: targetLine, ch: preciseOffset };
                             toPos = { line: targetLine, ch: preciseOffset + originText.length };
-                            console.log('Precisely recalculated positions:', fromPos, 'to:', toPos);
-                        } else {
-                            console.warn('Could not precisely recalculate position, falling back to original positions');
                         }
                     }
                 }
             }
             
-            // Critical: Validate that we're replacing exactly the intended text
+            // Validation and execution
             const currentLineText = editor.getLine(fromPos.line);
             const originalTextAtPosition = currentLineText.substring(fromPos.ch, toPos.ch);
             const expectedText = targetElement.getAttribute('origin-text') || '';
             
-            console.log('Current line text:', currentLineText);
-            console.log('Original text at position:', originalTextAtPosition);
+            console.log('=== CONVERSION EXECUTION ===');
+            console.log('Current line:', currentLineText);
+            console.log('Text at position:', originalTextAtPosition);
             console.log('Expected text:', expectedText);
-            console.log('Target path:', targetPath);
-            console.log('Final path:', finalPath);
+            console.log('Positions:', fromPos, 'to:', toPos);
             console.log('Generated replacement:', replacement);
-            console.log('Replacing from:', from, 'to:', to);
-            console.log('Final positions:', fromPos, 'to:', toPos);
             
-            // Safety check: only proceed if the text at the calculated position matches expected text
             if (originalTextAtPosition === expectedText) {
+                console.log('Executing replacement...');
                 editor.replaceRange(replacement, fromPos, toPos);
                 updateManager.update();
-                console.log('Successfully replaced text in table cell');
+                console.log('Replacement completed successfully');
             } else {
-                console.error('Text mismatch - aborting replacement to prevent corruption');
+                console.error('Text validation failed - aborting');
                 console.error('Expected:', expectedText);
                 console.error('Found:', originalTextAtPosition);
             }
-        } else {
-            console.error('Failed to convert positions:', from, to);
         }
     }
 }
