@@ -7,7 +7,7 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
-// Helper function to handle table cell conversion safely with correct link generation
+// Helper function to handle table cell conversion safely with proper pipe escaping
 function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
@@ -67,12 +67,14 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     
     let replacement = '';
     if (useMarkdownLinks) {
-        // Escape pipe characters for markdown links in tables
+        // For markdown links, escape pipe characters in both link text and path
         const escapedText = text.replace(/\|/g, '\\|');
-        replacement = `[${escapedText}](${finalPath})`;
+        const escapedPath = finalPath.replace(/\|/g, '\\|');
+        replacement = `[${escapedText}](${escapedPath})`;
     } else {
-        // For wiki links, escape pipe in the alias part
-        const escapedText = text.replace(/\|/g, '\\|');
+        // For wiki links, escape pipe characters in the alias part
+        // CRITICAL: The pipe in the alias part needs special handling in tables
+        const escapedText = text.replace(/\|/g, '&#124;'); // Use HTML entity for pipe
         replacement = `[[${finalPath}|${escapedText}]]`;
     }
     
@@ -142,6 +144,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             console.log('Expected text:', expectedText);
             console.log('Target path:', targetPath);
             console.log('Final path:', finalPath);
+            console.log('Generated replacement:', replacement);
             console.log('Replacing from:', from, 'to:', to);
             console.log('Final positions:', fromPos, 'to:', toPos);
             
