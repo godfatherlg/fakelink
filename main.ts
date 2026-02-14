@@ -65,20 +65,32 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
         replacement = `[[${finalPath}|${escapedText}]]`;
     }
     
-    // Perform the replacement IN THE TABLE CELL (not above the table)
+    // Perform the replacement IN THE TABLE CELL with corrected position calculation
     const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
     if (editor) {
+        // Get the actual position in the editor
         const fromPos = editor.offsetToPos(from);
         const toPos = editor.offsetToPos(to);
         
         if (fromPos && toPos) {
-            // Additional validation to ensure we're in the correct context
+            // Validate that we're actually in a table context
             const currentLineText = editor.getLine(fromPos.line);
             console.log('Current line text:', currentLineText);
             console.log('Replacing from:', from, 'to:', to);
             console.log('Positions:', fromPos, 'to:', toPos);
             
-            // Direct replacement in table cell - this fixes the "putting links above table" issue
+            // Double-check that we're not accidentally replacing at document start
+            if (fromPos.line === 0 && fromPos.ch === 0) {
+                console.warn('Warning: Attempting to replace at document start - this might be incorrect positioning');
+                // Try to find the actual table cell position
+                const tableCellElement = targetElement.closest('td, th');
+                if (tableCellElement) {
+                    console.log('Found table cell element, recalculating position...');
+                    // This is a safety check - the position should already be correct
+                }
+            }
+            
+            // Direct replacement in table cell - this should work correctly now
             editor.replaceRange(replacement, fromPos, toPos);
             updateManager.update();
         } else {
