@@ -7,6 +7,87 @@ import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
 import * as path from 'path';
 
+// Helper function to handle table cell conversion safely
+function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
+    // Get position and text information
+    const from = parseInt(targetElement.getAttribute('from') || '-1');
+    const to = parseInt(targetElement.getAttribute('to') || '-1');
+    const text = targetElement.getAttribute('origin-text') || '';
+    const headerId = targetElement.getAttribute('data-heading-id');
+
+    if (from === -1 || to === -1) {
+        console.error('Invalid position data for table cell conversion');
+        return;
+    }
+
+    const activeFile = app.workspace.getActiveFile();
+    if (!activeFile) {
+        console.error('No active file');
+        return;
+    }
+
+    // Get the target file path from the href attribute
+    const href = targetElement.getAttribute('href');
+    if (!href) {
+        console.error('No href attribute found');
+        return;
+    }
+
+    // Extract file path (remove hash part for header)
+    const targetPath = href.split('#')[0];
+    
+    // Create table-safe link using the same logic as standard conversion
+    const activeFilePath = activeFile.path;
+    let relativePath = path.relative(path.dirname(activeFilePath), path.dirname(targetPath)) + '/' + path.basename(targetPath);
+    relativePath = relativePath.replace(/\\/g, '/');
+    
+    // Remove .md extension if present
+    if (relativePath.endsWith('.md')) {
+        relativePath = relativePath.slice(0, -3);
+    }
+    
+    // Add header if exists
+    const finalPath = headerId ? `${relativePath}#${headerId}` : relativePath;
+    
+    // Apply link format based on settings
+    const useMarkdownLinks = settings.useDefaultLinkStyleForConversion 
+        ? settings.defaultUseMarkdownLinks 
+        : settings.useMarkdownLinks;
+    
+    let replacement = '';
+    if (useMarkdownLinks) {
+        // Escape pipe characters for markdown links in tables
+        const escapedText = text.replace(/\|/g, '\\|');
+        replacement = `[${escapedText}](${finalPath})`;
+    } else {
+        // For wiki links, escape pipe in the alias part
+        const escapedText = text.replace(/\|/g, '\\|');
+        replacement = `[[${finalPath}|${escapedText}]]`;
+    }
+    
+    // Perform the replacement in table cell
+    const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+    if (editor) {
+        const fromPos = editor.offsetToPos(from);
+        const toPos = editor.offsetToPos(to);
+        
+        if (fromPos && toPos) {
+            // Additional validation to ensure we're in the correct context
+            const currentLineText = editor.getLine(fromPos.line);
+            console.log('Current line text:', currentLineText);
+            console.log('Replacing from:', from, 'to:', to);
+            console.log('Positions:', fromPos, 'to:', toPos);
+            
+            editor.replaceRange(replacement, fromPos, toPos);
+            updateManager.update();
+        } else {
+            console.error('Failed to convert positions:', from, to);
+        }
+    }
+}
+
+
+
 export interface LinkerPluginSettings {
     app?: App; // Add app instance reference
     autoToggleByMode: boolean;
@@ -403,8 +484,18 @@ export default class LinkerPlugin extends Plugin {
                             });
                     });
 
-                    // Only show "Convert to real link" option when not in a table cell
-                    if (!isInTableCell) {
+                    // Show intelligent conversion options based on context
+                    if (isInTableCell) {
+                        // Table cell context - show table-safe conversion
+                        menu.addItem((item) => {
+                            item.setTitle('[Virtual Linker] Convert to real link (Table mode)')
+                                .setIcon('table')
+                                .onClick(() => {
+                                    handleTableCellConversion(targetElement, app, settings, updateManager);
+                                });
+                        });
+                    } else {
+                        // Regular context - show standard conversion
                         menu.addItem((item) => {
                             // Item to convert a virtual link to a real link
                             item.setTitle('[Virtual Linker] Convert to real link')
