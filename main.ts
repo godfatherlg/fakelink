@@ -5,8 +5,6 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
-import * as path from 'path';
-
 // Helper function to calculate text similarity (0-1)
 function calculateSimilarity(text1: string, text2: string): number {
     if (!text1 || !text2) return 0;
@@ -43,6 +41,43 @@ function longestCommonSubsequence(s1: string, s2: string): number {
     }
     
     return dp[m][n];
+}
+
+// Obsidian 兼容的路径处理函数
+function dirname(filePath: string): string {
+    const lastSlashIndex = filePath.lastIndexOf('/');
+    return lastSlashIndex === -1 ? '' : filePath.substring(0, lastSlashIndex);
+}
+
+function basename(filePath: string): string {
+    const lastSlashIndex = filePath.lastIndexOf('/');
+    return lastSlashIndex === -1 ? filePath : filePath.substring(lastSlashIndex + 1);
+}
+
+function relative(from: string, to: string): string {
+    // 简化的相对路径计算，适用于 Obsidian 环境
+    if (from === to) return '';
+    
+    const fromParts = from.split('/').filter(part => part !== '');
+    const toParts = to.split('/').filter(part => part !== '');
+    
+    // 找到公共前缀
+    let commonLength = 0;
+    while (commonLength < fromParts.length && 
+           commonLength < toParts.length && 
+           fromParts[commonLength] === toParts[commonLength]) {
+        commonLength++;
+    }
+    
+    // 计算需要返回的上级目录数量
+    const upLevels = fromParts.length - commonLength;
+    const downParts = toParts.slice(commonLength);
+    
+    // 构造相对路径
+    const upPath = upLevels > 0 ? '../'.repeat(upLevels) : './';
+    const downPath = downParts.join('/');
+    
+    return downPath ? upPath + downPath : upPath.slice(0, -1); // 移除末尾的 '/'
 }
 
 // Helper function to handle table cell conversion with simplified approach
@@ -712,10 +747,10 @@ export default class LinkerPlugin extends Plugin {
                     const activeFilePath = activeFile?.path ?? '';
 
                     let absolutePath = targetFile.path;
-                    let relativePath = path.relative(
-                        path.dirname(activeFilePath),
-                        path.dirname(absolutePath)
-                    ) + '/' + path.basename(absolutePath);
+                    let relativePath = relative(
+                        dirname(activeFilePath),
+                        dirname(absolutePath)
+                    ) + '/' + basename(absolutePath);
                     relativePath = relativePath.replace(/\\/g, '/');
 
                     const replacementPath = this.app.metadataCache.fileToLinktext(targetFile, activeFilePath);
@@ -987,15 +1022,13 @@ export default class LinkerPlugin extends Plugin {
 
                                     let absolutePath = target.path;
                                     let relativePath =
-                                        path.relative(path.dirname(activeFile.path), path.dirname(absolutePath)) +
+                                        relative(dirname(activeFile.path), dirname(absolutePath)) +
                                         '/' +
-                                        path.basename(absolutePath);
+                                        basename(absolutePath);
                                     relativePath = relativePath.replace(/\\/g, '/'); // Replace backslashes with forward slashes
 
                                     // Problem: we cannot just take the fileToLinktext result, as it depends on the app settings
                                     const replacementPath = app.metadataCache.fileToLinktext(target as TFile, activeFilePath);
-
-                                    // Get headerId from virtual link if exists
                                     const headerId = targetElement.getAttribute('data-heading-id');
 
                                     // The last part of the replacement path is the real shortest file name
