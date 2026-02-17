@@ -482,7 +482,6 @@ class AutoLinkerPlugin implements PluginValue {
                     const parentClasses = Array.from(parent.classList);
                     if (parentClasses.some(cls => cls.includes('table') || cls.includes('cell'))) {
                         inTableCellEditor = true;
-                        tableDetectionMethod = 'parent-class-check';
                         break;
                     }
                     parent = parent.parentElement;

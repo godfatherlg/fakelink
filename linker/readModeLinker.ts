@@ -80,7 +80,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
         for (const tag of tags) {
             // console.log("Tag: ", tag);
             const nodeList = this.containerEl.getElementsByTagName(tag);
-            const children = this.containerEl.children;
             // if (nodeList.length === 0) continue;
             // if (nodeList.length != 0) console.log(tag, nodeList.length);
             for (let index = 0; index <= nodeList.length; index++) {

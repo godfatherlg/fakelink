@@ -484,9 +484,6 @@ export class PrefixTree {
         }
 
         for (const file of files) {
-            // Get the update time of the file
-            const mtime = file.stat.mtime;
-
             // Check if the file has been updated
             if (this.fileIsUpToDate(file)) {
                 continue;
