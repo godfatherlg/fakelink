@@ -810,9 +810,6 @@ export default class LinkerPlugin extends Plugin {
                         // Method 1: Direct replacement
                         editor.replaceRange(replacement.text, fromPos, toPos);
                         
-                        // Immediate verification
-                        const immediateResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
-                        
                         // Wait a bit and check again (to catch async issues)
                         setTimeout(() => {
                         }, 100);
