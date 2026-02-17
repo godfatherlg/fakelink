@@ -15,13 +15,13 @@ export class LinkerFileMetaInfo {
 
     constructor(public fetcher: LinkerMetaInfoFetcher, file: TFile | TAbstractFile) {
         this.fetcher = fetcher;
-        // @ts-ignore - getFileByPath returns TFile when it exists
+        // @ts-ignore: getFileByPath returns TFile when it exists
         this.file = file instanceof TFile ? file : this.fetcher.app.vault.getFileByPath(file.path);
 
         const settings = this.fetcher.settings;
 
         const fileCache = this.fetcher.app.metadataCache.getFileCache(this.file);
-        // @ts-ignore - Obsidian API type issue
+        // @ts-ignore: Obsidian API type issue
         this.tags = (fileCache ? getAllTags(fileCache) : [])
             .filter(tag => tag.trim().length > 0)
             .map(tag => tag.startsWith("#") ? tag.slice(1) : tag);
