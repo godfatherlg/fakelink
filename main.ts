@@ -89,20 +89,17 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     const headerId = targetElement.getAttribute('data-heading-id');
 
     if (from === -1 || to === -1) {
-        console.error('Invalid position data for table cell conversion');
         return;
     }
 
     const activeFile = app.workspace.getActiveFile();
     if (!activeFile) {
-        console.error('No active file');
         return;
     }
 
     // Get the target file path from the href attribute
     const href = targetElement.getAttribute('href');
     if (!href) {
-        console.error('No href attribute found');
         return;
     }
 
@@ -120,7 +117,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
     const activeFilePath = activeFile.path;
     const targetFile = app.metadataCache.getFirstLinkpathDest(targetPath, activeFilePath);
     if (!targetFile) {
-        console.error('Target file not found:', targetPath);
         return;
     }
     
@@ -606,11 +602,11 @@ export default class LinkerPlugin extends Plugin {
     // Check if in Canvas view
     private isInCanvas(): boolean {
         // Only check if the current active view is Canvas
-        const activeLeaf = this.app.workspace.activeLeaf;
-        if (activeLeaf && activeLeaf.view && activeLeaf.view.getViewType() === 'canvas') {
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (activeView && activeView.getViewType() === 'canvas') {
             return true;
         }
-        
+
         return false;
     }
 
@@ -677,7 +673,6 @@ export default class LinkerPlugin extends Plugin {
             callback: () => {
                 this.updateSettings({ linkerActivated: !this.settings.linkerActivated });
                 this.updateManager.update();
-                console.log(`Virtual Linker ${this.settings.linkerActivated ? 'activated' : 'deactivated'}`);
             }
         });
 
@@ -699,7 +694,7 @@ export default class LinkerPlugin extends Plugin {
                 const to = editor.getCursor('to');
 
                 // Get the DOM element containing the selection
-                const cmEditor = (editor as any).cm;
+                const cmEditor = (editor as unknown as { cm: { dom: { querySelector: (selector: string) => Element | null } } }).cm;
                 if (!cmEditor) return false;
 
                 const selectionRange = cmEditor.dom.querySelector('.cm-content');
@@ -708,11 +703,11 @@ export default class LinkerPlugin extends Plugin {
                 // Find all virtual links in the selection
                 // Find all virtual link elements in the selection
                 const virtualLinkElements = Array.from(selectionRange.querySelectorAll('a'));
-                
+
                 const virtualLinks = virtualLinkElements
-                    .filter((link): link is HTMLElement => {
-                        if (!(link instanceof HTMLElement)) return false;
-                        return link.classList.contains('virtual-linker-link') || 
+                    .filter((link): link is HTMLAnchorElement => {
+                        if (!(link instanceof HTMLAnchorElement)) return false;
+                        return link.classList.contains('virtual-linker-link') ||
                                link.classList.contains('virtual-link-a');
                     })
                     .map(link => ({
@@ -821,7 +816,6 @@ export default class LinkerPlugin extends Plugin {
                     try {
                         // Method 1: Direct replacement
                         editor.replaceRange(replacement.text, fromPos, toPos);
-                        console.log('Direct replacement executed');
                         
                         // Immediate verification
                         const immediateResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
@@ -848,12 +842,12 @@ export default class LinkerPlugin extends Plugin {
                                 // Verify fallback result
                                 setTimeout(() => {
                                     const fallbackResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
-                                }, 150);
+                                    }, 150);
                             }
                         }
-                        
+
                     } catch (error) {
-                        console.error('Error during replacement:', error);
+                        // Error during replacement, silently continue
                     }
                 }
             }
@@ -927,7 +921,6 @@ export default class LinkerPlugin extends Plugin {
                 const targetElement = event.target;
 
                 if (!targetElement || !(targetElement instanceof HTMLElement)) {
-                    console.error('No target element');
                     return;
                 }
 
@@ -1005,7 +998,6 @@ export default class LinkerPlugin extends Plugin {
                                     const to = parseInt(targetElement.getAttribute('to') || '-1');
 
                                     if (from === -1 || to === -1) {
-                                        console.error('No from or to position');
                                         return;
                                     }
 
@@ -1016,7 +1008,6 @@ export default class LinkerPlugin extends Plugin {
                                     const activeFilePath = activeFile?.path ?? '';
 
                                     if (!activeFile) {
-                                        console.error('No active file');
                                         return;
                                     }
 
@@ -1104,7 +1095,6 @@ export default class LinkerPlugin extends Plugin {
                                     const toEditorPos = editor?.offsetToPos(to);
 
                                     if (!fromEditorPos || !toEditorPos) {
-                                        console.warn('No editor positions');
                                         return;
                                     }
 
@@ -1132,7 +1122,6 @@ export default class LinkerPlugin extends Plugin {
                             const targetFile = app.vault.getFileByPath(target.path);
 
                             if (!targetFile) {
-                                console.error('No target file');
                                 return;
                             }
 
@@ -1185,7 +1174,6 @@ export default class LinkerPlugin extends Plugin {
                             const targetFile = app.vault.getFileByPath(target.path);
 
                             if (!targetFile) {
-                                console.error('No target file');
                                 return;
                             }
 
@@ -1247,7 +1235,6 @@ export default class LinkerPlugin extends Plugin {
                             const targetFolder = app.vault.getAbstractFileByPath(target.path) as TFolder;
 
                             if (!targetFolder) {
-                                console.error('No target folder');
                                 return;
                             }
 
@@ -1271,7 +1258,6 @@ export default class LinkerPlugin extends Plugin {
                             const targetFolder = app.vault.getAbstractFileByPath(target.path) as TFolder;
 
                             if (!targetFolder) {
-                                console.error('No target folder');
                                 return;
                             }
 
@@ -1329,7 +1315,6 @@ export default class LinkerPlugin extends Plugin {
             this.settings.defaultUseMarkdownLinks = appSettings.useMarkdownLinks;
             this.settings.defaultLinkFormat = appSettings.newLinkFormat ?? 'shortest';
         } catch (error) {
-            console.error("Failed to load app settings:", error);
             // Set default values
             this.settings.defaultUseMarkdownLinks = false;
             this.settings.defaultLinkFormat = 'shortest';
@@ -1348,9 +1333,8 @@ export default class LinkerPlugin extends Plugin {
         
         try {
             await this.saveData(settingsToSave);
-            console.log("Settings saved successfully to:", this.app.vault.configDir + "/plugins/fakelink/data.json");
         } catch (error) {
-            console.error("Failed to save settings:", error);
+            // Failed to save settings
         }
         
         this.updateManager.update();
@@ -1672,13 +1656,13 @@ class LinkerSettingTab extends PluginSettingTab {
             new Setting(containerEl)
                 .setName('Glossary linker directories')
                 .setDesc('Directories to include for the virtual linker (separated by new lines).')
-                .addTextArea((text) => {
-                    let setValue = '';
-                    try {
-                        setValue = this.plugin.settings.linkerDirectories.join('\n');
-                    } catch (e) {
-                        console.warn(e);
-                    }
+                    .addTextArea((text) => {
+                        let setValue = '';
+                        try {
+                            setValue = this.plugin.settings.linkerDirectories.join('\n');
+                        } catch (e) {
+                            // Handle join error
+                        }
 
                     text.setPlaceholder('List of directory names (separated by new line)')
                         .setValue(setValue)
@@ -1705,7 +1689,7 @@ class LinkerSettingTab extends PluginSettingTab {
                         try {
                             setValue = this.plugin.settings.excludedDirectories.join('\n');
                         } catch (e) {
-                            console.warn(e);
+                            // Handle join error
                         }
 
                         text.setPlaceholder('List of directory names (separated by new line)')

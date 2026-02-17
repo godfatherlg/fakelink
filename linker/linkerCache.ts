@@ -358,7 +358,7 @@ export class PrefixTree {
         try {
             aliases = aliases.filter(PrefixTree.isNoneEmptyString);
         } catch (e) {
-            console.error('[VL LC] Error filtering aliases', aliases, e);
+            // Error filtering aliases
         }
 
         let names = [file.basename];
@@ -496,7 +496,7 @@ export class PrefixTree {
             try {
                 this.addFileToTree(file);
             } catch (e) {
-                console.error('[VL LC] Error adding file to tree', file, e);
+                // Error adding file to tree
             }
         }
 
