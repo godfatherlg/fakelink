@@ -1836,8 +1836,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (!this.plugin.settings.useDefaultLinkStyleForConversion) {
             // Toggle setting to use markdown links
             new Setting(containerEl)
-                .setName('Use [[wiki-links]]')
-                .setDesc('If toggled, the virtual links will be created as wiki-links instead of markdown links.')
+                .setName('Use [[Wikilinks]]')
+                .setDesc('If toggled, the virtual links will be created as Wikilinks instead of Markdown links.')
                 .addToggle((toggle) =>
                     toggle.setValue(!this.plugin.settings.useMarkdownLinks).onChange(async (value) => {
                         await this.plugin.updateSettings({ useMarkdownLinks: !value });
