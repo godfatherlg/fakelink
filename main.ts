@@ -939,7 +939,7 @@ export default class LinkerPlugin extends Plugin {
                     menu.addItem((item) => {
                         // Item to convert a virtual link to a real link
                         item.setTitle(
-                            '[Virtual linker] converting link is not here'
+                            'Converting link is not here'
                         ).setIcon('link');
                     });
                 }
@@ -948,7 +948,7 @@ export default class LinkerPlugin extends Plugin {
                     // Always show "Add to excluded keywords" option for virtual links
                     menu.addItem((item) => {
                         // Item to add virtual link text to excluded keywords
-                        item.setTitle('[Virtual linker] add to excluded keywords')
+                        item.setTitle('Add to excluded keywords')
                             .setIcon('ban')
                             .onClick(async () => {
                                 const text = targetElement.getAttribute('origin-text') || '';
@@ -964,7 +964,7 @@ export default class LinkerPlugin extends Plugin {
                     if (isInTableCell) {
                         // Table cell context - show table-safe conversion
                         menu.addItem((item) => {
-                            item.setTitle('[Virtual linker] convert to real link (table mode)')
+                            item.setTitle('Convert to real link (table mode)')
                                 .setIcon('table')
                                 .onClick(() => {
                                     handleTableCellConversion(targetElement, app, settings, updateManager);
@@ -974,7 +974,7 @@ export default class LinkerPlugin extends Plugin {
                         // Regular context - show standard conversion
                         menu.addItem((item) => {
                             // Item to convert a virtual link to a real link
-                            item.setTitle('[Virtual linker] convert to real link')
+                            item.setTitle('Convert to real link')
                                 .setIcon('link')
                                 .onClick(() => {
                                     // Get from and to position from the element
@@ -1100,7 +1100,7 @@ export default class LinkerPlugin extends Plugin {
                 // Item to exclude a virtual link from the linker
                 // This action adds the settings.tagToExcludeFile to the file
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual linker] exclude this file')
+                    item.setTitle('Exclude this file')
                         .setIcon('trash')
                         .onClick(async () => {
                             // Get the shown text
@@ -1152,7 +1152,7 @@ export default class LinkerPlugin extends Plugin {
                 //Item to include a virtual link from the linker
                 // This action adds the settings.tagToIncludeFile to the file
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual linker] include this file')
+                    item.setTitle('Include this file')
                         .setIcon('plus')
                         .onClick(async () => {
                             // Get the shown text
@@ -1213,7 +1213,7 @@ export default class LinkerPlugin extends Plugin {
             // If the directory is in the linker directories, add the option to exclude it
             if ((fetcher.includeAllFiles && !isInExcludedDir) || isInIncludedDir) {
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual linker] exclude this directory')
+                    item.setTitle('Exclude this directory')
                         .setIcon('trash')
                         .onClick(async () => {
                             // Get the shown text
@@ -1236,7 +1236,7 @@ export default class LinkerPlugin extends Plugin {
             } else if ((!fetcher.includeAllFiles && !isInIncludedDir) || isInExcludedDir) {
                 // If the directory is in the excluded directories, add the option to include it
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual linker] include this directory')
+                    item.setTitle('Include this directory')
                         .setIcon('plus')
                         .onClick(async () => {
                             // Get the shown text
