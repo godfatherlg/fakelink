@@ -1393,7 +1393,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Toggle to only link once
             new Setting(containerEl)
                 .setName('Only link once')
-                .setDesc('When enabled, identical terms in the same note will only be linked once (Wikipedia-style).')
+                .setDesc('When enabled, identical terms in the same note will only be linked once.')
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.onlyLinkOnce).onChange(async (value) => {
                         await this.plugin.updateSettings({ onlyLinkOnce: value });
@@ -1499,9 +1499,9 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Toggle setting to exclude links in the current line start for fixing IME
             new Setting(containerEl)
-                .setName('Fix IME problem')
+                .setName('Fix IME typing issues')
                 .setDesc(
-                    'Recommended when using IME (input method editor) for typing non-Latin scripts (like Chinese/Japanese/Korean). Prevents virtual linking from interfering with IME composition at the start of lines.'
+                    'Recommended when using IME (input method editor) for typing non-Latin scripts (e.g., Chinese, Japanese, Korean). Prevents virtual linking from interfering with IME composition at the start of lines.'
                 )
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
