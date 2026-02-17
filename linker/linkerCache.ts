@@ -254,11 +254,11 @@ export class PrefixTree {
         // console.log("Adding file", file, name);
     }
 
-    private static isNoneEmptyString(value: string | null | undefined): value is string {
+    private static isNoneEmptyString(this: void, value: string | null | undefined): value is string {
         return value !== null && value !== undefined && typeof value === 'string' && value.trim().length > 0;
     }
 
-    private static isUpperCaseString(value: string | null | undefined, upperCasePart = 0.75) {
+    private static isUpperCaseString(this: void, value: string | null | undefined, upperCasePart = 0.75) {
         if (!PrefixTree.isNoneEmptyString(value)) {
             return false;
         }
