@@ -51,6 +51,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
         if (currentPath == null) return null;
 
         while (currentDestName.includes('/')) {
+            // eslint-disable-next-line no-useless-escape
             currentDestName = currentDestName.replace(/\/[^/]*?$/, '');
 
             const newPath = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(glossaryName), currentDestName);
