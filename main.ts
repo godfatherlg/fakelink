@@ -497,10 +497,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         }
                     }
                 }
-                
-                console.error('Text validation failed - aborting');
-                console.error('Expected:', expectedText);
-                console.error('Found:', originalTextAtPosition);
             }
         }
     }
@@ -964,7 +960,7 @@ export default class LinkerPlugin extends Plugin {
                     // Always show "Add to excluded keywords" option for virtual links
                     menu.addItem((item) => {
                         // Item to add virtual link text to excluded keywords
-                        item.setTitle('[Virtual Linker] Add to excluded keywords')
+                        item.setTitle('[Virtual linker] Add to excluded keywords')
                             .setIcon('ban')
                             .onClick(async () => {
                                 const text = targetElement.getAttribute('origin-text') || '';
@@ -980,7 +976,7 @@ export default class LinkerPlugin extends Plugin {
                     if (isInTableCell) {
                         // Table cell context - show table-safe conversion
                         menu.addItem((item) => {
-                            item.setTitle('[Virtual Linker] Convert to real link (Table mode)')
+                            item.setTitle('[Virtual linker] Convert to real link (Table mode)')
                                 .setIcon('table')
                                 .onClick(() => {
                                     handleTableCellConversion(targetElement, app, settings, updateManager);
@@ -990,7 +986,7 @@ export default class LinkerPlugin extends Plugin {
                         // Regular context - show standard conversion
                         menu.addItem((item) => {
                             // Item to convert a virtual link to a real link
-                            item.setTitle('[Virtual Linker] Convert to real link')
+                            item.setTitle('[Virtual linker] Convert to real link')
                                 .setIcon('link')
                                 .onClick(() => {
                                     // Get from and to position from the element
@@ -1024,8 +1020,8 @@ export default class LinkerPlugin extends Plugin {
 
                                     // The last part of the replacement path is the real shortest file name
                                     // We have to check, if it leads to the correct file
-                                    const lastPart = replacementPath.split('/').pop()!;
-                                    const shortestFile = app.metadataCache.getFirstLinkpathDest(lastPart!, '');
+                                    const lastPart = replacementPath.split('/').pop();
+                                    const shortestFile = app.metadataCache.getFirstLinkpathDest(lastPart || '', '');
                                     let shortestPath = shortestFile?.path == target.path ? lastPart : absolutePath;
 
                                     // Remove superfluous .md extension and add headerId if exists
@@ -1034,7 +1030,7 @@ export default class LinkerPlugin extends Plugin {
                                         if (absolutePath.endsWith('.md')) {
                                             absolutePath = absolutePath.slice(0, -3);
                                         }
-                                        if (shortestPath.endsWith('.md')) {
+                                        if (shortestPath && shortestPath.endsWith('.md')) {
                                             shortestPath = shortestPath.slice(0, -3);
                                         }
                                         if (relativePath.endsWith('.md')) {
@@ -1081,7 +1077,7 @@ export default class LinkerPlugin extends Plugin {
                                     // Otherwise create a specific link, using the shown text
                                     else {
                                         if (linkFormat === 'shortest') {
-                                            replacement = createLink(shortestPath, text, useMarkdownLinks);
+                                            replacement = createLink(shortestPath || absolutePath, text, useMarkdownLinks);
                                         } else if (linkFormat === 'relative') {
                                             replacement = createLink(relativePath, text, useMarkdownLinks);
                                         } else if (linkFormat === 'absolute') {
@@ -1112,7 +1108,7 @@ export default class LinkerPlugin extends Plugin {
                 // Item to exclude a virtual link from the linker
                 // This action adds the settings.tagToExcludeFile to the file
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual Linker] Exclude this file')
+                    item.setTitle('[Virtual linker] Exclude this file')
                         .setIcon('trash')
                         .onClick(async () => {
                             // Get the shown text
@@ -1164,7 +1160,7 @@ export default class LinkerPlugin extends Plugin {
                 //Item to include a virtual link from the linker
                 // This action adds the settings.tagToIncludeFile to the file
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual Linker] Include this file')
+                    item.setTitle('[Virtual linker] Include this file')
                         .setIcon('plus')
                         .onClick(async () => {
                             // Get the shown text
@@ -1225,7 +1221,7 @@ export default class LinkerPlugin extends Plugin {
             // If the directory is in the linker directories, add the option to exclude it
             if ((fetcher.includeAllFiles && !isInExcludedDir) || isInIncludedDir) {
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual Linker] Exclude this directory')
+                    item.setTitle('[Virtual linker] Exclude this directory')
                         .setIcon('trash')
                         .onClick(async () => {
                             // Get the shown text
@@ -1248,7 +1244,7 @@ export default class LinkerPlugin extends Plugin {
             } else if ((!fetcher.includeAllFiles && !isInIncludedDir) || isInExcludedDir) {
                 // If the directory is in the excluded directories, add the option to include it
                 menu.addItem((item) => {
-                    item.setTitle('[Virtual Linker] Include this directory')
+                    item.setTitle('[Virtual linker] Include this directory')
                         .setIcon('plus')
                         .onClick(async () => {
                             // Get the shown text
