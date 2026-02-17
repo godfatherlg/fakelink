@@ -331,7 +331,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                 // Add post-execution verification
                 setTimeout(() => {
                     const postLineText = editor.getLine(fromPos.line);
-                    const replacedText = postLineText.substring(fromPos.ch, fromPos.ch + replacement.length);
                 }, 100);
             } else {
                 // Text mismatch - try to find the correct position in table cell
@@ -359,9 +358,7 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         const tableRowElement = tableCellElement.closest('tr');
                         if (tableRowElement) {
                             const rowText = tableRowElement.textContent || '';
-                            // Clean row text: remove extra whitespace and newlines
-                            const cleanedRowText = rowText.replace(/\s+/g, ' ').trim();
-                            
+
                             // Get the cell index in the DOM row
                             const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
                             
@@ -818,8 +815,6 @@ export default class LinkerPlugin extends Plugin {
                         
                         // Wait a bit and check again (to catch async issues)
                         setTimeout(() => {
-                            const delayedResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
-                            const fullLine = editor.getLine(fromPos.line);
                         }, 100);
                         
                         // If we're in table and verification fails, try alternative approach
@@ -834,11 +829,6 @@ export default class LinkerPlugin extends Plugin {
                                     const insertPos = editor.offsetToPos(replacement.from + i);
                                     editor.replaceRange(replacement.text[i], insertPos, insertPos);
                                 }
-                                
-                                // Verify fallback result
-                                setTimeout(() => {
-                                    const fallbackResult = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
-                                    }, 150);
                             }
                         }
 
