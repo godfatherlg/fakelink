@@ -81,7 +81,7 @@ function relative(from: string, to: string): string {
 }
 
 // Helper function to handle table cell conversion with simplified approach
-function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: any, updateManager: any) {
+function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager): void {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
     const to = parseInt(targetElement.getAttribute('to') || '-1');
@@ -1232,9 +1232,9 @@ export default class LinkerPlugin extends Plugin {
                             const target = file;
 
                             // Get the file
-                            const targetFolder = app.vault.getAbstractFileByPath(target.path) as TFolder;
+                            const targetFolder = app.vault.getAbstractFileByPath(target.path);
 
-                            if (!targetFolder) {
+                            if (!targetFolder || !(targetFolder instanceof TFolder)) {
                                 return;
                             }
 
@@ -1255,9 +1255,9 @@ export default class LinkerPlugin extends Plugin {
                             const target = file;
 
                             // Get the file
-                            const targetFolder = app.vault.getAbstractFileByPath(target.path) as TFolder;
+                            const targetFolder = app.vault.getAbstractFileByPath(target.path);
 
-                            if (!targetFolder) {
+                            if (!targetFolder || !(targetFolder instanceof TFolder)) {
                                 return;
                             }
 
@@ -1300,11 +1300,7 @@ export default class LinkerPlugin extends Plugin {
 
     async loadSettings() {
         this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-        
-        // Store app instance as temporary reference instead of storing in settings object
-        // This avoids circular reference issues
-        this.app = this.app; // Use temporary variable or class property to store app reference
-        
+
         // Load markdown links from obsidian settings
         // At the moment obsidian does not provide a clean way to get the settings through an API
         // So we read the app.json settings file directly

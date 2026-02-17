@@ -129,15 +129,11 @@ export class VirtualMatch {
         }
         if (this.isHighlightContext) {
             span.classList.add('virtual-link-in-highlight');
-            span.style.setProperty('display', 'inline', 'important');
-            span.style.setProperty('z-index', '1', 'important');
         } else {
             let parent = span.parentElement;
             while (parent) {
                 if (parent.tagName === 'MARK') {
                     span.classList.add('virtual-link-in-highlight');
-                    span.style.setProperty('display', 'inline', 'important');
-                    span.style.setProperty('z-index', '1', 'important');
                     break;
                 }
                 parent = parent.parentElement;
@@ -148,9 +144,6 @@ export class VirtualMatch {
         }
         if (this.isStrikethroughContext) {
             span.classList.add('virtual-link-in-strikethrough');
-            // Ensure strikethrough is on top visually
-            span.style.setProperty('--strikethrough-z-index', '1', 'important');
-            span.style.setProperty('--virtual-link-z-index', '-1', 'important');
         }
 
         // Set context menu based on table cell context

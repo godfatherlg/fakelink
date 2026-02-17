@@ -224,8 +224,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 while (markParent) {
                                     if (markParent.tagName === 'MARK') {
                                         span.classList.add('virtual-link-in-highlight');
-                                        span.style.setProperty('display', 'inline', 'important');
-                                        span.style.setProperty('z-index', '1', 'important');
                                         break;
                                     }
                                     markParent = markParent.parentElement;
