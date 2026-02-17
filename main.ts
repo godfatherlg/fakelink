@@ -1645,7 +1645,7 @@ class LinkerSettingTab extends PluginSettingTab {
                         let setValue = '';
                         try {
                             setValue = this.plugin.settings.linkerDirectories.join('\n');
-                        } catch (e) {
+                        } catch {
                             // Handle join error
                         }
 
@@ -1673,7 +1673,7 @@ class LinkerSettingTab extends PluginSettingTab {
                         let setValue = '';
                         try {
                             setValue = this.plugin.settings.excludedDirectories.join('\n');
-                        } catch (e) {
+                        } catch {
                             // Handle join error
                         }
 

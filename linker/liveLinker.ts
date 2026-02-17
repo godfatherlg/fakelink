@@ -452,7 +452,6 @@ class AutoLinkerPlugin implements PluginValue {
             // Check if we're in a table environment - improved detection logic
             // Look for any table-related indicators in the DOM hierarchy
             let inTableCellEditor = false;
-            let tableDetectionMethod = '';
             
             // Check various table indicators
             const tableIndicators = [
