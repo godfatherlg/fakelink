@@ -176,9 +176,13 @@ export class VirtualMatch {
             spanReferences.classList.add('multiple-files-references');
         }
 
-        files = files ?? this.files;
+        const fileList = files ?? this.files;
 
-        files.forEach((file, index) => {
+        if (!fileList || fileList.length === 0) {
+            return spanReferences;
+        }
+
+        fileList.forEach((file, index) => {
             if (index === 0) {
                 const bracket = document.createElement('span');
                 bracket.textContent = '[';  // Remove leading space, use compact format consistently
@@ -186,7 +190,7 @@ export class VirtualMatch {
             }
 
             let linkText = ` ${index + 1} `;
-            if (index < files!.length - 1) {
+            if (index < fileList.length - 1) {
                 linkText += '|';
             }
 
@@ -195,7 +199,7 @@ export class VirtualMatch {
             const link = this.getLinkAnchorElement(linkText, linkHref, file);
             spanReferences.appendChild(link);
 
-            if (index == files!.length - 1) {
+            if (index == fileList.length - 1) {
                 const bracket = document.createElement('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);

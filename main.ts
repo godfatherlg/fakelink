@@ -662,7 +662,7 @@ export default class LinkerPlugin extends Plugin {
 
         this.addCommand({
             id: 'toggle-virtual-linker',
-            name: 'Toggle Virtual Linker',
+            name: 'Toggle virtual linker',
             callback: () => {
                 this.updateSettings({ linkerActivated: !this.settings.linkerActivated });
                 this.updateManager.update();
@@ -938,7 +938,7 @@ export default class LinkerPlugin extends Plugin {
                     menu.addItem((item) => {
                         // Item to convert a virtual link to a real link
                         item.setTitle(
-                            '[Virtual Linker] Converting link is not here.'
+                            '[Virtual linker] Converting link is not here.'
                         ).setIcon('link');
                     });
                 }
@@ -1356,8 +1356,9 @@ class LinkerSettingTab extends PluginSettingTab {
                     })
             );
 
+
         // Toggle to activate or deactivate the linker
-        new Setting(containerEl).setName('Activate Virtual Linker').addToggle((toggle) =>
+        new Setting(containerEl).setName('Activate virtual linker').addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
                 await this.plugin.updateSettings({ linkerActivated: value });
             })
