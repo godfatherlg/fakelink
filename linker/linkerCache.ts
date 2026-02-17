@@ -288,8 +288,9 @@ export class PrefixTree {
 
         // Get the tags of the file
         // and normalize them by removing the # in front of tags
-        const tags = (getAllTags(this.app.metadataCache.getFileCache(file)!!) ?? [])
-            .filter(PrefixTree.isNoneEmptyString)
+        const fileCache = this.app.metadataCache.getFileCache(file);
+        const tagsArray: string[] | null = fileCache ? getAllTags(fileCache) : null;
+        const tags = (tagsArray ?? []).filter(PrefixTree.isNoneEmptyString)
             .map((tag) => (tag.startsWith('#') ? tag.slice(1) : tag));
 
         const includeFile = metaInfo.includeFile;
@@ -357,7 +358,7 @@ export class PrefixTree {
         // Filter out empty aliases
         try {
             aliases = aliases.filter(PrefixTree.isNoneEmptyString);
-        } catch (e) {
+        } catch {
             // Error filtering aliases
         }
 
@@ -385,10 +386,8 @@ export class PrefixTree {
             lowerCaseNames = lowerCaseNames.map((name) => name.toLowerCase());
             names.push(...lowerCaseNames);
         } else {
-            let lowerCaseNames = new Array<string>();
             if (tags.includes(this.settings.tagToMatchCase)) {
                 namesWithCaseMatch = [...names];
-                lowerCaseNames = names.filter((name) => aliasesWithIgnoreCase.has(name));
             } else {
                 const prop = this.settings.capitalLetterProportionForAutomaticMatchCase;
                 namesWithCaseMatch = [...names].filter(
@@ -492,7 +491,7 @@ export class PrefixTree {
             // Otherwise, add the file to the tree
             try {
                 this.addFileToTree(file);
-            } catch (e) {
+            } catch {
                 // Error adding file to tree
             }
         }

@@ -51,7 +51,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
         if (currentPath == null) return null;
 
         while (currentDestName.includes('/')) {
-            currentDestName = currentDestName.replace(/\/[^\/]*?$/, '');
+            currentDestName = currentDestName.replace(/\/[^/]*?$/, '');
 
             const newPath = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(glossaryName), currentDestName);
 

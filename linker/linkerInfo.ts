@@ -15,7 +15,7 @@ export class LinkerFileMetaInfo {
 
     constructor(public fetcher: LinkerMetaInfoFetcher, file: TFile | TAbstractFile) {
         this.fetcher = fetcher;
-        this.file = file instanceof TFile ? file : this.fetcher.app.vault.getFileByPath(file.path) as TFile;
+        this.file = file instanceof TFile ? file : (this.fetcher.app.vault.getFileByPath(file.path) as TFile);
 
         const settings = this.fetcher.settings;
 
@@ -46,8 +46,8 @@ export class LinkerMetaInfoFetcher {
     refreshSettings(settings?: LinkerPluginSettings) {
         this.settings = settings ?? this.settings;
         this.includeAllFiles = this.settings.includeAllFiles;
-        this.includeDirPattern = new RegExp(`(^|\/)(${this.settings.linkerDirectories.join("|")})\/`);
-        this.excludeDirPattern = new RegExp(`(^|\/)(${this.settings.excludedDirectories.join("|")})\/`);
+        this.includeDirPattern = new RegExp(`(^|/)(${this.settings.linkerDirectories.join("|")})/`);
+        this.excludeDirPattern = new RegExp(`(^|/)(${this.settings.excludedDirectories.join("|")})/`);
     }
 
     getMetaInfo(file: TFile | TAbstractFile) {

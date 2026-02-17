@@ -102,8 +102,7 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                const app = this.plugin.app;
-                app.workspace.openLinkText(fullPath, '', false, { active: true });
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
             }
 
             return false;

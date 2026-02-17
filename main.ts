@@ -327,10 +327,10 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
             if (originalTextAtPosition === expectedText) {
                 editor.replaceRange(replacement, fromPos, toPos);
                 updateManager.update();
-                
+
                 // Add post-execution verification
                 setTimeout(() => {
-                    const postLineText = editor.getLine(fromPos.line);
+                    editor.getLine(fromPos.line);
                 }, 100);
             } else {
                 // Text mismatch - try to find the correct position in table cell
@@ -357,8 +357,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         // Get the table row to find a more unique identifier
                         const tableRowElement = tableCellElement.closest('tr');
                         if (tableRowElement) {
-                            const rowText = tableRowElement.textContent || '';
-
                             // Get the cell index in the DOM row
                             const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
                             
@@ -664,14 +662,14 @@ export default class LinkerPlugin extends Plugin {
             id: 'toggle-virtual-linker',
             name: 'Toggle virtual linker',
             callback: () => {
-                this.updateSettings({ linkerActivated: !this.settings.linkerActivated });
+                void this.updateSettings({ linkerActivated: !this.settings.linkerActivated });
                 this.updateManager.update();
             }
         });
 
         this.addCommand({
             id: 'convert-selected-virtual-links',
-            name: 'Convert All Virtual Links in Selection to Real Links',
+            name: 'Convert all virtual links in selection to real links',
             checkCallback: (checking: boolean) => {
                 const view = this.app.workspace.getActiveViewOfType(MarkdownView);
                 const editor = view?.editor;
@@ -718,7 +716,7 @@ export default class LinkerPlugin extends Plugin {
                     })
                     .sort((a, b) => a.from - b.from);
 
-                if (virtualLinks.length === 0) return;
+                if (virtualLinks.length === 0) return false;
 
                 // Process all links in a single operation
                 const replacements: {from: number, to: number, text: string}[] = [];
@@ -742,8 +740,11 @@ export default class LinkerPlugin extends Plugin {
                     relativePath = relativePath.replace(/\\/g, '/');
 
                     const replacementPath = this.app.metadataCache.fileToLinktext(targetFile, activeFilePath);
-                    const lastPart = replacementPath.split('/').pop()!;
-                    const shortestFile = this.app.metadataCache.getFirstLinkpathDest(lastPart!, '');
+                    const lastPart = replacementPath.split('/').pop();
+                    if (!lastPart) {
+                        continue;
+                    }
+                    const shortestFile = this.app.metadataCache.getFirstLinkpathDest(lastPart, '');
                     let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
 
                     // Get headerId from virtual link element
@@ -829,10 +830,11 @@ export default class LinkerPlugin extends Plugin {
                             }
                         }
 
-                    } catch (error) {
+                    } catch {
                         // Error during replacement, silently continue
                     }
                 }
+                return true;
             }
         });
 
@@ -859,7 +861,7 @@ export default class LinkerPlugin extends Plugin {
             }
             
             return false;
-        } catch (error) {
+        } catch {
             return false;
         }
     }
@@ -886,7 +888,6 @@ export default class LinkerPlugin extends Plugin {
             return;
         }
 
-        const that = this;
         const app: App = this.app;
         const updateManager = this.updateManager;
         const settings = this.settings;
@@ -953,7 +954,7 @@ export default class LinkerPlugin extends Plugin {
                                 const text = targetElement.getAttribute('origin-text') || '';
                                 if (text) {
                                     const newExcludedKeywords = [...new Set([...settings.excludedKeywords, text])];
-                                    await that.updateSettings({ excludedKeywords: newExcludedKeywords }).catch(() => {});
+                                    await this.updateSettings({ excludedKeywords: newExcludedKeywords }).catch(() => {});
                                     updateManager.update();
                                 }
                             });
@@ -1293,7 +1294,7 @@ export default class LinkerPlugin extends Plugin {
             const appSettings = JSON.parse(fileContent);
             this.settings.defaultUseMarkdownLinks = appSettings.useMarkdownLinks;
             this.settings.defaultLinkFormat = appSettings.newLinkFormat ?? 'shortest';
-        } catch (error) {
+        } catch {
             // Set default values
             this.settings.defaultUseMarkdownLinks = false;
             this.settings.defaultLinkFormat = 'shortest';
@@ -1312,7 +1313,7 @@ export default class LinkerPlugin extends Plugin {
         
         try {
             await this.saveData(settingsToSave);
-        } catch (error) {
+        } catch {
             // Failed to save settings
         }
         
@@ -1352,7 +1353,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     .onChange(async value => {
                         await this.plugin.updateSettings({ autoToggleByMode: value });
                         // Immediately apply settings changes
-                        this.plugin.handleLayoutChange();
+                        void this.plugin.handleLayoutChange();
                     })
             );
 

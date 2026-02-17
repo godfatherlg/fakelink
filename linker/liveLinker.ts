@@ -470,7 +470,6 @@ class AutoLinkerPlugin implements PluginValue {
             for (const indicator of tableIndicators) {
                 if (view.dom.closest(indicator)) {
                     inTableCellEditor = true;
-                    tableDetectionMethod = indicator;
                     break;
                 }
             }
