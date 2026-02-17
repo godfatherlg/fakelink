@@ -15,7 +15,8 @@ export class LinkerFileMetaInfo {
 
     constructor(public fetcher: LinkerMetaInfoFetcher, file: TFile | TAbstractFile) {
         this.fetcher = fetcher;
-        this.file = file instanceof TFile ? file : (this.fetcher.app.vault.getFileByPath(file.path) as TFile);
+        // @ts-ignore - getFileByPath returns TFile when it exists
+        this.file = file instanceof TFile ? file : this.fetcher.app.vault.getFileByPath(file.path);
 
         const settings = this.fetcher.settings;
 

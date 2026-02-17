@@ -995,6 +995,10 @@ export default class LinkerPlugin extends Plugin {
                                         return;
                                     }
 
+                                    if (!(target instanceof TFile)) {
+                                        return;
+                                    }
+
                                     let absolutePath = target.path;
                                     let relativePath =
                                         relative(dirname(activeFile.path), dirname(absolutePath)) +
@@ -1003,7 +1007,7 @@ export default class LinkerPlugin extends Plugin {
                                     relativePath = relativePath.replace(/\\/g, '/'); // Replace backslashes with forward slashes
 
                                     // Problem: we cannot just take the fileToLinktext result, as it depends on the app settings
-                                    const replacementPath = app.metadataCache.fileToLinktext(target as TFile, activeFilePath);
+                                    const replacementPath = app.metadataCache.fileToLinktext(target, activeFilePath);
                                     const headerId = targetElement.getAttribute('data-heading-id');
 
                                     // The last part of the replacement path is the real shortest file name
