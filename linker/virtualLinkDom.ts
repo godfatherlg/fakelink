@@ -241,7 +241,7 @@ export class VirtualMatch {
     }
 
     static sort(matches: VirtualMatch[]): VirtualMatch[] {
-        return Array.from(matches).sort(VirtualMatch.compare);
+        return Array.from(matches).sort((a, b) => VirtualMatch.compare(a, b));
     }
 
     static filterAlreadyLinked(matches: VirtualMatch[], linkedFiles: Set<TFile>, mode: 'some' | 'every' = 'every'): VirtualMatch[] {

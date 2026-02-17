@@ -290,7 +290,7 @@ export class PrefixTree {
         // and normalize them by removing the # in front of tags
         const fileCache = this.app.metadataCache.getFileCache(file);
         const tagsArray: string[] | null = fileCache ? getAllTags(fileCache) : null;
-        const tags = (tagsArray ?? []).filter(PrefixTree.isNoneEmptyString)
+        const tags = (tagsArray ?? []).filter(s => PrefixTree.isNoneEmptyString(s))
             .map((tag) => (tag.startsWith('#') ? tag.slice(1) : tag));
 
         const includeFile = metaInfo.includeFile;
@@ -357,7 +357,7 @@ export class PrefixTree {
 
         // Filter out empty aliases
         try {
-            aliases = aliases.filter(PrefixTree.isNoneEmptyString);
+            aliases = aliases.filter(s => PrefixTree.isNoneEmptyString(s));
         } catch {
             // Error filtering aliases
         }
@@ -370,7 +370,7 @@ export class PrefixTree {
             names.push(...headers);
         }
 
-        names = names.filter(PrefixTree.isNoneEmptyString);
+        names = names.filter(s => PrefixTree.isNoneEmptyString(s));
 
         let namesWithCaseIgnore = new Array<string>();
         let namesWithCaseMatch = new Array<string>();
