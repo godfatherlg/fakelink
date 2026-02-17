@@ -4,6 +4,9 @@ import { LinkerPluginSettings } from '../main';
 import { LinkerCache, MatchType, PrefixTree } from './linkerCache';
 import { VirtualMatch } from './virtualLinkDom';
 
+// Import LinkerPlugin type - using require to avoid circular dependency
+type LinkerPluginType = import('../main').default;
+
 export class GlossaryLinker extends MarkdownRenderChild {
     ctx: MarkdownPostProcessorContext;
     app: App;
@@ -28,7 +31,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
         });
     }
 
-    constructor(app: App, settings: LinkerPluginSettings, context: MarkdownPostProcessorContext, containerEl: HTMLElement, public plugin: any) {
+    constructor(app: App, settings: LinkerPluginSettings, context: MarkdownPostProcessorContext, containerEl: HTMLElement, public plugin: LinkerPluginType) {
         super(containerEl);
         this.settings = settings;
         this.app = app;

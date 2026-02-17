@@ -3,6 +3,9 @@ import { LinkerPluginSettings } from 'main';
 import { TFile, getLinkpath } from 'obsidian';
 import { MatchType } from './linkerCache';
 
+// Import LinkerPlugin type - using require to avoid circular dependency
+type LinkerPluginType = import('main').default;
+
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
 
@@ -15,7 +18,7 @@ export class VirtualMatch {
         public type: MatchType,
         public isSubWord: boolean,
         public settings: LinkerPluginSettings,
-        public plugin: any, // Add plugin parameter
+        public plugin: LinkerPluginType, // Add plugin parameter
         public headerId?: string,
         public isBoldContext: boolean = false,
         public isItalicContext: boolean = false,

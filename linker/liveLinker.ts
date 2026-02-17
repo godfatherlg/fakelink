@@ -8,6 +8,9 @@ import { LinkerPluginSettings } from 'main';
 import { ExternalUpdateManager, LinkerCache, MatchType, PrefixTree } from './linkerCache';
 import { VirtualMatch } from './virtualLinkDom';
 
+// Import LinkerPlugin type - using require to avoid circular dependency
+type LinkerPluginType = import('main').default;
+
 function isDescendant(parent: HTMLElement, child: HTMLElement, maxDepth: number = 10) {
     let node = child.parentNode;
     let depth = 0;
@@ -109,7 +112,7 @@ class AutoLinkerPlugin implements PluginValue {
     linkerCache: LinkerCache;
 
     settings: LinkerPluginSettings;
-    plugin: any;
+    plugin: LinkerPluginType;
 
     private lastCursorPos: number = 0;
     private lastActiveFile: string = '';
@@ -117,7 +120,7 @@ class AutoLinkerPlugin implements PluginValue {
 
     viewUpdateDomToFileMap: Map<HTMLElement, TFile | undefined | null> = new Map();
 
-    constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: any) {
+    constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
         this.app = app;
         this.plugin = plugin; // Store plugin reference
         this.settings = settings;
@@ -571,7 +574,7 @@ const pluginSpec: PluginSpec<AutoLinkerPlugin> = {
     decorations: (value: AutoLinkerPlugin) => value.decorations,
 };
 
-export const liveLinkerPlugin = (app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: any) => {
+export const liveLinkerPlugin = (app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) => {
     return ViewPlugin.define((editorView: EditorView) => {
         return new AutoLinkerPlugin(editorView, app, settings, updateManager, plugin);
     }, pluginSpec);

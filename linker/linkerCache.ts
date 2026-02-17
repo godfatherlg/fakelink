@@ -5,11 +5,11 @@ import { LinkerMetaInfoFetcher } from './linkerInfo';
 
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
-    registeredCallbacks: Set<Function> = new Set();
+    registeredCallbacks: Set<() => void> = new Set();
 
     constructor() {}
 
-    registerCallback(callback: Function) {
+    registerCallback(callback: () => void) {
         this.registeredCallbacks.add(callback);
     }
 
