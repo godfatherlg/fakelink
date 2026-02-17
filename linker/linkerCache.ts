@@ -1,4 +1,4 @@
-import { App, getAllTags, parseFrontMatterAliases, TFile, Vault } from 'obsidian';
+import { App, getAllTags, TFile, Vault } from 'obsidian';
 
 import { LinkerPluginSettings } from 'main';
 import { LinkerMetaInfoFetcher } from './linkerInfo';
@@ -466,10 +466,10 @@ export class PrefixTree {
         let files = new Array<TFile>();
 
         // Get all files and filter for supported types
-        const allFiles = this.app.vault.getFiles().filter(file => {
+        const allFiles = this.app.vault.getFiles().filter((file): file is TFile => {
             const ext = file.extension.toLowerCase();
             return PrefixTree.SUPPORTED_EXTENSIONS.includes(ext);
-        }) as TFile[];
+        });
 
         allFiles.forEach((f) => currentVaultFiles.add(f.path));
 
