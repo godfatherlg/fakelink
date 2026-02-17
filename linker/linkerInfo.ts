@@ -47,9 +47,7 @@ export class LinkerMetaInfoFetcher {
     refreshSettings(settings?: LinkerPluginSettings) {
         this.settings = settings ?? this.settings;
         this.includeAllFiles = this.settings.includeAllFiles;
-        // eslint-disable-next-line no-useless-escape -- forward slash must be escaped in RegExp
         this.includeDirPattern = new RegExp(`(^|/)(${this.settings.linkerDirectories.join("|")})/`);
-        // eslint-disable-next-line no-useless-escape -- forward slash must be escaped in RegExp
         this.excludeDirPattern = new RegExp(`(^|/)(${this.settings.excludedDirectories.join("|")})/`);
     }
 
