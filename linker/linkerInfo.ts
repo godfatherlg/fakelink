@@ -19,7 +19,9 @@ export class LinkerFileMetaInfo {
 
         const settings = this.fetcher.settings;
 
-        this.tags = (getAllTags(this.fetcher.app.metadataCache.getFileCache(this.file)!!) ?? [])
+        const fileCache = this.fetcher.app.metadataCache.getFileCache(this.file);
+        // @ts-ignore - Obsidian API type issue
+        this.tags = (fileCache ? getAllTags(fileCache) : [])
             .filter(tag => tag.trim().length > 0)
             .map(tag => tag.startsWith("#") ? tag.slice(1) : tag);
 
