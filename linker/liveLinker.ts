@@ -33,7 +33,7 @@ export class VirtualLinkWidget extends WidgetType {
         // Improved table cell detection logic
         const cmTableWidget = view.dom.closest('.cm-table-widget');
         const tableWrapper = view.dom.closest('.table-cell-wrapper');
-        const inTableCellEditor = !!(cmTableWidget && tableWrapper);
+        const inTableCellEditor = Boolean(cmTableWidget && tableWrapper);
         
         // Create link element
         const element = this.match.getCompleteLinkElement(inTableCellEditor);
@@ -145,7 +145,7 @@ class AutoLinkerPlugin implements PluginValue {
         // Pre-detect table environment for active view checking
         const cmTableWidget = update.view.dom.closest('.cm-table-widget');
         const tableWrapper = update.view.dom.closest('.table-cell-wrapper');
-        const inTableCellEditor = !!(cmTableWidget && tableWrapper);
+        const inTableCellEditor = Boolean(cmTableWidget && tableWrapper);
 
         // Check if the update is on the active view. We only need to check this, if one of the following settings is enabled
         // - fixIMEProblem
