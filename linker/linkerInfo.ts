@@ -47,9 +47,10 @@ export class LinkerMetaInfoFetcher {
     refreshSettings(settings?: LinkerPluginSettings) {
         this.settings = settings ?? this.settings;
         this.includeAllFiles = this.settings.includeAllFiles;
-        const escapedSlash = String.fromCharCode(92); // Backslash character
-        this.includeDirPattern = new RegExp(`(^|${escapedSlash})(${this.settings.linkerDirectories.join("|")})${escapedSlash}`);
-        this.excludeDirPattern = new RegExp(`(^|${escapedSlash})(${this.settings.excludedDirectories.join("|")})${escapedSlash}`);
+        // eslint-disable-next-line no-useless-escape - forward slash must be escaped in RegExp
+        this.includeDirPattern = new RegExp(`(^|/)(${this.settings.linkerDirectories.join("|")})/`);
+        // eslint-disable-next-line no-useless-escape - forward slash must be escaped in RegExp
+        this.excludeDirPattern = new RegExp(`(^|/)(${this.settings.excludedDirectories.join("|")})/`);
     }
 
     getMetaInfo(file: TFile | TAbstractFile) {
