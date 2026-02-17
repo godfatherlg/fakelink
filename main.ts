@@ -970,7 +970,7 @@ export default class LinkerPlugin extends Plugin {
                                 const text = targetElement.getAttribute('origin-text') || '';
                                 if (text) {
                                     const newExcludedKeywords = [...new Set([...settings.excludedKeywords, text])];
-                                    await that.updateSettings({ excludedKeywords: newExcludedKeywords });
+                                    await that.updateSettings({ excludedKeywords: newExcludedKeywords }).catch(() => {});
                                     updateManager.update();
                                 }
                             });
@@ -1154,7 +1154,7 @@ export default class LinkerPlugin extends Plugin {
                                     if (frontMatter.tags.has(includeTag)) {
                                         frontMatter.tags.delete(includeTag);
                                     }
-                                });
+                                }).catch(() => {});
 
                                 updateManager.update();
                             }
@@ -1206,7 +1206,7 @@ export default class LinkerPlugin extends Plugin {
                                     if (frontMatter.tags.has(excludeTag)) {
                                         frontMatter.tags.delete(excludeTag);
                                     }
-                                });
+                                }).catch(() => {});
 
                                 updateManager.update();
                             }
@@ -1240,7 +1240,7 @@ export default class LinkerPlugin extends Plugin {
 
                             const newExcludedDirs = Array.from(new Set([...settings.excludedDirectories, targetFolder.name]));
                             const newIncludedDirs = settings.linkerDirectories.filter((dir) => dir !== targetFolder.name);
-                            await this.updateSettings({ linkerDirectories: newIncludedDirs, excludedDirectories: newExcludedDirs });
+                            await this.updateSettings({ linkerDirectories: newIncludedDirs, excludedDirectories: newExcludedDirs }).catch(() => {});
 
                             updateManager.update();
                         });
@@ -1263,7 +1263,7 @@ export default class LinkerPlugin extends Plugin {
 
                             const newExcludedDirs = settings.excludedDirectories.filter((dir) => dir !== targetFolder.name);
                             const newIncludedDirs = Array.from(new Set([...settings.linkerDirectories, targetFolder.name]));
-                            await this.updateSettings({ linkerDirectories: newIncludedDirs, excludedDirectories: newExcludedDirs });
+                            await this.updateSettings({ linkerDirectories: newIncludedDirs, excludedDirectories: newExcludedDirs }).catch(() => {});
 
                             updateManager.update();
                         });
