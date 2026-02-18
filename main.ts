@@ -1501,7 +1501,7 @@ class LinkerSettingTab extends PluginSettingTab {
             new Setting(containerEl)
                 .setName('Fix ime typing issues')
                 .setDesc(
-                    'Recommended when using ime for typing non-Latin scripts such as Chinese, Japanese, or Korean, and prevents virtual linking from interfering with ime composition at the start of lines.'
+                    'This option is recommended when using ime for typing non-Latin scripts such as Chinese, Japanese, or Korean and prevents virtual linking from interfering with ime composition at the start of lines.'
                 )
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
@@ -1717,7 +1717,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Toggle setting to exclude links to the active file
             new Setting(containerEl)
                 .setName('Exclude self-links to the current note')
-                .setDesc('If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.')
+                .setDesc('If toggled, links to the note itself are excluded from the linker but this might not work in reading view.')
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
