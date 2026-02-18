@@ -1501,7 +1501,7 @@ class LinkerSettingTab extends PluginSettingTab {
             new Setting(containerEl)
                 .setName('Fix IME typing issues')
                 .setDesc(
-                    'Recommended when using IME (Input Method Editor) for typing non-Latin scripts (e.g., Chinese, Japanese, Korean). Prevents virtual linking from interfering with IME composition at the start of lines.'
+                    'Recommended when using IME for typing non-Latin scripts like Chinese, Japanese, or Korean. Prevents virtual linking from interfering with IME composition at the start of lines.'
                 )
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
