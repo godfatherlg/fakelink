@@ -1717,7 +1717,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Toggle setting to exclude links to the active file
             new Setting(containerEl)
                 .setName('Exclude self-links to the current note')
-                .setDesc('If toggled, links to the note itself are excluded from the linker but this might not work in reading view.')
+                .setDesc('If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.')
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
