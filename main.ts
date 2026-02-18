@@ -1501,7 +1501,7 @@ class LinkerSettingTab extends PluginSettingTab {
             new Setting(containerEl)
                 .setName('Fix IME typing issues')
                 .setDesc(
-                    'Recommended when using IME (input method editor) for typing non-Latin scripts (e.g., Chinese, Japanese, Korean). Prevents virtual linking from interfering with IME composition at the start of lines.'
+                    'Recommended when using IME (Input Method Editor) for typing non-Latin scripts (e.g., Chinese, Japanese, Korean). Prevents virtual linking from interfering with IME composition at the start of lines.'
                 )
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
@@ -1717,7 +1717,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Toggle setting to exclude links to the active file
             new Setting(containerEl)
                 .setName('Exclude self-links to the current note')
-                .setDesc('If toggled, links to the note itself are excluded from the linker. (this might not work in preview windows.)')
+                .setDesc('If toggled, links to the note itself are excluded from the linker. (This might not work in preview windows.)')
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
@@ -1836,8 +1836,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (!this.plugin.settings.useDefaultLinkStyleForConversion) {
             // Toggle setting to use markdown links
             new Setting(containerEl)
-                .setName('Use [[wikilinks]]')
-                .setDesc('If toggled, the virtual links will be created as wikilinks instead of markdown links.')
+                .setName('Use [[Wikilinks]]')
+                .setDesc('If toggled, the virtual links will be created as wikilinks instead of Markdown links.')
                 .addToggle((toggle) =>
                     toggle.setValue(!this.plugin.settings.useMarkdownLinks).onChange(async (value) => {
                         await this.plugin.updateSettings({ useMarkdownLinks: !value });
