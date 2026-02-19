@@ -47,9 +47,15 @@ export class VirtualLinkWidget extends WidgetType {
         // Get the exact text range of the virtual link
         const linkRange = { from: this.match.from, to: this.match.to };
         
+        // Expand the search range to capture format nodes that may contain the virtual link
+        // Format markers like ==, **, ~~ are typically 2 characters on each side
+        const expandRange = 10;
+        const searchFrom = Math.max(0, this.match.from - expandRange);
+        const searchTo = Math.min(view.state.doc.length, this.match.to + expandRange);
+        
         syntaxTree(view.state).iterate({
-            from: this.match.from,
-            to: this.match.to,
+            from: searchFrom,
+            to: searchTo,
             enter(node) {
                 const type = node.type.name;
                 const nodeRange = { from: node.from, to: node.to };
@@ -62,10 +68,11 @@ export class VirtualLinkWidget extends WidgetType {
                     if (type.includes('em')) {
                         inItalicContext = true;
                     }
-                    if (type.includes('highlight')) {
+                    // Support both 'highlight' and 'mark' as highlight node type names
+                    if (type.includes('highlight') || type.includes('mark')) {
                         inHighlightContext = true;
                     }
-                    if (type.includes('strikethrough')) {
+                    if (type.includes('strikethrough') || type.includes('strike') || type.includes('del')) {
                         inStrikethroughContext = true;
                     }
                 }

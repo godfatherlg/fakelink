@@ -132,45 +132,18 @@
     position: relative;
 }
 
-/* Native strikethrough style */
+/* Strikethrough style - using native text-decoration */
 .cm-strikethrough {
     text-decoration: line-through !important;
 }
 
-/* Ensure strikethrough displays correctly on virtual links */
+/* Virtual links in strikethrough context */
 .cm-strikethrough .virtual-link,
 .virtual-link.cm-strikethrough,
 .cm-strikethrough .virtual-link-span,
-.virtual-link-span.cm-strikethrough {
+.virtual-link-span.cm-strikethrough,
+.virtual-link-in-strikethrough {
     text-decoration: line-through !important;
-    background-color: rgba(128, 128, 128, 0.1) !important;
-    position: relative;
-    z-index: var(--virtual-link-z-index, 0);
-}
-
-/* Strikethrough on visual top layer */
-.cm-strikethrough .virtual-link::after,
-.virtual-link.cm-strikethrough::after,
-.cm-strikethrough .virtual-link-span::after,
-.virtual-link-span.cm-strikethrough::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 0.1em;
-    background-color: currentColor;
-    z-index: var(--strikethrough-z-index, 1);
-    pointer-events: none;
-    transform: translateY(-50%);
-}
-
-/* Ensure virtual links in strikethrough text maintain correct color and style */
-.cm-strikethrough .virtual-link,
-.cm-strikethrough .virtual-link-span a,
-.cm-strikethrough .virtual-link-default,
-.cm-strikethrough .virtual-link-header {
-    color: inherit !important;
 }
 
 /* Virtual links in tables */
@@ -180,18 +153,6 @@ table th .virtual-link-span {
     background-color: rgba(128, 128, 128, 0.1) !important;
 }
 
-/* Ensure virtual links in table headers remain bold */
-
-/* Disable strikethrough display for virtual links in highlighted text */
-.markdown-preview-view mark .virtual-link,
-.markdown-preview-view mark .virtual-link-span {
-    text-decoration: none !important;
-}
-.markdown-preview-view mark .virtual-link::after,
-.markdown-preview-view mark .virtual-link-span::after {
-    display: none !important;
-    content: none !important;
-}
 table th .virtual-link-span,
 table th .virtual-link-span a,
 table th .virtual-link-default,
@@ -230,60 +191,3 @@ table th .virtual-link-span .internal-link {
   pointer-events: auto !important;
 }
 
-/* In read mode, virtual links in strikethrough text: strikethrough always on top layer */
-.markdown-preview-view .cm-strikethrough .virtual-link,
-.markdown-preview-view .virtual-link.cm-strikethrough,
-.markdown-preview-view .cm-strikethrough .virtual-link-span,
-.markdown-preview-view .virtual-link-span.cm-strikethrough {
-    position: relative;
-    background-color: rgba(128, 128, 128, 0.1) !important;
-    z-index: 0;
-}
-.markdown-preview-view .cm-strikethrough .virtual-link::after,
-.markdown-preview-view .virtual-link.cm-strikethrough::after,
-.markdown-preview-view .cm-strikethrough .virtual-link-span::after,
-.markdown-preview-view .virtual-link-span.cm-strikethrough::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 0.12em;
-    background-color: currentColor;
-    z-index: 99;
-    pointer-events: none;
-    transform: translateY(-50%);
-}
-
-/* In read mode, strikethrough virtual links compatible with mark/del/s/strike tags */
-.markdown-preview-view mark .virtual-link,
-.markdown-preview-view del .virtual-link,
-.markdown-preview-view s .virtual-link,
-.markdown-preview-view strike .virtual-link,
-.markdown-preview-view mark .virtual-link-span,
-.markdown-preview-view del .virtual-link-span,
-.markdown-preview-view s .virtual-link-span,
-.markdown-preview-view strike .virtual-link-span {
-    position: relative;
-    background-color: rgba(128, 128, 128, 0.1) !important;
-    z-index: 0;
-}
-.markdown-preview-view mark .virtual-link::after,
-.markdown-preview-view del .virtual-link::after,
-.markdown-preview-view s .virtual-link::after,
-.markdown-preview-view strike .virtual-link::after,
-.markdown-preview-view mark .virtual-link-span::after,
-.markdown-preview-view del .virtual-link-span::after,
-.markdown-preview-view s .virtual-link-span::after,
-.markdown-preview-view strike .virtual-link-span::after {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 0;
-    right: 0;
-    height: 0.12em;
-    background-color: currentColor;
-    z-index: 99;
-    pointer-events: none;
-    transform: translateY(-50%);
-}

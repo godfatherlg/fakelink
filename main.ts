@@ -211,7 +211,20 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             return cells;
                         };
                         
-                        let bestMatch = { line: -1, offset: -1, similarity: 0 };
+                        // Get the full row text from DOM for better matching
+                        const domRowCells = Array.from(tableRowElement.children).map(cell => {
+                            const cellText = cell.textContent || '';
+                            return cellText
+                                .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                .replace(/<br\s*\/?>/gi, ' ')
+                                .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                .replace(/\s+/g, ' ')
+                                .trim();
+                        });
+                        const domRowText = domRowCells.join(' | ');
+                        
+                        let bestMatch = { line: -1, offset: -1, similarity: 0, rowSimilarity: 0 };
                         
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
@@ -244,8 +257,21 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                     
                                     const similarity = calculateSimilarity(cleanCellContent, cellText);
                                     
-                                    // Keep track of the best match
-                                    if (similarity > bestMatch.similarity) {
+                                    // Calculate row-level similarity for better matching
+                                    const mdRowCells = cells.slice(1).map(c => c.trim()
+                                        .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                        .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                        .replace(/<br\s*\/?>/gi, ' ')
+                                        .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                        .replace(/\s+/g, ' ')
+                                        .trim());
+                                    const mdRowText = mdRowCells.join(' | ');
+                                    const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
+                                    
+                                    // Keep track of the best match - prioritize row similarity first, then cell similarity
+                                    // This ensures we match the correct row when multiple rows have similar cells
+                                    if (rowSimilarity > bestMatch.rowSimilarity || 
+                                        (rowSimilarity === bestMatch.rowSimilarity && similarity > bestMatch.similarity)) {
                                         // Calculate precise offset
                                         let offset = 0;
                                         let pipeCount = 0;
@@ -284,7 +310,8 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                         bestMatch = {
                                             line: i,
                                             offset: offset + cellTextIndex,
-                                            similarity: similarity
+                                            similarity: similarity,
+                                            rowSimilarity: rowSimilarity
                                         };
                                     }
                                 }
@@ -388,7 +415,20 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                 return cells;
                             };
                             
-                            let bestMatch = { line: -1, offset: -1, similarity: 0 };
+                            // Get the full row text from DOM for better matching
+                            const domRowCells = Array.from(tableRowElement.children).map(cell => {
+                                const cellText = cell.textContent || '';
+                                return cellText
+                                    .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                    .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                    .replace(/<br\s*\/?>/gi, ' ')
+                                    .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+                            });
+                            const domRowText = domRowCells.join(' | ');
+                            
+                            let bestMatch = { line: -1, offset: -1, similarity: 0, rowSimilarity: 0 };
                             
                             for (let i = 0; i < lines.length; i++) {
                                 const line = lines[i];
@@ -416,7 +456,20 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                         
                                         const similarity = calculateSimilarity(cleanCellContent, cellText);
                                         
-                                        if (similarity > bestMatch.similarity) {
+                                        // Calculate row-level similarity for better matching
+                                        const mdRowCells = cells.slice(1).map(c => c.trim()
+                                            .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
+                                            .replace(/\[\[([^\]]*)\]\]/g, '$1')
+                                            .replace(/<br\s*\/?>/gi, ' ')
+                                            .replace(/\*\*([^*]*)\*\*/g, '$1')
+                                            .replace(/\s+/g, ' ')
+                                            .trim());
+                                        const mdRowText = mdRowCells.join(' | ');
+                                        const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
+                                        
+                                        // Prioritize row similarity first, then cell similarity
+                                        if (rowSimilarity > bestMatch.rowSimilarity || 
+                                            (rowSimilarity === bestMatch.rowSimilarity && similarity > bestMatch.similarity)) {
                                             // Calculate precise offset
                                             let offset = 0;
                                             let pipeCount = 0;
@@ -453,7 +506,8 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                             bestMatch = {
                                                 line: i,
                                                 offset: offset + cellTextIndex,
-                                                similarity: similarity
+                                                similarity: similarity,
+                                                rowSimilarity: rowSimilarity
                                             };
                                         }
                                     }
