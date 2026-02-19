@@ -196,6 +196,12 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         // Instead of comparing row text (which differs due to link expansion),
                         // we search for lines where the cell at cellIndex matches cellText
                         
+                        // Helper function to check if a line is a table separator row
+                        const isSeparatorRow = (rowLine: string): boolean => {
+                            const trimmed = rowLine.trim();
+                            return /^\|[\s\-:]+\|$/.test(trimmed) || /^\|[\s\-:|]+\|$/.test(trimmed);
+                        };
+                        
                         // Helper function to split table row correctly (handle escaped pipes in links)
                         const splitTableRow = (rowLine: string): string[] => {
                             const cells: string[] = [];
@@ -236,8 +242,10 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         });
                         const domRowText = domRowCells.join(' | ');
                         
-                        // Collect all matching lines
-                        const matchingLines: { line: number; offset: number; similarity: number; rowSimilarity: number }[] = [];
+                        // Collect all non-separator table rows with their DOM row index
+                        // This establishes a direct mapping between DOM row index and document line
+                        const nonSeparatorRows: { docLineIndex: number; domRowIndex: number }[] = [];
+                        let domRowCounter = 0;
                         
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
@@ -245,51 +253,43 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             // Must be a table row (starts with |)
                             if (!line.trim().startsWith('|')) continue;
                             
-                            // Split by | correctly (handle escaped pipes in wiki links)
-                            const cells = splitTableRow(line);
+                            // Skip separator rows
+                            if (isSeparatorRow(line)) continue;
                             
-                            // cellIndex in DOM corresponds to cells[cellIndex + 1]
-                            // because cells[0] is empty (before first |)
+                            nonSeparatorRows.push({
+                                docLineIndex: i,
+                                domRowIndex: domRowCounter
+                            });
+                            domRowCounter++;
+                        }
+                        
+                        // Find the document line that corresponds to the DOM row index
+                        let targetDocLine = -1;
+                        for (const row of nonSeparatorRows) {
+                            if (row.domRowIndex === domRowIndex) {
+                                targetDocLine = row.docLineIndex;
+                                break;
+                            }
+                        }
+                        
+                        // If we found the corresponding document line, verify it contains the target text
+                        if (targetDocLine >= 0 && targetDocLine < lines.length) {
+                            const line = lines[targetDocLine];
+                            const cells = splitTableRow(line);
                             const mdCellIndex = cellIndex + 1;
                             
                             if (mdCellIndex < cells.length) {
                                 const cellContent = cells[mdCellIndex].trim();
-                                
-                                // Check if originText exists in this cell
                                 const cellTextIndex = cellContent.indexOf(originText);
                                 
                                 if (cellTextIndex !== -1) {
-                                    // Check if cellContent matches cellText
-                                    const cleanCellContent = cellContent
-                                        .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                        .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                        .replace(/<br\s*\/?>/gi, ' ')
-                                        .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                        .replace(/\s+/g, ' ')
-                                        .trim();
-                                    
-                                    const similarity = calculateSimilarity(cleanCellContent, cellText);
-                                    
-                                    // Calculate row-level similarity for better matching
-                                    const mdRowCells = cells.slice(1).map(c => c.trim()
-                                        .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                        .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                        .replace(/<br\s*\/?>/gi, ' ')
-                                        .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                        .replace(/\s+/g, ' ')
-                                        .trim());
-                                    const mdRowText = mdRowCells.join(' | ');
-                                    const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
-                                    
                                     // Calculate precise offset
                                     let offset = 0;
                                     let pipeCount = 0;
                                     
                                     for (let c = 0; c < line.length; c++) {
                                         const char = line[c];
-                                        // Check if this pipe is part of a wiki link
                                         const isInWikiLink = () => {
-                                            // Look backwards for [[
                                             let depth = 0;
                                             for (let j = c - 1; j >= 0; j--) {
                                                 if (line[j] === ']' && line[j - 1] === ']') {
@@ -316,39 +316,10 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                         }
                                     }
                                     
-                                    matchingLines.push({
-                                        line: i,
-                                        offset: offset + cellTextIndex,
-                                        similarity: similarity,
-                                        rowSimilarity: rowSimilarity
-                                    });
+                                    targetLine = targetDocLine;
+                                    preciseOffset = offset + cellTextIndex;
                                 }
                             }
-                        }
-                        
-                        // Sort by row similarity first, then by cell similarity
-                        matchingLines.sort((a, b) => {
-                            if (b.rowSimilarity !== a.rowSimilarity) {
-                                return b.rowSimilarity - a.rowSimilarity;
-                            }
-                            return b.similarity - a.similarity;
-                        });
-                        
-                        // Select the best match
-                        let bestMatch = matchingLines[0];
-                        
-                        // If we have a valid DOM row index and multiple matches with high similarity,
-                        // use the DOM row index to select the correct one
-                        if (domRowIndex >= 0 && matchingLines.length > 1) {
-                            const highSimilarityLines = matchingLines.filter(m => m.rowSimilarity > 0.9);
-                            if (highSimilarityLines.length > domRowIndex) {
-                                bestMatch = highSimilarityLines[domRowIndex];
-                            }
-                        }
-                        
-                        if (bestMatch && bestMatch.similarity > 0.5) {
-                            targetLine = bestMatch.line;
-                            preciseOffset = bestMatch.offset;
                         }
                     }
                     
@@ -428,6 +399,12 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             }
                             
                             // Search for the table row in the document
+                            // Helper function to check if a line is a table separator row
+                            const isSeparatorRow = (rowLine: string): boolean => {
+                                const trimmed = rowLine.trim();
+                                return /^\|[\s\-:]+\|$/.test(trimmed) || /^\|[\s\-:|]+\|$/.test(trimmed);
+                            };
+                            
                             // Use splitTableRow to correctly handle wiki links
                             const splitTableRow = (rowLine: string): string[] => {
                                 const cells: string[] = [];
@@ -468,8 +445,10 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             });
                             const domRowText = domRowCells.join(' | ');
                             
-                            // Collect all matching lines
-                            const matchingLines: { line: number; offset: number; similarity: number; rowSimilarity: number }[] = [];
+                            // Collect all non-separator table rows with their DOM row index
+                            // This establishes a direct mapping between DOM row index and document line
+                            const nonSeparatorRows: { docLineIndex: number; domRowIndex: number }[] = [];
+                            let domRowCounter = 0;
                             
                             for (let i = 0; i < lines.length; i++) {
                                 const line = lines[i];
@@ -477,7 +456,28 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                 // Must be a table row (starts with |)
                                 if (!line.trim().startsWith('|')) continue;
                                 
-                                // Split by | correctly (handle escaped pipes in wiki links)
+                                // Skip separator rows
+                                if (isSeparatorRow(line)) continue;
+                                
+                                nonSeparatorRows.push({
+                                    docLineIndex: i,
+                                    domRowIndex: domRowCounter
+                                });
+                                domRowCounter++;
+                            }
+                            
+                            // Find the document line that corresponds to the DOM row index
+                            let targetDocLine = -1;
+                            for (const row of nonSeparatorRows) {
+                                if (row.domRowIndex === domRowIndex) {
+                                    targetDocLine = row.docLineIndex;
+                                    break;
+                                }
+                            }
+                            
+                            // If we found the corresponding document line, verify it contains the target text
+                            if (targetDocLine >= 0 && targetDocLine < lines.length) {
+                                const line = lines[targetDocLine];
                                 const cells = splitTableRow(line);
                                 const mdCellIndex = cellIndex + 1;
                                 
@@ -486,28 +486,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                     const cellTextIndex = cellContent.indexOf(expectedText);
                                     
                                     if (cellTextIndex !== -1) {
-                                        // Check similarity with cellText
-                                        const cleanCellContent = cellContent
-                                            .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                            .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                            .replace(/<br\s*\/?>/gi, ' ')
-                                            .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                            .replace(/\s+/g, ' ')
-                                            .trim();
-                                        
-                                        const similarity = calculateSimilarity(cleanCellContent, cellText);
-                                        
-                                        // Calculate row-level similarity for better matching
-                                        const mdRowCells = cells.slice(1).map(c => c.trim()
-                                            .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                            .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                            .replace(/<br\s*\/?>/gi, ' ')
-                                            .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                            .replace(/\s+/g, ' ')
-                                            .trim());
-                                        const mdRowText = mdRowCells.join(' | ');
-                                        const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
-                                        
                                         // Calculate precise offset
                                         let offset = 0;
                                         let pipeCount = 0;
@@ -541,39 +519,10 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                             }
                                         }
                                         
-                                        matchingLines.push({
-                                            line: i,
-                                            offset: offset + cellTextIndex,
-                                            similarity: similarity,
-                                            rowSimilarity: rowSimilarity
-                                        });
+                                        targetLine = targetDocLine;
+                                        preciseOffset = offset + cellTextIndex;
                                     }
                                 }
-                            }
-                            
-                            // Sort by row similarity first, then by cell similarity
-                            matchingLines.sort((a, b) => {
-                                if (b.rowSimilarity !== a.rowSimilarity) {
-                                    return b.rowSimilarity - a.rowSimilarity;
-                                }
-                                return b.similarity - a.similarity;
-                            });
-                            
-                            // Select the best match
-                            let bestMatch = matchingLines[0];
-                            
-                            // If we have a valid DOM row index and multiple matches with high similarity,
-                            // use the DOM row index to select the correct one
-                            if (domRowIndex >= 0 && matchingLines.length > 1) {
-                                const highSimilarityLines = matchingLines.filter(m => m.rowSimilarity > 0.9);
-                                if (highSimilarityLines.length > domRowIndex) {
-                                    bestMatch = highSimilarityLines[domRowIndex];
-                                }
-                            }
-                            
-                            if (bestMatch && bestMatch.similarity > 0.5) {
-                                targetLine = bestMatch.line;
-                                preciseOffset = bestMatch.offset;
                             }
                         }
                         
