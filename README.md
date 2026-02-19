@@ -1,155 +1,367 @@
-# fakelink
+# FakeLink
 
-This plugin automatically generates virtual links for text within your notes that match with the titles or aliases of other notes in your vault.
+FakeLink is an Obsidian plugin that automatically generates **virtual links** based on note titles, aliases, and headers inside your notes.
 
-Features:
-- create a glossary like functionality
-- works in **edit mode** and **read mode**
-- created links are **always up to date** 
-- **no manual linking** necessary 
-- works with **aliases** of notes
-- links do not appear in graph view & reference counting
-- updates the links automatically while you expand your vault or type new text
-- convert the virtual links to real links in the context menu
+These links are not written into the Markdown file. Instead, they are dynamically rendered in the editor, which keeps your notes clean while still providing auto-linking functionality.
 
-Usage demo (literally just typing text ;-):
-![Demo](media/LinkerDemo.gif)
+This plugin is a fork of **Virtual Linker / Glossary**.
 
-## Usage
+Since the original plugin is no longer actively maintained and some features broke after the Obsidian API updates in 2025, FakeLink continues development with fixes and new functionality.
 
-By default, the plugin will automatically link all notes of your vault.
-All occurrences of a note title or alias will be linked in your current note text.
-If you only want to include notes of a specific folder, you can define this folder in the settings.
+The main improvements include:
 
-> [!Note]
-> The auto generated links are post-processed, so they neither change your note text to hard-coded links enclosed in brackets not 
-> appear in the graph view or reference counting.
+- Fixing compatibility issues with newer versions of Obsidian
+    
+- Improving IME compatibility
+    
+- Enhancing stability
+    
+- Adding **virtual links that can point directly to note headers**
+    
 
-## Installing the plugin
+---
 
-Inside obsidian, you can search for "fakelink" in the community plugins tab.
-After installing, enable the plugin in the settings.
+# Features
 
-To manually install the plugin:
-- Copy over `main.js` & `manifest.json` (find them under `Releases`) to your vault `VaultFolder/.obsidian/plugins/fakelink/`.
-- or clone the repository into the plugins folder of your vault and build the plugin yourself.
+Original plugin features:
 
-## Settings
+- Automatically create virtual links for matching note titles or aliases
+    
+- Works similar to a **Glossary system**
+    
+- Works in both **Edit Mode** and **Read Mode**
+    
+- Links are always up-to-date
+    
+- No need to manually create Markdown links
+    
+- Supports note **aliases**
+    
+- Virtual links do not appear in Graph View
+    
+- Does not affect backlink counts
+    
+- Automatically updates as your vault grows
+    
+- Can convert virtual links into real links via right-click
+    
 
-## Matched files
+FakeLink improvements:
 
-You can toggle the matching of files between:
-- "Match all files": All files in your vault are matched.
-- "Match only files in a specific folder": Only files in a specific folder are matched. You can specify the folder in the settings. This is useful if you want to only create virtual links to notes in a dedicated glossary directory.
+- Virtual links created from headers can now **jump directly to the target header**
+    
+- Improved behavior inside tables
+    
+- Fixed broken features from the original plugin
+    
+- Auto-toggle activation status by mode
+    
+    - When enabled, virtual links appear only in Edit Mode
+        
+- Excluded keywords
+    
+    - Right-click a virtual link to add it to excluded keywords
+        
+- Excluded file extensions
+    
+    - Example: `.mp4` files will not be matched
+        
+- Only match headers between symbols
+    
+    - When enabled, header matching logic changes
+        
+    - Only keywords between configured symbols will trigger virtual links
+        
 
-Furthermore, you can explicitly include or exclude specific files from being matched, by adding a tag to the file. You can change the tag in the settings, by default it is:
-- `linker-include` to explicitly include a file
-- `linker-exclude` to explicitly exclude a file
+---
 
-You can also exclude all files in a specific folder by adding the folder to the exclude list in the settings.
+# Demo
 
-> [!Note]
-> To include / exclude a file or folder, you can use the context menu on virtual links or in the file explorer.
+![FakeLink Demo](https://raw.githubusercontent.com/godfatherlg/fakelink/master/media/LinkerDemo.gif)
 
-### Case sensitivity
-You can toggle the case sensitivity of the matching. By default, the matching is case insensitive.
+---
 
-Often there are words with mainly capitalized letters, that should be matched case sensitive. By default, words with 75% or more capitalized letters are matched case sensitive. You can change this threshold in the settings.
+# How It Works
 
-You can also explicitly change the case sensitivity of a specific file by adding a tag to the file. You can change the tag in the settings, by default it is:
-- `linker-match-case` to make the matching case sensitive
-- `linker-ignore-case` to make the matching case insensitive
+By default, the plugin scans the entire vault.
 
-If you want to define the case sensitivity for specific aliases, you can define the frontmatter property lists in a note:
-- `linker-match-case` with a list of names that should be matched only case sensitive
-- `linker-ignore-case` with a list of names that should be matched case insensitive 
-These property names can be changed in the settings.
+If text in a note matches a note title or alias, a virtual link will automatically appear.
 
-### Matching mode
+You can limit matching to a specific folder in the settings.
 
-#### Suppress multiple matching and matching to real links
-By default, the plugin will suppress several identical virtual link in the same note.
-Furthermore, you can toggle to suppress the creation of virtual links to files, that are linked by real links in the current note. 
+> Note  
+> Virtual links are generated dynamically:
+> 
+> - They do not modify the original Markdown
+>     
+> - They are not converted into `[[links]]`
+>     
+> - They do not appear in Graph View or backlinks
+>     
 
-#### Part matching
-You can toggle the matching mode between:
-- "Matching only whole words": Only whole words are matched. E.g. "book" will not match "Notebook".
-- "Match also beginning of words": The beginning of a word is matched. E.g. "book" will not match "Notebook", but "Note" will match "Notebook".
-- "Matching any part of a word": Any part of a word is matched. E.g. "book" will match "Notebook".
+Additional note:
 
-You furthermore have the option to suppress the link suffix for these matches to avoid cluttering your text.
+The toggle command cannot fully disable rendering in **Canvas** and **Tables**.  
+If you need a full on/off switch, you can:
 
-#### Links to the note itself
-By default, links to a note itself are suppressed.
-This link suppression might be a bit buggy and not work in all cases, e.g. in preview windows.
-If you like self-links to the note itself, you can toggle this behavior in the settings.
+- Use another plugin to control FakeLink
+    
+- Or use a **QuickAdd script** to toggle FakeLink.
+    
 
-#### Link suppression in current line 
-By default, links are created directly as you type.
-You can disable links for the current line you are typing.
+---
 
-> [!Note]
-> Deactivating the link creation for the current line is recommended when using the plugin with IME (input method editor) for languages like Chinese or Japanese, as the plugin might otherwise interfere with the IME.
+# Installation
 
+## Install from Community Plugins (after approval)
 
-### Styling of the links
+1. Open Obsidian
+    
+2. Go to Settings → Community Plugins
+    
+3. Search for **FakeLink**
+    
+4. Install and enable
+    
 
-Any created virtual link will be appended with this suffix. This is useful to distinguish between real and virtual links.
-By default, the suffix is "🔗".
+## Manual Installation
 
-By default (and if the default styling is toggled on in the settings), the links appear a little bit darker than your normal links.
-You can turn off this default styling in the settings.
+1. Download the latest release
+    
+2. Copy the files into:
+    
 
-To apply custom styling to the links, you can add a CSS-snippet at `VaultFolder/.obsidian/snippets/virtualLinks.css` file.
-
-```css
-/* Properties of the virtual link when not hovered */
-.virtual-link.glossary-entry a {
-    /* To have the normal text color when not hovered */
-    color: inherit;
-
-    /* Or add a color, e.g. red */
-    /* color: red; */
-
-    /* You can also change the underline of the link in thickness, color, and other properties */
-    text-decoration-thickness: 1px;
-    text-decoration-color: rgb(var(--color-purple-rgb), 0.6);
-    text-underline-position: under;
-    /* text-decoration-style: dotted; */
-    /* text-underline-offset: 0em; */
-}
-
-/* Properties of the virtual link when hovered */
-.virtual-link.glossary-entry a:hover {
-    color: var(--link-color);
-}
+```
+VaultFolder/.obsidian/plugins/fakelink/
 ```
 
-> [!Note]
-> If you want to apply custom styling, don't forget to turn off the "Apply default link styling" in the settings.
+Make sure the folder contains:
 
-## Commands
+```
+main.js
+manifest.json
+styles.css (if included)
+```
 
-The plugin provides the following commands that you can use:
+Or clone the repository and build it manually.
 
-- **Convert All Virtual Links in Selection to Real Links**: Converts all virtual links within the selected text to real links.
-- **Toggle Virtual Linker**: Toggles the virtual linker on or off.
+---
 
-You can access these commands from the command palette or assign custom hotkeys to them in the settings.
+# Settings
 
-## Context Menu Options
+## Matching Scope
 
-When right-clicking on a virtual link, the following options are available in the context menu:
+You can choose to:
 
-- **Convert to real link**: Converts the selected virtual link to a real link.
-- **Exclude this file**: Adds the `linker-exclude` tag to the file, preventing it from being matched by the virtual linker.
-- **Include this file**: Adds the `linker-include` tag to the file, ensuring it is matched by the virtual linker.
+- Match the entire vault
+    
+- Match only specific folders
+    
 
-## How to use for development
+This is useful for creating a **Glossary folder**.
 
-- Clone this repo (into `your-vault/.obsidian/plugins/`).
-- `yarn` to install dependencies
-- `yarn dev` to start compilation in watch mode.
-- `yarn build` to compile your `main.ts` into `main.js`.
+You can also control inclusion using tags:
 
-It is recommended to use the [Hot Reload Plugin](https://github.com/pjeby/hot-reload) for development.
+Default tags:
+
+- `linker-include` → Force include the file
+    
+- `linker-exclude` → Exclude the file
+    
+
+These tags can be changed in settings.
+
+You can also exclude specific folders.
+
+---
+
+## Case Sensitivity
+
+Matching can be configured to be case-sensitive.
+
+Default rule:
+
+If a word is **more than 75% uppercase**, it will automatically use case-sensitive matching.
+
+You can also control it via tags:
+
+- `linker-match-case`
+    
+- `linker-ignore-case`
+    
+
+Or define it in frontmatter:
+
+```
+linker-match-case
+linker-ignore-case
+```
+
+---
+
+## Matching Modes
+
+### Prevent Duplicate Matches
+
+By default:
+
+- The same word will not create multiple virtual links in one note
+    
+- If a real link already exists, a virtual link will not be created
+    
+
+---
+
+### Partial Matching
+
+Matching options:
+
+- Match full words only
+    
+- Match word beginnings
+    
+- Match any part of a word
+    
+
+Example:
+
+```
+book does not match notebook
+note can match notebook
+```
+
+---
+
+### Self Links
+
+By default, links pointing to the current note are disabled.
+
+You can enable them in settings if needed.
+
+---
+
+### Current Line Linking
+
+By default, links are generated in real-time while typing.
+
+If you use Chinese or Japanese IME input methods, it is recommended to disable current line linking to avoid conflicts.
+
+---
+
+# Link Style
+
+Virtual links use a subtle background shadow by default.
+
+This helps distinguish them from real links.
+
+Default behavior:
+
+Virtual link color is slightly darker than normal links.
+
+If you want custom styles, you can disable the default style and use CSS.
+
+---
+
+# Commands
+
+The plugin provides the following command:
+
+- Toggle virtual links
+    
+
+You can run it from the command palette or assign a hotkey.
+
+---
+
+# Context Menu
+
+Right-click on a virtual link to:
+
+- Convert to a real link
+    
+- Exclude the file
+    
+- Include the file
+    
+- Add to excluded keywords
+    
+
+---
+
+# Project Origin
+
+This project is a fork of **Virtual Linker / Glossary**.
+
+Original author: Valentin Schröter  
+License: Apache License 2.0
+
+FakeLink continues development with compatibility fixes and new features.
+
+---
+
+# Development
+
+If you want to contribute:
+
+1. Clone the repository into:
+    
+
+```
+your-vault/.obsidian/plugins/
+```
+
+2. Install dependencies
+    
+
+```
+yarn
+```
+
+3. Development mode
+    
+
+```
+yarn dev
+```
+
+4. Build the plugin
+    
+
+```
+yarn build
+```
+
+Using the **Hot Reload** plugin is recommended during development.
+
+---
+
+# License
+
+Apache License 2.0
+
+This project is based on Virtual Linker / Glossary and continues its development.
+
+## Why FakeLink vs Virtual Linker
+
+Many important pieces of knowledge in a vault are stored inside headings rather than as separate notes. With the original Virtual Linker, links mainly target note titles, which means users often have to open a note and manually search for the relevant section.
+
+FakeLink improves this workflow by allowing virtual links to resolve directly to headings. This enables a more granular knowledge structure:
+
+- Important concepts can be intentionally written as headings inside notes.
+    
+- When the same concept appears elsewhere in the vault, FakeLink can immediately link to that exact section.
+    
+- Users can navigate directly to the relevant content instead of locating it manually inside a long note.
+    
+
+In practice, this turns headings into a lightweight knowledge index. Over time, as your vault grows, FakeLink helps you quickly locate and reuse key ideas simply by typing them.
+
+This approach works especially well for:
+
+- Glossaries stored as headings
+    
+- Structured knowledge bases
+    
+- Long-form notes with multiple concepts
+    
+- Incrementally building a personal knowledge system
