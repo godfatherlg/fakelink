@@ -180,6 +180,18 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         // Get the cell index in the DOM row
                         const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
                         
+                        // Get the table element and find the DOM row index
+                        const tableElement = tableRowElement.closest('table');
+                        let domRowIndex = -1;
+                        if (tableElement) {
+                            const allRows = tableElement.querySelectorAll('tr');
+                            allRows.forEach((row, idx) => {
+                                if (row === tableRowElement) {
+                                    domRowIndex = idx;
+                                }
+                            });
+                        }
+                        
                         // Search for the table row in the document
                         // Instead of comparing row text (which differs due to link expansion),
                         // we search for lines where the cell at cellIndex matches cellText
@@ -224,7 +236,8 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                         });
                         const domRowText = domRowCells.join(' | ');
                         
-                        let bestMatch = { line: -1, offset: -1, similarity: 0, rowSimilarity: 0 };
+                        // Collect all matching lines
+                        const matchingLines: { line: number; offset: number; similarity: number; rowSimilarity: number }[] = [];
                         
                         for (let i = 0; i < lines.length; i++) {
                             const line = lines[i];
@@ -268,57 +281,72 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                     const mdRowText = mdRowCells.join(' | ');
                                     const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
                                     
-                                    // Keep track of the best match - prioritize row similarity first, then cell similarity
-                                    // This ensures we match the correct row when multiple rows have similar cells
-                                    if (rowSimilarity > bestMatch.rowSimilarity || 
-                                        (rowSimilarity === bestMatch.rowSimilarity && similarity > bestMatch.similarity)) {
-                                        // Calculate precise offset
-                                        let offset = 0;
-                                        let pipeCount = 0;
-                                        
-                                        for (let c = 0; c < line.length; c++) {
-                                            const char = line[c];
-                                            // Check if this pipe is part of a wiki link
-                                            const isInWikiLink = () => {
-                                                // Look backwards for [[
-                                                let depth = 0;
-                                                for (let j = c - 1; j >= 0; j--) {
-                                                    if (line[j] === ']' && line[j - 1] === ']') {
-                                                        depth++;
-                                                        j--;
-                                                    } else if (line[j] === '[' && line[j - 1] === '[') {
-                                                        depth--;
-                                                        j--;
-                                                        if (depth < 0) return true;
-                                                    }
-                                                }
-                                                return false;
-                                            };
-                                            
-                                            if (char === '|' && !isInWikiLink()) {
-                                                pipeCount++;
-                                                if (pipeCount === mdCellIndex) {
-                                                    offset = c + 1;
-                                                    while (offset < line.length && line[offset] === ' ') {
-                                                        offset++;
-                                                    }
-                                                    break;
+                                    // Calculate precise offset
+                                    let offset = 0;
+                                    let pipeCount = 0;
+                                    
+                                    for (let c = 0; c < line.length; c++) {
+                                        const char = line[c];
+                                        // Check if this pipe is part of a wiki link
+                                        const isInWikiLink = () => {
+                                            // Look backwards for [[
+                                            let depth = 0;
+                                            for (let j = c - 1; j >= 0; j--) {
+                                                if (line[j] === ']' && line[j - 1] === ']') {
+                                                    depth++;
+                                                    j--;
+                                                } else if (line[j] === '[' && line[j - 1] === '[') {
+                                                    depth--;
+                                                    j--;
+                                                    if (depth < 0) return true;
                                                 }
                                             }
-                                        }
-                                        
-                                        bestMatch = {
-                                            line: i,
-                                            offset: offset + cellTextIndex,
-                                            similarity: similarity,
-                                            rowSimilarity: rowSimilarity
+                                            return false;
                                         };
+                                        
+                                        if (char === '|' && !isInWikiLink()) {
+                                            pipeCount++;
+                                            if (pipeCount === mdCellIndex) {
+                                                offset = c + 1;
+                                                while (offset < line.length && line[offset] === ' ') {
+                                                    offset++;
+                                                }
+                                                break;
+                                            }
+                                        }
                                     }
+                                    
+                                    matchingLines.push({
+                                        line: i,
+                                        offset: offset + cellTextIndex,
+                                        similarity: similarity,
+                                        rowSimilarity: rowSimilarity
+                                    });
                                 }
                             }
                         }
                         
-                        if (bestMatch.similarity > 0.5) {
+                        // Sort by row similarity first, then by cell similarity
+                        matchingLines.sort((a, b) => {
+                            if (b.rowSimilarity !== a.rowSimilarity) {
+                                return b.rowSimilarity - a.rowSimilarity;
+                            }
+                            return b.similarity - a.similarity;
+                        });
+                        
+                        // Select the best match
+                        let bestMatch = matchingLines[0];
+                        
+                        // If we have a valid DOM row index and multiple matches with high similarity,
+                        // use the DOM row index to select the correct one
+                        if (domRowIndex >= 0 && matchingLines.length > 1) {
+                            const highSimilarityLines = matchingLines.filter(m => m.rowSimilarity > 0.9);
+                            if (highSimilarityLines.length > domRowIndex) {
+                                bestMatch = highSimilarityLines[domRowIndex];
+                            }
+                        }
+                        
+                        if (bestMatch && bestMatch.similarity > 0.5) {
                             targetLine = bestMatch.line;
                             preciseOffset = bestMatch.offset;
                         }
@@ -387,6 +415,18 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             // Get the cell index in the DOM row
                             const cellIndex = Array.from(tableRowElement.children).indexOf(tableCellElement);
                             
+                            // Get the table element and find the DOM row index
+                            const tableElement = tableRowElement.closest('table');
+                            let domRowIndex = -1;
+                            if (tableElement) {
+                                const allRows = tableElement.querySelectorAll('tr');
+                                allRows.forEach((row, idx) => {
+                                    if (row === tableRowElement) {
+                                        domRowIndex = idx;
+                                    }
+                                });
+                            }
+                            
                             // Search for the table row in the document
                             // Use splitTableRow to correctly handle wiki links
                             const splitTableRow = (rowLine: string): string[] => {
@@ -428,7 +468,8 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                             });
                             const domRowText = domRowCells.join(' | ');
                             
-                            let bestMatch = { line: -1, offset: -1, similarity: 0, rowSimilarity: 0 };
+                            // Collect all matching lines
+                            const matchingLines: { line: number; offset: number; similarity: number; rowSimilarity: number }[] = [];
                             
                             for (let i = 0; i < lines.length; i++) {
                                 const line = lines[i];
@@ -467,54 +508,70 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                         const mdRowText = mdRowCells.join(' | ');
                                         const rowSimilarity = calculateSimilarity(mdRowText, domRowText);
                                         
-                                        // Prioritize row similarity first, then cell similarity
-                                        if (rowSimilarity > bestMatch.rowSimilarity || 
-                                            (rowSimilarity === bestMatch.rowSimilarity && similarity > bestMatch.similarity)) {
-                                            // Calculate precise offset
-                                            let offset = 0;
-                                            let pipeCount = 0;
-                                            
-                                            for (let c = 0; c < line.length; c++) {
-                                                const char = line[c];
-                                                const isInWikiLink = () => {
-                                                    let depth = 0;
-                                                    for (let j = c - 1; j >= 0; j--) {
-                                                        if (line[j] === ']' && line[j - 1] === ']') {
-                                                            depth++;
-                                                            j--;
-                                                        } else if (line[j] === '[' && line[j - 1] === '[') {
-                                                            depth--;
-                                                            j--;
-                                                            if (depth < 0) return true;
-                                                        }
-                                                    }
-                                                    return false;
-                                                };
-                                                
-                                                if (char === '|' && !isInWikiLink()) {
-                                                    pipeCount++;
-                                                    if (pipeCount === mdCellIndex) {
-                                                        offset = c + 1;
-                                                        while (offset < line.length && line[offset] === ' ') {
-                                                            offset++;
-                                                        }
-                                                        break;
+                                        // Calculate precise offset
+                                        let offset = 0;
+                                        let pipeCount = 0;
+                                        
+                                        for (let c = 0; c < line.length; c++) {
+                                            const char = line[c];
+                                            const isInWikiLink = () => {
+                                                let depth = 0;
+                                                for (let j = c - 1; j >= 0; j--) {
+                                                    if (line[j] === ']' && line[j - 1] === ']') {
+                                                        depth++;
+                                                        j--;
+                                                    } else if (line[j] === '[' && line[j - 1] === '[') {
+                                                        depth--;
+                                                        j--;
+                                                        if (depth < 0) return true;
                                                     }
                                                 }
-                                            }
-                                            
-                                            bestMatch = {
-                                                line: i,
-                                                offset: offset + cellTextIndex,
-                                                similarity: similarity,
-                                                rowSimilarity: rowSimilarity
+                                                return false;
                                             };
+                                            
+                                            if (char === '|' && !isInWikiLink()) {
+                                                pipeCount++;
+                                                if (pipeCount === mdCellIndex) {
+                                                    offset = c + 1;
+                                                    while (offset < line.length && line[offset] === ' ') {
+                                                        offset++;
+                                                    }
+                                                    break;
+                                                }
+                                            }
                                         }
+                                        
+                                        matchingLines.push({
+                                            line: i,
+                                            offset: offset + cellTextIndex,
+                                            similarity: similarity,
+                                            rowSimilarity: rowSimilarity
+                                        });
                                     }
                                 }
                             }
                             
-                            if (bestMatch.similarity > 0.5) {
+                            // Sort by row similarity first, then by cell similarity
+                            matchingLines.sort((a, b) => {
+                                if (b.rowSimilarity !== a.rowSimilarity) {
+                                    return b.rowSimilarity - a.rowSimilarity;
+                                }
+                                return b.similarity - a.similarity;
+                            });
+                            
+                            // Select the best match
+                            let bestMatch = matchingLines[0];
+                            
+                            // If we have a valid DOM row index and multiple matches with high similarity,
+                            // use the DOM row index to select the correct one
+                            if (domRowIndex >= 0 && matchingLines.length > 1) {
+                                const highSimilarityLines = matchingLines.filter(m => m.rowSimilarity > 0.9);
+                                if (highSimilarityLines.length > domRowIndex) {
+                                    bestMatch = highSimilarityLines[domRowIndex];
+                                }
+                            }
+                            
+                            if (bestMatch && bestMatch.similarity > 0.5) {
                                 targetLine = bestMatch.line;
                                 preciseOffset = bestMatch.offset;
                             }
