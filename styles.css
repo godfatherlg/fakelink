@@ -20,6 +20,22 @@
   filter: brightness(var(--virtual-link-opacity));
 }
 
+/* Preserve strikethrough in virtual links */
+.cm-strikethrough .virtual-link-span,
+.cm-strikethrough .virtual-link-span a,
+.cm-strikethrough .virtual-link-default,
+.cm-strikethrough .virtual-link-header,
+.virtual-link-span.cm-strikethrough,
+.virtual-link-span.cm-strikethrough a,
+del .virtual-link-span,
+del .virtual-link-span a,
+s .virtual-link-span,
+s .virtual-link-span a,
+strike .virtual-link-span,
+strike .virtual-link-span a {
+  text-decoration: line-through !important;
+}
+
 .linker-suffix-icon {
   user-select: none;
   -webkit-user-select: none;
