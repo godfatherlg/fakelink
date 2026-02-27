@@ -951,6 +951,7 @@ export default class LinkerPlugin extends Plugin {
         const app: App = this.app;
         const updateManager = this.updateManager;
         const settings = this.settings;
+        const plugin = this; // Save reference to plugin instance for use in nested functions
 
         const fetcher = new LinkerMetaInfoFetcher(app, settings);
         // Check, if the file has the linker-included tag
@@ -989,11 +990,15 @@ export default class LinkerPlugin extends Plugin {
                 }
 
                 // Check, if we are clicking on a virtual link inside a note or a note in the file explorer
-                const isVirtualLink = targetElement.classList.contains('virtual-link-a');
+                // Use closest to find the virtual link element even when clicking on child elements
+                const virtualLinkElement = targetElement.closest('.virtual-link-a') as HTMLElement | null;
+                const isVirtualLink = virtualLinkElement !== null;
                 const isInTableCell = targetElement.closest('td, th') !== null;
 
-                const from = parseInt(targetElement.getAttribute('from') || '-1');
-                const to = parseInt(targetElement.getAttribute('to') || '-1');
+                // Use the virtual link element for attribute access if found
+                const linkElement = virtualLinkElement || targetElement;
+                const from = parseInt(linkElement.getAttribute('from') || '-1');
+                const to = parseInt(linkElement.getAttribute('to') || '-1');
 
                 if (from === -1 || to === -1) {
                     menu.addItem((item) => {
@@ -1011,10 +1016,10 @@ export default class LinkerPlugin extends Plugin {
                         item.setTitle('Add to excluded keywords')
                             .setIcon('ban')
                             .onClick(async () => {
-                                const text = targetElement.getAttribute('origin-text') || '';
+                                const text = linkElement.getAttribute('origin-text') || '';
                                 if (text) {
                                     const newExcludedKeywords = [...new Set([...settings.excludedKeywords, text])];
-                                    await this.updateSettings({ excludedKeywords: newExcludedKeywords }).catch(() => {});
+                                    await plugin.updateSettings({ excludedKeywords: newExcludedKeywords });
                                     updateManager.update();
                                 }
                             });
@@ -1027,7 +1032,7 @@ export default class LinkerPlugin extends Plugin {
                             item.setTitle('Convert to real link (table mode)')
                                 .setIcon('table')
                                 .onClick(() => {
-                                    handleTableCellConversion(targetElement, app, settings, updateManager);
+                                    handleTableCellConversion(linkElement, app, settings, updateManager);
                                 });
                         });
                     } else {
@@ -1038,15 +1043,15 @@ export default class LinkerPlugin extends Plugin {
                                 .setIcon('link')
                                 .onClick(() => {
                                     // Get from and to position from the element
-                                    const from = parseInt(targetElement.getAttribute('from') || '-1');
-                                    const to = parseInt(targetElement.getAttribute('to') || '-1');
+                                    const from = parseInt(linkElement.getAttribute('from') || '-1');
+                                    const to = parseInt(linkElement.getAttribute('to') || '-1');
 
                                     if (from === -1 || to === -1) {
                                         return;
                                     }
 
                                     // Get the shown text
-                                    const text = targetElement.getAttribute('origin-text') || '';
+                                    const text = linkElement.getAttribute('origin-text') || '';
                                     const target = file;
                                     const activeFile = app.workspace.getActiveFile();
                                     const activeFilePath = activeFile?.path ?? '';
@@ -1068,7 +1073,7 @@ export default class LinkerPlugin extends Plugin {
 
                                     // Problem: we cannot just take the fileToLinktext result, as it depends on the app settings
                                     const replacementPath = app.metadataCache.fileToLinktext(target, activeFilePath);
-                                    const headerId = targetElement.getAttribute('data-heading-id');
+                                    const headerId = linkElement.getAttribute('data-heading-id');
 
                                     // The last part of the replacement path is the real shortest file name
                                     // We have to check, if it leads to the correct file
@@ -1592,7 +1597,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // 				try {
             // 					await this.plugin.updateSettings({ wordBoundaryRegex: value });
             // 				} catch (e) {
-            // 					console.error('Invalid regex', e);
+            // 					// Invalid regex
             // 				}
             // 			})
             // 	);
@@ -1793,7 +1798,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     try {
                         setValue = this.plugin.settings.excludedDirectoriesForLinking.join('\n');
                     } catch (e) {
-                        console.warn(e);
+                        // Ignore error
                     }
 
                     text.setPlaceholder('List of directory names (separated by new line)')
