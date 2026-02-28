@@ -5,44 +5,6 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
-// Helper function to calculate text similarity (0-1)
-function calculateSimilarity(text1: string, text2: string): number {
-    if (!text1 || !text2) return 0;
-    
-    // Remove all spaces for comparison
-    const s1 = text1.replace(/\s+/g, '').toLowerCase();
-    const s2 = text2.replace(/\s+/g, '').toLowerCase();
-    
-    if (s1 === s2) return 1;
-    
-    // If one contains the other, high similarity
-    if (s1.includes(s2)) return s2.length / s1.length;
-    if (s2.includes(s1)) return s1.length / s2.length;
-    
-    // Calculate character-level similarity (longest common subsequence ratio)
-    const lcs = longestCommonSubsequence(s1, s2);
-    return lcs / Math.max(s1.length, s2.length);
-}
-
-// Helper function for longest common subsequence length
-function longestCommonSubsequence(s1: string, s2: string): number {
-    const m = s1.length;
-    const n = s2.length;
-    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
-    
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            if (s1[i - 1] === s2[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1] + 1;
-            } else {
-                dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-            }
-        }
-    }
-    
-    return dp[m][n];
-}
-
 // Obsidian 兼容的路径处理函数
 function dirname(filePath: string): string {
     const lastSlashIndex = filePath.lastIndexOf('/');
@@ -240,7 +202,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                 .replace(/\s+/g, ' ')
                                 .trim();
                         });
-                        const domRowText = domRowCells.join(' | ');
                         
                         // Collect all non-separator table rows with their DOM row index
                         // This establishes a direct mapping between DOM row index and document line
@@ -443,7 +404,6 @@ function handleTableCellConversion(targetElement: HTMLElement, app: App, setting
                                     .replace(/\s+/g, ' ')
                                     .trim();
                             });
-                            const domRowText = domRowCells.join(' | ');
                             
                             // Collect all non-separator table rows with their DOM row index
                             // This establishes a direct mapping between DOM row index and document line
@@ -951,7 +911,6 @@ export default class LinkerPlugin extends Plugin {
         const app: App = this.app;
         const updateManager = this.updateManager;
         const settings = this.settings;
-        const plugin = this; // Save reference to plugin instance for use in nested functions
 
         const fetcher = new LinkerMetaInfoFetcher(app, settings);
         // Check, if the file has the linker-included tag
@@ -961,7 +920,7 @@ export default class LinkerPlugin extends Plugin {
         if (!isDirectory) {
             const metaInfo = fetcher.getMetaInfo(file);
 
-            function contextMenuHandler(event: MouseEvent) {
+            const contextMenuHandler = (event: MouseEvent) => {
                 // Access the element that triggered the context menu
                 const targetElement = event.target;
 
@@ -1019,7 +978,7 @@ export default class LinkerPlugin extends Plugin {
                                 const text = linkElement.getAttribute('origin-text') || '';
                                 if (text) {
                                     const newExcludedKeywords = [...new Set([...settings.excludedKeywords, text])];
-                                    await plugin.updateSettings({ excludedKeywords: newExcludedKeywords });
+                                    await this.updateSettings({ excludedKeywords: newExcludedKeywords });
                                     updateManager.update();
                                 }
                             });
@@ -1797,7 +1756,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     let setValue = '';
                     try {
                         setValue = this.plugin.settings.excludedDirectoriesForLinking.join('\n');
-                    } catch (e) {
+                    } catch {
                         // Ignore error
                     }
 
