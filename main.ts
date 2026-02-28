@@ -43,7 +43,7 @@ function relative(from: string, to: string): string {
 }
 
 // Helper function to handle table cell conversion with simplified approach
-function handleTableCellConversion(targetElement: HTMLElement, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager): void {
+function handleTableCellConversion(targetElement: Element, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager): void {
     // Get position and text information
     const from = parseInt(targetElement.getAttribute('from') || '-1');
     const to = parseInt(targetElement.getAttribute('to') || '-1');
@@ -950,7 +950,7 @@ export default class LinkerPlugin extends Plugin {
 
                 // Check, if we are clicking on a virtual link inside a note or a note in the file explorer
                 // Use closest to find the virtual link element even when clicking on child elements
-                const virtualLinkElement = targetElement.closest('.virtual-link-a') as HTMLElement | null;
+                const virtualLinkElement = targetElement.closest('.virtual-link-a');
                 const isVirtualLink = virtualLinkElement !== null;
                 const isInTableCell = targetElement.closest('td, th') !== null;
 
