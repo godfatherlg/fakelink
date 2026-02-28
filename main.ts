@@ -5,7 +5,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 
-// Obsidian 兼容的路径处理函数
+// Obsidian compatible path utility functions
 function dirname(filePath: string): string {
     const lastSlashIndex = filePath.lastIndexOf('/');
     return lastSlashIndex === -1 ? '' : filePath.substring(0, lastSlashIndex);
@@ -17,13 +17,13 @@ function basename(filePath: string): string {
 }
 
 function relative(from: string, to: string): string {
-    // 简化的相对路径计算，适用于 Obsidian 环境
+    // Simplified relative path calculation for Obsidian environment
     if (from === to) return '';
     
     const fromParts = from.split('/').filter(part => part !== '');
     const toParts = to.split('/').filter(part => part !== '');
     
-    // 找到公共前缀
+    // Find common prefix
     let commonLength = 0;
     while (commonLength < fromParts.length && 
            commonLength < toParts.length && 
@@ -31,15 +31,15 @@ function relative(from: string, to: string): string {
         commonLength++;
     }
     
-    // 计算需要返回的上级目录数量
+    // Calculate number of parent directories to go up
     const upLevels = fromParts.length - commonLength;
     const downParts = toParts.slice(commonLength);
     
-    // 构造相对路径
+    // Construct relative path
     const upPath = upLevels > 0 ? '../'.repeat(upLevels) : './';
     const downPath = downParts.join('/');
     
-    return downPath ? upPath + downPath : upPath.slice(0, -1); // 移除末尾的 '/'
+    return downPath ? upPath + downPath : upPath.slice(0, -1); // Remove trailing '/'
 }
 
 // Helper function to handle table cell conversion with simplified approach
