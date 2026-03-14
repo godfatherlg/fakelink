@@ -191,18 +191,6 @@ function handleTableCellConversion(targetElement: Element, app: App, settings: L
                             return cells;
                         };
                         
-                        // Get the full row text from DOM for better matching
-                        const domRowCells = Array.from(tableRowElement.children).map(cell => {
-                            const cellText = cell.textContent || '';
-                            return cellText
-                                .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                .replace(/<br\s*\/?>/gi, ' ')
-                                .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                .replace(/\s+/g, ' ')
-                                .trim();
-                        });
-                        
                         // Collect all non-separator table rows with their DOM row index
                         // This establishes a direct mapping between DOM row index and document line
                         const nonSeparatorRows: { docLineIndex: number; domRowIndex: number }[] = [];
@@ -392,18 +380,6 @@ function handleTableCellConversion(targetElement: Element, app: App, settings: L
                                 cells.push(currentCell);
                                 return cells;
                             };
-                            
-                            // Get the full row text from DOM for better matching
-                            const domRowCells = Array.from(tableRowElement.children).map(cell => {
-                                const cellText = cell.textContent || '';
-                                return cellText
-                                    .replace(/\[\[[^\]]*\|([^\]]*)\]\]/g, '$1')
-                                    .replace(/\[\[([^\]]*)\]\]/g, '$1')
-                                    .replace(/<br\s*\/?>/gi, ' ')
-                                    .replace(/\*\*([^*]*)\*\*/g, '$1')
-                                    .replace(/\s+/g, ' ')
-                                    .trim();
-                            });
                             
                             // Collect all non-separator table rows with their DOM row index
                             // This establishes a direct mapping between DOM row index and document line
