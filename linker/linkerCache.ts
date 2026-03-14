@@ -276,6 +276,13 @@ export class PrefixTree {
             return;
         }
 
+        // Check if file extension is excluded
+        if (this.settings.excludedExtensions.some(ext => 
+            path.toLowerCase().endsWith(ext.toLowerCase())
+        )) {
+            return;
+        }
+
         // Remove the old nodes of the file
         this.removeFileFromTree(file);
 
