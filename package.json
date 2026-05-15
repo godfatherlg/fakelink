@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-fakelink",
-	"version": "1.7.30",
+	"version": "1.7.31",
 	"description": "This plugin automatically links words in your text that occur in a glossary folder created by you.",
 	"main": "main.js",
 	"scripts": {
@@ -11,7 +11,7 @@
 	},
 	"keywords": [],
 	"author": "godfatherlg",
-	"license": "MIT",
+	"license": "Apache-2.0",
 	"devDependencies": {
 		"@codemirror/autocomplete": "^6.18.6",
 		"@codemirror/commands": "^6.8.1",
@@ -25,7 +25,6 @@
 		"@types/node": "^16.18.126",
 		"@typescript-eslint/eslint-plugin": "^5.29.0",
 		"@typescript-eslint/parser": "^5.29.0",
-		"builtin-modules": "3.3.0",
 		"esbuild": "0.14.47",
 		"eslint": "^8.57.1",
 		"obsidian": "latest",
