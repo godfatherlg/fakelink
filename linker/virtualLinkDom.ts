@@ -67,7 +67,7 @@ export class VirtualMatch {
     }
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
-        const link = document.createElement('a');
+        const link = activeDocument.createElement('a');
 
         let headerIdToUse: string | undefined;
         if (file) {
@@ -94,7 +94,7 @@ export class VirtualMatch {
         link.setAttribute('origin-text', this.originText);
         link.classList.add('internal-link', 'virtual-link-a');
 
-        link.onclick = (event) => {
+        link.onclick = (event: MouseEvent) => {
             event.preventDefault();
             event.stopPropagation();
 
@@ -112,7 +112,7 @@ export class VirtualMatch {
     }
 
     getLinkRootSpan(inTableCellEditor = false) {
-        const span = document.createElement('span');
+        const span = activeDocument.createElement('span');
         span.classList.add('glossary-entry', 'virtual-link', 'virtual-link-span');
         
         if (this.settings.applyDefaultLinkStyling) {
@@ -150,14 +150,14 @@ export class VirtualMatch {
             span.classList.add('no-context-menu');
             
             // Ensure default right-click menu is disabled in table cells
-            span.addEventListener('contextmenu', (e) => {
+            span.addEventListener('contextmenu', (e: Event) => {
                 e.preventDefault();
                 e.stopPropagation();
                 return false;
             }, true);
             
             // Add additional mouse right-click event listeners to capture all possible right-click events
-            span.addEventListener('mouseup', (e) => {
+            span.addEventListener('mouseup', (e: MouseEvent) => {
                 if (e.button === 2) { // Right mouse button
                     e.preventDefault();
                     e.stopPropagation();
@@ -170,7 +170,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesSpan(files?: TFile[]) {
-        const spanReferences = document.createElement('span');
+        const spanReferences = activeDocument.createElement('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
         }
@@ -183,8 +183,8 @@ export class VirtualMatch {
 
         fileList.forEach((file, index) => {
             if (index === 0) {
-                const bracket = document.createElement('span');
-                bracket.textContent = '[';  // Remove leading space, use compact format consistently
+                const bracket = activeDocument.createElement('span');
+                bracket.textContent = '[';
                 spanReferences.appendChild(bracket);
             }
 
@@ -199,7 +199,7 @@ export class VirtualMatch {
             spanReferences.appendChild(link);
 
             if (index == fileList.length - 1) {
-                const bracket = document.createElement('span');
+                const bracket = activeDocument.createElement('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
             }
@@ -209,7 +209,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesIndicatorSpan() {
-        const spanIndicator = document.createElement('span');
+        const spanIndicator = activeDocument.createElement('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
         return spanIndicator;
@@ -218,7 +218,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
-            let icon = document.createElement('sup');
+            let icon = activeDocument.createElement('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
             return icon;

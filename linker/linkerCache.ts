@@ -15,7 +15,7 @@ export class ExternalUpdateManager {
 
     update() {
         // Timeout to make sure the cache is updated
-        setTimeout(() => {
+        activeWindow.setTimeout(() => {
             for (const callback of this.registeredCallbacks) {
                 callback();
             }

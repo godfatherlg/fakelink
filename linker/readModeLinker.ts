@@ -22,7 +22,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
             const originalText = anchor?.getAttribute('origin-text') || anchor?.textContent || '';
             if (originalText) {
                 // Replace virtual link element with text node
-                const textNode = document.createTextNode(originalText);
+                const textNode = activeDocument.createTextNode(originalText);
                 link.replaceWith(textNode);
             } else {
                 // If no text found, directly delete
@@ -213,7 +213,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 const span = match.getCompleteLinkElement();
 
                                 if (match.from > 0) {
-                                    parent?.insertBefore(document.createTextNode(text.slice(lastTo, match.from)), childNode);
+                                    parent?.insertBefore(activeDocument.createTextNode(text.slice(lastTo, match.from)), childNode);
                                 }
 
                                 parent?.insertBefore(span, childNode);
@@ -233,7 +233,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                             const textLength = text.length;
                             if (lastTo < textLength) {
-                                parent?.insertBefore(document.createTextNode(text.slice(lastTo)), childNode);
+                                parent?.insertBefore(activeDocument.createTextNode(text.slice(lastTo)), childNode);
                             }
                             parent?.removeChild(childNode);
                             childNodeIndex += 1;

@@ -304,7 +304,7 @@ function handleTableCellConversion(targetElement: Element, app: App, settings: L
                 updateManager.update();
 
                 // Add post-execution verification
-                setTimeout(() => {
+                activeWindow.setTimeout(() => {
                     editor.getLine(fromPos.line);
                 }, 100);
             } else {
@@ -693,7 +693,7 @@ export default class LinkerPlugin extends Plugin {
 
                 const virtualLinks = virtualLinkElements
                     .filter((link): link is HTMLAnchorElement => {
-                        if (!(link instanceof HTMLAnchorElement)) return false;
+                        if (!(link.instanceOf(HTMLAnchorElement))) return false;
                         return link.classList.contains('virtual-linker-link') ||
                                link.classList.contains('virtual-link-a');
                     })
@@ -808,7 +808,7 @@ export default class LinkerPlugin extends Plugin {
                         editor.replaceRange(replacement.text, fromPos, toPos);
                         
                         // Wait a bit and check again (to catch async issues)
-                        setTimeout(() => {
+                        activeWindow.setTimeout(() => {
                         }, 100);
                         
                         // If we're in table and verification fails, try alternative approach
@@ -836,9 +836,9 @@ export default class LinkerPlugin extends Plugin {
 
     }
 
-    private isInTableEnvironment(editor: MarkdownView['editor'], fromOffset: number, toOffset: number): boolean {
+    private isInTableEnvironment(editor: MarkdownView['editor'], _fromOffset: number, _toOffset: number): boolean {
         try {
-            const fromPos = editor.offsetToPos(fromOffset);
+            const fromPos = editor.offsetToPos(_fromOffset);
             // Check for table syntax: lines starting with | or containing | characters
             const line = editor.getLine(fromPos.line);
             const isTableLine = line.trim().startsWith('|') || line.includes('|');
@@ -876,7 +876,7 @@ export default class LinkerPlugin extends Plugin {
         );
     }
 
-    addContextMenuItem(menu: Menu, file: TAbstractFile, source: string) {
+    addContextMenuItem(menu: Menu, file: TAbstractFile, _source: string) {
         // addContextMenuItem(a: any, b: any, c: any) {
         // Capture the MouseEvent when the context menu is triggered   // Define a named function to capture the MouseEvent
 
@@ -918,7 +918,7 @@ export default class LinkerPlugin extends Plugin {
                         virtualLinkSpan.classList.add('virtual-link-hover-lock');
                         
                         // Set timer to remove lock class
-                        setTimeout(() => {
+                        activeWindow.setTimeout(() => {
                             virtualLinkSpan.classList.remove('virtual-link-hover-lock');
                         }, 3000); // Remove after 3 seconds to balance operation time and UI responsiveness
                     }
@@ -1093,7 +1093,7 @@ export default class LinkerPlugin extends Plugin {
                 }
 
                 // Remove the listener to prevent multiple triggers
-                document.removeEventListener('contextmenu', contextMenuHandler);
+                activeDocument.removeEventListener('contextmenu', contextMenuHandler);
             }
 
             if (!metaInfo.excludeFile && (metaInfo.includeAllFiles || metaInfo.includeFile || metaInfo.isInIncludedDir)) {
@@ -1203,7 +1203,7 @@ export default class LinkerPlugin extends Plugin {
             }
 
             // Capture the MouseEvent when the context menu is triggered
-            document.addEventListener('contextmenu', contextMenuHandler, { once: true });
+            activeDocument.addEventListener('contextmenu', contextMenuHandler, { once: true });
         } else {
             // Check if the directory is in the linker directories
             const path = file.path + '/';
@@ -1262,7 +1262,7 @@ export default class LinkerPlugin extends Plugin {
 
     private cleanupVirtualLinks() {
         // Restore virtual links to original text
-        const virtualLinks = document.querySelectorAll('.virtual-link, .virtual-link-span, .virtual-link-a');
+        const virtualLinks = activeDocument.querySelectorAll('.virtual-link, .virtual-link-span, .virtual-link-a');
         virtualLinks.forEach(link => {
             // Get original text: try origin-text attribute first, otherwise use link text content
             const anchor = link.classList.contains('virtual-link-a') ? link : link.querySelector('.virtual-link-a');
@@ -1278,7 +1278,7 @@ export default class LinkerPlugin extends Plugin {
         });
         
         // Clear possible multiple reference indicators (these don't contain main text, delete directly)
-        const multipleRefs = document.querySelectorAll('.multiple-files-references, .multiple-files-indicator');
+        const multipleRefs = activeDocument.querySelectorAll('.multiple-files-references, .multiple-files-indicator');
         multipleRefs.forEach(ref => ref.remove());
     }
 

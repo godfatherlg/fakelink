@@ -483,7 +483,7 @@ class AutoLinkerPlugin implements PluginValue {
             // Special case: if we're in a contentEditable element within a table structure
             if (!inTableCellEditor) {
                 let parent = view.dom.parentElement;
-                while (parent && parent !== document.body) {
+                while (parent && parent !== activeDocument.body) {
                     const parentClasses = Array.from(parent.classList);
                     if (parentClasses.some(cls => cls.includes('table') || cls.includes('cell'))) {
                         inTableCellEditor = true;
