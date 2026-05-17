@@ -143,8 +143,7 @@ export class PrefixTree {
                     let headingMatch = null;
                     if (metadata?.headings) {
                         if (this.settings.headerMatchOnlyBetweenSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
-                            // Collect marker-extracted keywords first
-                            const markerKeywords = new Set<string>();
+                            // Only match keywords between symbols in headers
                             for (const h of metadata.headings) {
                                 const headingText = h.heading;
                                 const startSymbol = this.settings.headerMatchStartSymbol;
@@ -155,7 +154,8 @@ export class PrefixTree {
                                     const startIndex = headingText.indexOf(startSymbol, searchStartIndex);
                                     if (startIndex === -1) break;
                                     
-                                    const endIndex = headingText.indexOf(endSymbol, startIndex + startSymbol.length);
+                                    const afterStartIndex = startIndex + startSymbol.length;
+                                    const endIndex = headingText.indexOf(endSymbol, afterStartIndex);
                                     if (endIndex === -1) break;
                                     
                                     if (startIndex < endIndex) {
@@ -164,31 +164,12 @@ export class PrefixTree {
                                             headingMatch = h;
                                             break;
                                         }
-                                        markerKeywords.add(keyword.toLowerCase());
                                         searchStartIndex = endIndex + endSymbol.length;
                                     } else {
-                                        searchStartIndex = startIndex + startSymbol.length;
+                                        searchStartIndex = afterStartIndex;
                                     }
                                 }
                                 if (headingMatch) break;
-                            }
-                            
-                            // If no match found, try plain headers (excluding those that overlap with marker keywords)
-                            if (!headingMatch) {
-                                for (const h of metadata.headings) {
-                                    const headingText = h.heading;
-                                    const startSymbol = this.settings.headerMatchStartSymbol;
-                                    const endSymbol = this.settings.headerMatchEndSymbol;
-                                    const hasMarkers = headingText.includes(startSymbol) && headingText.includes(endSymbol);
-                                    
-                                    if (hasMarkers) continue;
-                                    if (markerKeywords.has(headingText.toLowerCase())) continue;
-                                    
-                                    if (headingText.toLowerCase() === nodeValue.toLowerCase()) {
-                                        headingMatch = h;
-                                        break;
-                                    }
-                                }
                             }
                         } else {
                             headingMatch = metadata.headings.find(h => 
@@ -339,8 +320,7 @@ export class PrefixTree {
         let headers: string[] = [];
         if (this.settings.includeHeaders && metadata?.headings) {
             if (this.settings.headerMatchOnlyBetweenSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
-                // First pass: collect all marker-extracted keywords
-                const markerKeywords = new Set<string>();
+                // Only extract keywords between symbols - no plain headers added
                 for (const h of metadata.headings) {
                     const headingText = h.heading;
                     const startSymbol = this.settings.headerMatchStartSymbol;
@@ -351,36 +331,20 @@ export class PrefixTree {
                         const startIndex = headingText.indexOf(startSymbol, searchStartIndex);
                         if (startIndex === -1) break;
                         
-                        const endIndex = headingText.indexOf(endSymbol, startIndex + startSymbol.length);
+                        const afterStartIndex = startIndex + startSymbol.length;
+                        const endIndex = headingText.indexOf(endSymbol, afterStartIndex);
                         if (endIndex === -1) break;
                         
                         if (startIndex < endIndex) {
                             const keyword = headingText.substring(startIndex + startSymbol.length, endIndex).trim();
                             if (keyword) {
                                 headers.push(keyword);
-                                markerKeywords.add(keyword.toLowerCase());
                             }
                             searchStartIndex = endIndex + endSymbol.length;
                         } else {
-                            searchStartIndex = startIndex + startSymbol.length;
+                            searchStartIndex = afterStartIndex;
                         }
                     }
-                }
-                
-                // Second pass: add plain headers only if they don't overlap with marker keywords
-                for (const h of metadata.headings) {
-                    const headingText = h.heading;
-                    const startSymbol = this.settings.headerMatchStartSymbol;
-                    const endSymbol = this.settings.headerMatchEndSymbol;
-                    const hasMarkers = headingText.includes(startSymbol) && headingText.includes(endSymbol);
-                    
-                    // Skip headers that have markers (already processed)
-                    if (hasMarkers) continue;
-                    
-                    // Skip plain headers whose text matches a marker-extracted keyword
-                    if (markerKeywords.has(headingText.toLowerCase())) continue;
-                    
-                    headers.push(headingText);
                 }
             } else {
                 headers = metadata.headings.map(h => h.heading);
