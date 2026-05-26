@@ -519,6 +519,20 @@ class AutoLinkerPlugin implements PluginValue {
                 const cursorNearby = cursorPos >= from - 0 && cursorPos <= to + 0;
 
                 const additionIsInCurrentLine = from >= lineStart && to <= lineEnd;
+
+                // Check if the addition is inside a comment node
+                let additionIsInComment = false;
+                if (additionIsInCurrentLine) {
+                    syntaxTree(view.state).iterate({
+                        from: from,
+                        to: to,
+                        enter(node) {
+                            if (node.name.contains('comment')) {
+                                additionIsInComment = true;
+                            }
+                        }
+                    });
+                }
                 
 
 
@@ -557,7 +571,7 @@ class AutoLinkerPlugin implements PluginValue {
 
 
 
-                if (!cursorNearby && !needImeFix && !(excludeLine && additionIsInCurrentLine)) {
+                if (!cursorNearby && !needImeFix && !(excludeLine && additionIsInCurrentLine && !additionIsInComment)) {
                     builder.add(
                         from,
                         to,

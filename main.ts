@@ -517,6 +517,7 @@ export interface LinkerPluginSettings {
     useMarkdownLinks: boolean;
     linkFormat: 'shortest' | 'relative' | 'absolute';
     applyDefaultLinkStyling: boolean;
+    alternativeDisplayStyle: boolean;
     includeHeaders: boolean;
     headerMatchOnlyBetweenSymbols: boolean;
     headerMatchStartSymbol: string;
@@ -562,6 +563,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     defaultLinkFormat: 'shortest',
     useDefaultLinkStyleForConversion: true,
     applyDefaultLinkStyling: true,
+    alternativeDisplayStyle: false,
     includeHeaders: true,
     headerMatchOnlyBetweenSymbols: false,
     headerMatchStartSymbol: '',
@@ -630,6 +632,11 @@ export default class LinkerPlugin extends Plugin {
 
     async onload() {
         await this.loadSettings();
+
+        // Apply alternative display style body class based on settings
+        if (this.settings.alternativeDisplayStyle) {
+            document.body.classList.add('virtual-linker-alt-style');
+        }
 
         // Listen for view changes
         this.registerEvent(this.app.workspace.on('layout-change', this.handleLayoutChange.bind(this)));
@@ -1785,6 +1792,21 @@ class LinkerSettingTab extends PluginSettingTab {
 
         new Setting(containerEl).setName('Link style').setHeading();
 
+        // Toggle setting for alternative display style (wavy underline + comment folding)
+        new Setting(containerEl)
+            .setName('Alternative display style')
+            .setDesc('When enabled, strikethrough is replaced with wavy underline, and %%comments%% are collapsed into small dots that expand on the active line.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.alternativeDisplayStyle).onChange(async (value) => {
+                    await this.plugin.updateSettings({ alternativeDisplayStyle: value });
+                    if (value) {
+                        document.body.classList.add('virtual-linker-alt-style');
+                    } else {
+                        document.body.classList.remove('virtual-linker-alt-style');
+                    }
+                })
+            );
+
         new Setting(containerEl)
             .setName('Always show multiple references')
             .setDesc('If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.')
@@ -1822,6 +1844,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     await this.plugin.updateSettings({ applyDefaultLinkStyling: value });
                 })
             );
+
 
         // Toggle setting to use default link style for conversion
         new Setting(containerEl)
