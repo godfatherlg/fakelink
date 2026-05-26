@@ -210,7 +210,7 @@ table th .virtual-link-span .internal-link {
 /* Standard prominent underline */
 @supports (text-decoration-style: wavy) {
   .virtual-linker-alt-style u {
-    text-decoration: underline;
+    text-decoration-line: underline;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
     text-decoration-style: wavy;
@@ -222,13 +222,12 @@ table th .virtual-link-span .internal-link {
 body.virtual-linker-alt-style .virtual-link:not(.cm-strikethrough):not(.virtual-link-in-strikethrough),
 body.virtual-linker-alt-style .virtual-link-span:not(.cm-strikethrough):not(.virtual-link-in-strikethrough),
 body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtual-link-in-strikethrough) {
-  text-decoration: none;
+  text-decoration-line: none;
 }
 
 /* Force override CodeMirror strikethrough default style */
 @supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .cm-strikethrough {
-    text-decoration: underline;
     text-decoration-line: underline;
     text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
@@ -246,7 +245,7 @@ body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtua
   body.virtual-linker-alt-style .markdown-rendered s,
   body.virtual-linker-alt-style .markdown-preview-view strike,
   body.virtual-linker-alt-style .markdown-rendered strike {
-    text-decoration: underline;
+    text-decoration-line: underline;
     text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
@@ -292,7 +291,6 @@ body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtua
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link,
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-span,
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
-    text-decoration: underline;
     text-decoration-line: underline;
     text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
@@ -312,7 +310,6 @@ body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtua
   body.virtual-linker-alt-style del .virtual-link-span a.virtual-link-a,
   body.virtual-linker-alt-style s .virtual-link-span a.virtual-link-a,
   body.virtual-linker-alt-style strike .virtual-link-span a.virtual-link-a {
-    text-decoration: underline;
     text-decoration-line: underline;
     text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
