@@ -24,7 +24,8 @@ export class VirtualMatch {
         public isItalicContext: boolean = false,
         public isHighlightContext: boolean = false,
         public isTripleStarContext: boolean = false,
-        public isStrikethroughContext: boolean = false
+        public isStrikethroughContext: boolean = false,
+        public isCommentContext: boolean = false
     ) {
         if (headerId) {
             for (const file of files) {

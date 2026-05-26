@@ -172,6 +172,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                     parentEl.matches('s') || 
                                                     parentEl.closest('del') !== null || 
                                                     parentEl.closest('s') !== null;
+                                                match.isCommentContext = parentEl.matches('.cm-comment') ||
+                                                    parentEl.closest('.cm-comment') !== null;
                                                 match.isTripleStarContext = match.isBoldContext && 
                                                     match.isItalicContext;
                                             }

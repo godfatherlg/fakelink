@@ -43,6 +43,7 @@ export class VirtualLinkWidget extends WidgetType {
         let inItalicContext = false;
         let inHighlightContext = false;
         let inStrikethroughContext = false;
+        let inCommentContext = false;
         
         // Get the exact text range of the virtual link
         const linkRange = { from: this.match.from, to: this.match.to };
@@ -75,6 +76,9 @@ export class VirtualLinkWidget extends WidgetType {
                     if (type.includes('strikethrough') || type.includes('strike') || type.includes('del')) {
                         inStrikethroughContext = true;
                     }
+                    if (type.includes('comment')) {
+                        inCommentContext = true;
+                    }
                 }
             }
         });
@@ -84,6 +88,7 @@ export class VirtualLinkWidget extends WidgetType {
         this.match.isItalicContext = inItalicContext;
         this.match.isHighlightContext = inHighlightContext;
         this.match.isStrikethroughContext = inStrikethroughContext;
+        this.match.isCommentContext = inCommentContext;
         this.match.isTripleStarContext = inBoldContext && inItalicContext;
         
         // Add corresponding CSS classes
@@ -98,6 +103,9 @@ export class VirtualLinkWidget extends WidgetType {
         }
         if (this.match.isStrikethroughContext) {
             element.classList.add('cm-strikethrough');
+        }
+        if (this.match.isCommentContext) {
+            element.classList.add('virtual-link-in-comment');
         }
         if (this.match.isTripleStarContext) {
             element.classList.add('cm-strong', 'cm-em');
