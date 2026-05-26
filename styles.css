@@ -203,19 +203,26 @@ table th .virtual-link-span .internal-link {
 /* ============================================================
  * Alternative Display Style
  * Enabled via "Alternative display style" toggle in settings
- * - Strikethrough → wavy underline
+ * - Strikethrough → wavy underline (via SVG background)
  * - %%comments%% → collapsed to dot, expand on active line
+ * Uses SVG background-image for maximum browser compatibility
  * ============================================================ */
 
-/* Standard prominent underline */
-@supports (text-decoration-style: wavy) {
-  .virtual-linker-alt-style u {
-    text-decoration: underline;
-    text-decoration-thickness: 0.1em;
-    text-underline-offset: 0.15em;
-    text-decoration-style: wavy;
-    text-decoration-skip-ink: none;
-  }
+/* SVG wavy underline helper - applied via background-image */
+/* Light theme wave (dark stroke) */
+/* Dark theme wave (light stroke) */
+
+/* Standard prominent underline using SVG wave */
+.virtual-linker-alt-style u {
+  text-decoration: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 10px 3px;
+  padding-bottom: 2px;
+}
+.virtual-linker-alt-style .theme-dark u {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23ccc' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
 /* Basic virtual link style: no text decoration by default, excluding strikethrough context */
@@ -225,101 +232,145 @@ body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtua
   text-decoration: none;
 }
 
-/* Force override CodeMirror strikethrough default style */
-@supports (text-decoration-style: wavy) {
-  body.virtual-linker-alt-style .cm-strikethrough {
-    text-decoration: underline;
-    text-decoration-line: underline;
-    text-decoration-style: wavy;
-    text-decoration-thickness: 0.1em;
-    text-underline-offset: 0.15em;
-    text-decoration-color: var(--text-normal);
-    text-decoration-skip-ink: none;
-  }
+/* Override CodeMirror strikethrough: replace line-through with wavy SVG underline */
+body.virtual-linker-alt-style .cm-strikethrough {
+  text-decoration: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 10px 3px;
+  padding-bottom: 2px;
+}
+body.virtual-linker-alt-style .theme-dark .cm-strikethrough {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23ccc' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
-/* Change reading mode strikethrough to underline */
-@supports (text-decoration-style: wavy) {
-  body.virtual-linker-alt-style .markdown-preview-view del,
-  body.virtual-linker-alt-style .markdown-rendered del,
-  body.virtual-linker-alt-style .markdown-preview-view s,
-  body.virtual-linker-alt-style .markdown-rendered s,
-  body.virtual-linker-alt-style .markdown-preview-view strike,
-  body.virtual-linker-alt-style .markdown-rendered strike {
-    text-decoration: underline;
-    text-decoration-style: wavy;
-    text-decoration-thickness: 0.1em;
-    text-underline-offset: 0.15em;
-    text-decoration-color: var(--text-normal);
-    text-decoration-skip-ink: none;
-  }
+/* Change reading mode strikethrough to wavy SVG underline */
+body.virtual-linker-alt-style .markdown-preview-view del,
+body.virtual-linker-alt-style .markdown-rendered del,
+body.virtual-linker-alt-style .markdown-preview-view s,
+body.virtual-linker-alt-style .markdown-rendered s,
+body.virtual-linker-alt-style .markdown-preview-view strike,
+body.virtual-linker-alt-style .markdown-rendered strike {
+  text-decoration: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 10px 3px;
+  padding-bottom: 2px;
+}
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view del,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered del,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view s,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered s,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view strike,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered strike {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23ccc' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
-/* Virtual links in strikethrough context: show as underline */
-@supports (text-decoration-style: wavy) {
-  body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link,
-  body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link-span,
-  body.virtual-linker-alt-style .cm-line .virtual-link.cm-strikethrough,
-  body.virtual-linker-alt-style .cm-line .virtual-link-span.cm-strikethrough,
-  body.virtual-linker-alt-style .cm-line .virtual-link-in-strikethrough,
-  body.virtual-linker-alt-style .cm-line .virtual-link-in-strikethrough .virtual-link-a,
-  body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link-a,
-  body.virtual-linker-alt-style .cm-line .virtual-link-a.cm-strikethrough,
-  body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link,
-  body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link-span,
-  body.virtual-linker-alt-style .cm-content .virtual-link.cm-strikethrough,
-  body.virtual-linker-alt-style .cm-content .virtual-link-span.cm-strikethrough,
-  body.virtual-linker-alt-style .cm-content .virtual-link-in-strikethrough,
-  body.virtual-linker-alt-style .cm-content .virtual-link-in-strikethrough .virtual-link-a,
-  body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link-a,
-  body.virtual-linker-alt-style .cm-content .virtual-link-a.cm-strikethrough,
-  /* Reading mode */
-  body.virtual-linker-alt-style .markdown-preview-view del .virtual-link,
-  body.virtual-linker-alt-style .markdown-preview-view del .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-preview-view del .virtual-link-a,
-  body.virtual-linker-alt-style .markdown-preview-view s .virtual-link,
-  body.virtual-linker-alt-style .markdown-preview-view s .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-preview-view s .virtual-link-a,
-  body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link,
-  body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-a,
-  body.virtual-linker-alt-style .markdown-rendered del .virtual-link,
-  body.virtual-linker-alt-style .markdown-rendered del .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-rendered del .virtual-link-a,
-  body.virtual-linker-alt-style .markdown-rendered s .virtual-link,
-  body.virtual-linker-alt-style .markdown-rendered s .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-rendered s .virtual-link-a,
-  body.virtual-linker-alt-style .markdown-rendered strike .virtual-link,
-  body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-span,
-  body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
-    text-decoration: underline;
-    text-decoration-line: underline;
-    text-decoration-style: wavy;
-    text-decoration-thickness: 0.1em;
-    text-underline-offset: 0.15em;
-    text-decoration-color: var(--text-normal);
-    text-decoration-skip-ink: none;
-    --strikethrough-z-index: 1;
-    --virtual-link-z-index: -1;
-  }
+/* Virtual links in strikethrough context: show wavy SVG underline */
+body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link,
+body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link-span,
+body.virtual-linker-alt-style .cm-line .virtual-link.cm-strikethrough,
+body.virtual-linker-alt-style .cm-line .virtual-link-span.cm-strikethrough,
+body.virtual-linker-alt-style .cm-line .virtual-link-in-strikethrough,
+body.virtual-linker-alt-style .cm-line .virtual-link-in-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .cm-line .cm-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .cm-line .virtual-link-a.cm-strikethrough,
+body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link,
+body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link-span,
+body.virtual-linker-alt-style .cm-content .virtual-link.cm-strikethrough,
+body.virtual-linker-alt-style .cm-content .virtual-link-span.cm-strikethrough,
+body.virtual-linker-alt-style .cm-content .virtual-link-in-strikethrough,
+body.virtual-linker-alt-style .cm-content .virtual-link-in-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .cm-content .cm-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .cm-content .virtual-link-a.cm-strikethrough,
+/* Reading mode */
+body.virtual-linker-alt-style .markdown-preview-view del .virtual-link,
+body.virtual-linker-alt-style .markdown-preview-view del .virtual-link-span,
+body.virtual-linker-alt-style .markdown-preview-view del .virtual-link-a,
+body.virtual-linker-alt-style .markdown-preview-view s .virtual-link,
+body.virtual-linker-alt-style .markdown-preview-view s .virtual-link-span,
+body.virtual-linker-alt-style .markdown-preview-view s .virtual-link-a,
+body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link,
+body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-span,
+body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-a,
+body.virtual-linker-alt-style .markdown-rendered del .virtual-link,
+body.virtual-linker-alt-style .markdown-rendered del .virtual-link-span,
+body.virtual-linker-alt-style .markdown-rendered del .virtual-link-a,
+body.virtual-linker-alt-style .markdown-rendered s .virtual-link,
+body.virtual-linker-alt-style .markdown-rendered s .virtual-link-span,
+body.virtual-linker-alt-style .markdown-rendered s .virtual-link-a,
+body.virtual-linker-alt-style .markdown-rendered strike .virtual-link,
+body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-span,
+body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
+  text-decoration: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 10px 3px;
+  padding-bottom: 2px;
+  --strikethrough-z-index: 1;
+  --virtual-link-z-index: -1;
+}
+body.virtual-linker-alt-style .theme-dark .cm-line .cm-strikethrough .virtual-link,
+body.virtual-linker-alt-style .theme-dark .cm-line .cm-strikethrough .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .cm-line .virtual-link.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-line .virtual-link-span.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-line .virtual-link-in-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-line .virtual-link-in-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .cm-line .cm-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .cm-line .virtual-link-a.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-content .cm-strikethrough .virtual-link,
+body.virtual-linker-alt-style .theme-dark .cm-content .cm-strikethrough .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .cm-content .virtual-link.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-content .virtual-link-span.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-content .virtual-link-in-strikethrough,
+body.virtual-linker-alt-style .theme-dark .cm-content .virtual-link-in-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .cm-content .cm-strikethrough .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .cm-content .virtual-link-a.cm-strikethrough,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view del .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view del .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view del .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view s .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view s .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view s .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view strike .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view strike .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-preview-view strike .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered del .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered del .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered del .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered s .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered s .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered s .virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered strike .virtual-link,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered strike .virtual-link-span,
+body.virtual-linker-alt-style .theme-dark .markdown-rendered strike .virtual-link-a {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23ccc' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
-/* Special override: ensure virtual link a elements in strikethrough context show underline */
-@supports (text-decoration-style: wavy) {
-  body.virtual-linker-alt-style .cm-strikethrough .virtual-link-span a.virtual-link-a,
-  body.virtual-linker-alt-style .virtual-link-span.cm-strikethrough a.virtual-link-a,
-  body.virtual-linker-alt-style .virtual-link-in-strikethrough a.virtual-link-a,
-  body.virtual-linker-alt-style del .virtual-link-span a.virtual-link-a,
-  body.virtual-linker-alt-style s .virtual-link-span a.virtual-link-a,
-  body.virtual-linker-alt-style strike .virtual-link-span a.virtual-link-a {
-    text-decoration: underline;
-    text-decoration-line: underline;
-    text-decoration-style: wavy;
-    text-decoration-thickness: 0.1em;
-    text-underline-offset: 0.15em;
-    text-decoration-color: var(--text-normal);
-    text-decoration-skip-ink: none;
-  }
+/* Special override: ensure virtual link a elements in strikethrough context show wavy underline */
+body.virtual-linker-alt-style .cm-strikethrough .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style .virtual-link-span.cm-strikethrough a.virtual-link-a,
+body.virtual-linker-alt-style .virtual-link-in-strikethrough a.virtual-link-a,
+body.virtual-linker-alt-style del .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style s .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style strike .virtual-link-span a.virtual-link-a {
+  text-decoration: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23333' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: repeat-x;
+  background-position: bottom left;
+  background-size: 10px 3px;
+  padding-bottom: 2px;
+}
+body.virtual-linker-alt-style .theme-dark .cm-strikethrough .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .virtual-link-span.cm-strikethrough a.virtual-link-a,
+body.virtual-linker-alt-style .theme-dark .virtual-link-in-strikethrough a.virtual-link-a,
+body.virtual-linker-alt-style .theme-dark del .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style .theme-dark s .virtual-link-span a.virtual-link-a,
+body.virtual-linker-alt-style .theme-dark strike .virtual-link-span a.virtual-link-a {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%23ccc' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
 /* Disable plugin-drawn strikethrough pseudo-elements */
@@ -342,18 +393,16 @@ body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-span::
   content: none;
 }
 
-/* Optional: add visual feedback */
-@supports (text-decoration-style: wavy) {
-  body.virtual-linker-alt-style .cm-strikethrough.cm-highlight,
-  body.virtual-linker-alt-style .markdown-preview-view del:hover,
-  body.virtual-linker-alt-style .markdown-preview-view s:hover,
-  body.virtual-linker-alt-style .markdown-preview-view strike:hover,
-  body.virtual-linker-alt-style .virtual-link-in-strikethrough:hover .virtual-link-a,
-  body.virtual-linker-alt-style del .virtual-link:hover .virtual-link-a,
-  body.virtual-linker-alt-style s .virtual-link:hover .virtual-link-a,
-  body.virtual-linker-alt-style strike .virtual-link:hover .virtual-link-a {
-    text-decoration-color: var(--interactive-accent);
-  }
+/* Optional: visual feedback on hover - change wave color to accent */
+body.virtual-linker-alt-style .cm-strikethrough.cm-highlight,
+body.virtual-linker-alt-style .markdown-preview-view del:hover,
+body.virtual-linker-alt-style .markdown-preview-view s:hover,
+body.virtual-linker-alt-style .markdown-preview-view strike:hover,
+body.virtual-linker-alt-style .virtual-link-in-strikethrough:hover .virtual-link-a,
+body.virtual-linker-alt-style del .virtual-link:hover .virtual-link-a,
+body.virtual-linker-alt-style s .virtual-link:hover .virtual-link-a,
+body.virtual-linker-alt-style strike .virtual-link:hover .virtual-link-a {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 4'%3E%3Cpath d='M0 2Q5 0 10 2T20 2' fill='none' stroke='%237b6cd9' stroke-width='1.2'/%3E%3C/svg%3E");
 }
 
 /* 
