@@ -209,11 +209,12 @@ table th .virtual-link-span .internal-link {
 
 /* Standard prominent underline */
 .virtual-linker-alt-style u {
-  text-decoration: underline wavy;
+  text-decoration: underline;
 }
 
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   .virtual-linker-alt-style u {
+    text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
   }
@@ -228,11 +229,12 @@ body.virtual-linker-alt-style .virtual-link-a:not(.cm-strikethrough):not(.virtua
 
 /* Force override CodeMirror strikethrough default style */
 body.virtual-linker-alt-style .cm-strikethrough {
-  text-decoration: underline wavy;
+  text-decoration: underline;
 }
 
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .cm-strikethrough {
+    text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
     text-decoration-color: var(--text-normal);
@@ -246,16 +248,17 @@ body.virtual-linker-alt-style .markdown-preview-view s,
 body.virtual-linker-alt-style .markdown-rendered s,
 body.virtual-linker-alt-style .markdown-preview-view strike,
 body.virtual-linker-alt-style .markdown-rendered strike {
-  text-decoration: underline wavy;
+  text-decoration: underline;
 }
 
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .markdown-preview-view del,
   body.virtual-linker-alt-style .markdown-rendered del,
   body.virtual-linker-alt-style .markdown-preview-view s,
   body.virtual-linker-alt-style .markdown-rendered s,
   body.virtual-linker-alt-style .markdown-preview-view strike,
   body.virtual-linker-alt-style .markdown-rendered strike {
+    text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
     text-decoration-color: var(--text-normal);
@@ -290,12 +293,12 @@ body.virtual-linker-alt-style .markdown-rendered s .virtual-link-a,
 body.virtual-linker-alt-style .markdown-rendered strike .virtual-link,
 body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-span,
 body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
-  text-decoration: underline wavy;
+  text-decoration: underline;
   --strikethrough-z-index: 1;
   --virtual-link-z-index: -1;
 }
 
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .cm-strikethrough .virtual-link,
   body.virtual-linker-alt-style .cm-strikethrough .virtual-link-span,
   body.virtual-linker-alt-style .virtual-link.cm-strikethrough,
@@ -322,6 +325,7 @@ body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link,
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-span,
   body.virtual-linker-alt-style .markdown-rendered strike .virtual-link-a {
+    text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
     text-decoration-color: var(--text-normal);
@@ -335,16 +339,17 @@ body.virtual-linker-alt-style .virtual-link-in-strikethrough a.virtual-link-a,
 body.virtual-linker-alt-style del .virtual-link-span a.virtual-link-a,
 body.virtual-linker-alt-style s .virtual-link-span a.virtual-link-a,
 body.virtual-linker-alt-style strike .virtual-link-span a.virtual-link-a {
-  text-decoration: underline wavy;
+  text-decoration: underline;
 }
 
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .cm-strikethrough .virtual-link-span a.virtual-link-a,
   body.virtual-linker-alt-style .virtual-link-span.cm-strikethrough a.virtual-link-a,
   body.virtual-linker-alt-style .virtual-link-in-strikethrough a.virtual-link-a,
   body.virtual-linker-alt-style del .virtual-link-span a.virtual-link-a,
   body.virtual-linker-alt-style s .virtual-link-span a.virtual-link-a,
   body.virtual-linker-alt-style strike .virtual-link-span a.virtual-link-a {
+    text-decoration-style: wavy;
     text-decoration-thickness: 0.1em;
     text-underline-offset: 0.15em;
     text-decoration-color: var(--text-normal);
@@ -372,7 +377,7 @@ body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-span::
 }
 
 /* Optional: add visual feedback */
-@supports (text-decoration-thickness: 0.1em) {
+@supports (text-decoration-style: wavy) {
   body.virtual-linker-alt-style .cm-strikethrough.cm-highlight,
   body.virtual-linker-alt-style .markdown-preview-view del:hover,
   body.virtual-linker-alt-style .markdown-preview-view s:hover,
