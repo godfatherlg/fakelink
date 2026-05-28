@@ -1,4 +1,5 @@
 import { App, EditorPosition, MarkdownView, Menu, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { EditorView } from '@codemirror/view';
 
 import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
@@ -654,6 +655,32 @@ export default class LinkerPlugin extends Plugin {
 
         // Register the live linker for the live edit mode
         this.registerEditorExtension(liveLinkerPlugin(this.app, this.settings, this.updateManager, this));
+
+        // Auto-trim spaces inside %% comments when alternative display style is enabled
+        this.registerEditorExtension(
+            EditorView.updateListener.of((update) => {
+                if (!this.settings.alternativeDisplayStyle || !update.docChanged) return;
+                
+                const changes: { from: number; to: number; insert: string }[] = [];
+                update.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
+                    const text = inserted.toString();
+                    if (!text.includes('%%')) return;
+                    const match = text.match(/^%%\s+(\S[\s\S]*?\S)\s+%%$/);
+                    if (match) {
+                        changes.push({ from: fromB, to: toB, insert: `%%${match[1]}%%` });
+                    } else {
+                        const emptyMatch = text.match(/^%%\s+%%$/);
+                        if (emptyMatch) {
+                            changes.push({ from: fromB, to: toB, insert: '%%%%' });
+                        }
+                    }
+                });
+                
+                if (changes.length > 0) {
+                    update.view.dispatch({ changes });
+                }
+            })
+        );
 
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
