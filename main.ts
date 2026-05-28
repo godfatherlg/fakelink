@@ -661,20 +661,38 @@ export default class LinkerPlugin extends Plugin {
             EditorView.updateListener.of((update) => {
                 if (!this.settings.alternativeDisplayStyle || !update.docChanged) return;
                 
-                const changes: { from: number; to: number; insert: string }[] = [];
-                update.changes.iterChanges((_fromA, _toA, fromB, toB, inserted) => {
-                    const text = inserted.toString();
-                    if (!text.includes('%%')) return;
-                    const match = text.match(/^%%\s+(\S[\s\S]*?\S)\s+%%$/);
-                    if (match) {
-                        changes.push({ from: fromB, to: toB, insert: `%%${match[1]}%%` });
-                    } else {
-                        const emptyMatch = text.match(/^%%\s+%%$/);
-                        if (emptyMatch) {
-                            changes.push({ from: fromB, to: toB, insert: '%%%%' });
-                        }
-                    }
+                // Find the affected range, expand to full lines
+                let minFrom = Infinity;
+                let maxTo = -Infinity;
+                update.changes.iterChanges((_fromA, _toA, fromB, toB) => {
+                    if (fromB < minFrom) minFrom = fromB;
+                    if (toB > maxTo) maxTo = toB;
                 });
+                if (minFrom === Infinity) return;
+                
+                const doc = update.state.doc;
+                const startLine = doc.lineAt(minFrom);
+                const endLine = doc.lineAt(maxTo - 1 > 0 ? maxTo - 1 : maxTo);
+                
+                // Scan each affected line for %% text %% patterns
+                const changes: { from: number; to: number; insert: string }[] = [];
+                for (let i = startLine.number; i <= endLine.number; i++) {
+                    const line = doc.line(i);
+                    const text = line.text;
+                    if (!text.includes('%%')) continue;
+                    
+                    // Fix %% text %% -> %%text%%
+                    const replaced = text.replace(/%%\s+(\S.*?\S)\s+%%/g, '%%$1%%')
+                        .replace(/%%\s+%%/g, '%%%%');
+                    
+                    if (replaced !== text) {
+                        changes.push({
+                            from: line.from,
+                            to: line.to,
+                            insert: replaced
+                        });
+                    }
+                }
                 
                 if (changes.length > 0) {
                     update.view.dispatch({ changes });
