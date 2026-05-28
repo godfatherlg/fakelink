@@ -1,5 +1,6 @@
 import { App, EditorPosition, MarkdownView, Menu, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { EditorView } from '@codemirror/view';
+import { EditorSelection } from '@codemirror/state';
 
 import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
@@ -720,7 +721,19 @@ export default class LinkerPlugin extends Plugin {
                 }
                 
                 if (changes.length > 0) {
-                    update.view.dispatch({ changes });
+                    // Preserve selection, excluding %% markers
+                    // When there is exactly one %% pair, set selection to content only
+                    if (changes.length === 1) {
+                        const ch = changes[0];
+                        const anchor = ch.from + 2;
+                        const head = ch.from + ch.insert.length - 2;
+                        update.view.dispatch({ 
+                            changes, 
+                            selection: EditorSelection.single(anchor, head) 
+                        });
+                    } else {
+                        update.view.dispatch({ changes });
+                    }
                 }
             })
         );
