@@ -678,19 +678,44 @@ export default class LinkerPlugin extends Plugin {
                 const changes: { from: number; to: number; insert: string }[] = [];
                 for (let i = startLine.number; i <= endLine.number; i++) {
                     const line = doc.line(i);
-                    const text = line.text;
-                    if (!text.includes('%%')) continue;
+                    let text = line.text;
+                    if (!text.includes('%%') || !/\S/.test(text)) continue;
                     
-                    // Fix %% text %% -> %%text%%
-                    const replaced = text.replace(/%%\s+(\S.*?\S)\s+%%/g, '%%$1%%')
-                        .replace(/%%\s+%%/g, '%%%%');
-                    
-                    if (replaced !== text) {
-                        changes.push({
-                            from: line.from,
-                            to: line.to,
-                            insert: replaced
-                        });
+                    // Fix %% text %% -> %%text%% (precise range replacement)
+                    let searchFrom = 0;
+                    while (searchFrom < text.length) {
+                        const startIdx = text.indexOf('%%', searchFrom);
+                        if (startIdx === -1) break;
+                        
+                        // Find content after %%
+                        const contentStart = startIdx + 2;
+                        // Find the closing %%
+                        const endIdx = text.indexOf('%%', contentStart);
+                        if (endIdx === -1) {
+                            searchFrom = contentStart;
+                            continue;
+                        }
+                        
+                        // Extract content between %% markers and trim
+                        const inner = text.slice(contentStart, endIdx);
+                        const trimmed = inner.trim();
+                        
+                        if (trimmed !== inner) {
+                            const fullFrom = line.from + startIdx;
+                            const fullTo = line.from + endIdx + 2;
+                            changes.push({
+                                from: fullFrom,
+                                to: fullTo,
+                                insert: `%%${trimmed}%%`
+                            });
+                            // Adjust text for subsequent searches on this line
+                            const before = text.slice(0, startIdx);
+                            const after = text.slice(endIdx + 2);
+                            text = before + `%%${trimmed}%%` + after;
+                            searchFrom = startIdx + trimmed.length + 4;
+                        } else {
+                            searchFrom = endIdx + 2;
+                        }
                     }
                 }
                 
