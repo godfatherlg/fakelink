@@ -801,6 +801,14 @@ export default class LinkerPlugin extends Plugin {
         });
 
         this.addCommand({
+            id: 'toggle-header-marker',
+            name: 'Toggle header marker symbol',
+            callback: () => {
+                void this.updateSettings({ headerAutoAppendSuffix: !this.settings.headerAutoAppendSuffix });
+            }
+        });
+
+        this.addCommand({
             id: 'convert-selected-virtual-links',
             name: 'Convert all virtual links in selection to real links',
             checkCallback: (checking: boolean) => {
