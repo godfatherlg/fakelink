@@ -775,8 +775,12 @@ export default class LinkerPlugin extends Plugin {
                         if (i < 1 || i > doc.lines) continue;
                         const line = doc.line(i);
                         const text = line.text;
+                        // Only match headers with actual content (at least one non-whitespace char)
                         const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
                         if (!match) continue;
+                        // Only append if content is more than just 1-2 chars (wait for real typing)
+                        if (match[2].length < 2) continue;
+                        // Skip if already ends with the suffix
                         if (text.endsWith(s)) continue;
                         changes.push({
                             from: line.to,
@@ -788,7 +792,7 @@ export default class LinkerPlugin extends Plugin {
                     if (changes.length > 0) {
                         viewForTimer.dispatch({ changes });
                     }
-                }, 300);
+                }, 600);
             })
         );
 
