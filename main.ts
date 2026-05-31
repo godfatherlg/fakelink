@@ -750,7 +750,7 @@ export default class LinkerPlugin extends Plugin {
                 const suffix = this.settings.headerAutoAppendSymbol;
                 if (!suffix) return;
                 
-                // Capture affected range before setTimeout
+                // Capture character-level range (not line numbers) before setTimeout
                 let minFrom = Infinity, maxTo = -Infinity;
                 update.changes.iterChanges((_a, _b, fromB, toB) => {
                     if (fromB < minFrom) minFrom = fromB;
@@ -760,8 +760,6 @@ export default class LinkerPlugin extends Plugin {
                 
                 if (headerSuffixTimer) clearTimeout(headerSuffixTimer);
                 const viewForTimer = update.view;
-                const startLineForTimer = viewForTimer.state.doc.lineAt(minFrom).number;
-                const endLineForTimer = viewForTimer.state.doc.lineAt(Math.max(0, maxTo - 1)).number;
                 
                 headerSuffixTimer = setTimeout(() => {
                     if (!this.settings.headerAutoAppendSuffix) return;
@@ -769,18 +767,17 @@ export default class LinkerPlugin extends Plugin {
                     if (!s) return;
                     
                     const doc = viewForTimer.state.doc;
+                    // Re-derive line numbers from current document state
+                    const startLine = doc.lineAt(Math.min(minFrom, doc.length - 1));
+                    const endLine = doc.lineAt(Math.min(maxTo, doc.length - 1));
                     const changes: { from: number; to: number; insert: string }[] = [];
                     
-                    for (let i = startLineForTimer; i <= endLineForTimer; i++) {
-                        if (i < 1 || i > doc.lines) continue;
+                    for (let i = startLine.number; i <= endLine.number; i++) {
                         const line = doc.line(i);
                         const text = line.text;
-                        // Only match headers with actual content (at least one non-whitespace char)
                         const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
                         if (!match) continue;
-                        // Only append if content is more than just 1-2 chars (wait for real typing)
                         if (match[2].length < 2) continue;
-                        // Skip if already ends with the suffix
                         if (text.endsWith(s)) continue;
                         changes.push({
                             from: line.to,
@@ -790,7 +787,11 @@ export default class LinkerPlugin extends Plugin {
                     }
                     
                     if (changes.length > 0) {
-                        viewForTimer.dispatch({ changes });
+                        // Preserve current cursor position
+                        viewForTimer.dispatch({ 
+                            changes,
+                            selection: viewForTimer.state.selection
+                        });
                     }
                 }, 600);
             })
