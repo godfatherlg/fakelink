@@ -540,6 +540,8 @@ export interface LinkerPluginSettings {
     includeAliases: boolean;
     alwaysShowMultipleReferences: boolean;
     excludedKeywords: string[]; // Keywords to exclude from virtual linking
+    headerAutoAppendSuffix: boolean; // Auto-append suffix to new headers
+    headerAutoAppendSymbol: string; // Symbol to append to headers
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -586,6 +588,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     includeAliases: true,
     alwaysShowMultipleReferences: false,
     excludedKeywords: [],
+    headerAutoAppendSuffix: false,
+    headerAutoAppendSymbol: '䷋',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -735,6 +739,56 @@ export default class LinkerPlugin extends Plugin {
                         update.view.dispatch({ changes });
                     }
                 }
+            })
+        );
+
+        // Auto-append suffix symbol to new/changed headers
+        let headerSuffixTimer: ReturnType<typeof setTimeout> | null = null;
+        this.registerEditorExtension(
+            EditorView.updateListener.of((update) => {
+                if (!this.settings.headerAutoAppendSuffix || !update.docChanged) return;
+                const suffix = this.settings.headerAutoAppendSymbol;
+                if (!suffix) return;
+                
+                // Capture affected range before setTimeout
+                let minFrom = Infinity, maxTo = -Infinity;
+                update.changes.iterChanges((_a, _b, fromB, toB) => {
+                    if (fromB < minFrom) minFrom = fromB;
+                    if (toB > maxTo) maxTo = toB;
+                });
+                if (minFrom === Infinity) return;
+                
+                if (headerSuffixTimer) clearTimeout(headerSuffixTimer);
+                const viewForTimer = update.view;
+                const startLineForTimer = viewForTimer.state.doc.lineAt(minFrom).number;
+                const endLineForTimer = viewForTimer.state.doc.lineAt(Math.max(0, maxTo - 1)).number;
+                
+                headerSuffixTimer = setTimeout(() => {
+                    if (!this.settings.headerAutoAppendSuffix) return;
+                    const s = this.settings.headerAutoAppendSymbol;
+                    if (!s) return;
+                    
+                    const doc = viewForTimer.state.doc;
+                    const changes: { from: number; to: number; insert: string }[] = [];
+                    
+                    for (let i = startLineForTimer; i <= endLineForTimer; i++) {
+                        if (i < 1 || i > doc.lines) continue;
+                        const line = doc.line(i);
+                        const text = line.text;
+                        const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
+                        if (!match) continue;
+                        if (text.endsWith(s)) continue;
+                        changes.push({
+                            from: line.to,
+                            to: line.to,
+                            insert: s
+                        });
+                    }
+                    
+                    if (changes.length > 0) {
+                        viewForTimer.dispatch({ changes });
+                    }
+                }, 300);
             })
         );
 
@@ -1871,6 +1925,28 @@ class LinkerSettingTab extends PluginSettingTab {
                         });
                     text.inputEl.addClass('linker-settings-text-box');
                 });
+        }
+
+        // Header auto-append suffix
+        new Setting(containerEl)
+            .setName('Auto-append symbol to headers')
+            .setDesc('When enabled, a unique symbol is automatically appended to new or modified headers, preventing them from being accidentally matched by regular body text.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
+                    await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
+                    this.display();
+                })
+            );
+
+        if (this.plugin.settings.headerAutoAppendSuffix) {
+            new Setting(containerEl)
+                .setName('Header suffix symbol')
+                .setDesc('The symbol appended to headers. Use a rare character not found in normal text.')
+                .addText((text) =>
+                    text.setValue(this.plugin.settings.headerAutoAppendSymbol).onChange(async (value) => {
+                        await this.plugin.updateSettings({ headerAutoAppendSymbol: value });
+                    })
+                );
         }
 
         new Setting(containerEl).setName('Link style').setHeading();
