@@ -589,7 +589,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     alwaysShowMultipleReferences: false,
     excludedKeywords: [],
     headerAutoAppendSuffix: false,
-    headerAutoAppendSymbol: '䷋',
+    headerAutoAppendSymbol: '☱',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -742,15 +742,14 @@ export default class LinkerPlugin extends Plugin {
             })
         );
 
-        // Auto-append suffix symbol to new/changed headers
-        let headerSuffixTimer: ReturnType<typeof setTimeout> | null = null;
+        // Auto-insert symbol at front of new/changed headers
         this.registerEditorExtension(
             EditorView.updateListener.of((update) => {
                 if (!this.settings.headerAutoAppendSuffix || !update.docChanged) return;
-                const suffix = this.settings.headerAutoAppendSymbol;
-                if (!suffix) return;
+                const symbol = this.settings.headerAutoAppendSymbol;
+                if (!symbol) return;
                 
-                // Capture character-level range (not line numbers) before setTimeout
+                const doc = update.state.doc;
                 let minFrom = Infinity, maxTo = -Infinity;
                 update.changes.iterChanges((_a, _b, fromB, toB) => {
                     if (fromB < minFrom) minFrom = fromB;
@@ -758,42 +757,31 @@ export default class LinkerPlugin extends Plugin {
                 });
                 if (minFrom === Infinity) return;
                 
-                if (headerSuffixTimer) clearTimeout(headerSuffixTimer);
-                const viewForTimer = update.view;
+                const startLine = doc.lineAt(minFrom);
+                const endLine = doc.lineAt(Math.max(0, maxTo - 1));
+                const changes: { from: number; to: number; insert: string }[] = [];
                 
-                headerSuffixTimer = setTimeout(() => {
-                    if (!this.settings.headerAutoAppendSuffix) return;
-                    const s = this.settings.headerAutoAppendSymbol;
-                    if (!s) return;
-                    
-                    const doc = viewForTimer.state.doc;
-                    // Re-derive line numbers from current document state
-                    const startLine = doc.lineAt(Math.min(minFrom, doc.length - 1));
-                    const endLine = doc.lineAt(Math.min(maxTo, doc.length - 1));
-                    const changes: { from: number; to: number; insert: string }[] = [];
-                    
-                    for (let i = startLine.number; i <= endLine.number; i++) {
-                        const line = doc.line(i);
-                        const text = line.text;
-                        const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
-                        if (!match) continue;
-                        if (match[2].length < 2) continue;
-                        if (text.endsWith(s)) continue;
-                        changes.push({
-                            from: line.to,
-                            to: line.to,
-                            insert: s
-                        });
-                    }
-                    
-                    if (changes.length > 0) {
-                        // Preserve current cursor position
-                        viewForTimer.dispatch({ 
-                            changes,
-                            selection: viewForTimer.state.selection
-                        });
-                    }
-                }, 600);
+                for (let i = startLine.number; i <= endLine.number; i++) {
+                    const line = doc.line(i);
+                    const text = line.text;
+                    // Match header with content: "# Title", "## Subtitle"
+                    const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
+                    if (!match) continue;
+                    const prefix = match[1];      // e.g., "# " or "## "
+                    const content = match[2];      // e.g., "概念"
+                    // Skip if symbol already present at front of content
+                    if (content.startsWith(symbol)) continue;
+                    // Insert symbol after prefix, before content
+                    changes.push({
+                        from: line.from + prefix.length,
+                        to: line.from + prefix.length,
+                        insert: symbol
+                    });
+                }
+                
+                if (changes.length > 0) {
+                    update.view.dispatch({ changes });
+                }
             })
         );
 
@@ -1934,8 +1922,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Header auto-append suffix
         new Setting(containerEl)
-            .setName('Auto-append symbol to headers')
-            .setDesc('When enabled, a unique symbol is automatically appended to new or modified headers, preventing them from being accidentally matched by regular body text.')
+            .setName('Auto-insert symbol into headers')
+            .setDesc('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.')
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
@@ -1945,8 +1933,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.headerAutoAppendSuffix) {
             new Setting(containerEl)
-                .setName('Header suffix symbol')
-                .setDesc('The symbol appended to headers. Use a rare character not found in normal text.')
+                .setName('Header marker symbol')
+                .setDesc('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.')
                 .addText((text) =>
                     text.setValue(this.plugin.settings.headerAutoAppendSymbol).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerAutoAppendSymbol: value });
