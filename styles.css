@@ -63,13 +63,18 @@ strike .virtual-link-span a {
   position: relative;
 }
 
-/* Virtual link in header context: inherit header color */
-.virtual-link-in-header,
-.cm-header .virtual-link-a,
-.cm-header .virtual-link,
-.cm-header .virtual-link-span {
-  color: inherit;
-  filter: none;
+/* Virtual link in header context: inherit header text color */
+html body .cm-header .virtual-link-a,
+html body .cm-header .virtual-link,
+html body .cm-header .virtual-link-span,
+html body .cm-header .virtual-link-span a,
+html body .cm-header .virtual-link-default,
+html body .cm-header .virtual-link-header,
+html body .virtual-link-in-header,
+html body .virtual-link-in-header a {
+  color: inherit !important;
+  filter: none !important;
+  opacity: 1;
 }
 
 /* Virtual link in bold context */
