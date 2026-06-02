@@ -142,8 +142,8 @@ export class PrefixTree {
                     // First check for heading match
                     let headingMatch = null;
                     if (metadata?.headings) {
-                        if (this.settings.headerMatchOnlyBetweenSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
-                            // Only match keywords between symbols in headers
+                        if (this.settings.headerMatchSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
+                            // Try matching keywords between symbols first
                             for (const h of metadata.headings) {
                                 const headingText = h.heading;
                                 const startSymbol = this.settings.headerMatchStartSymbol;
@@ -170,6 +170,12 @@ export class PrefixTree {
                                     }
                                 }
                                 if (headingMatch) break;
+                            }
+                            // If not restricted, also try plain header match
+                            if (!headingMatch && !this.settings.headerMatchOnlyBetweenSymbols) {
+                                headingMatch = metadata.headings.find(h => 
+                                    h.heading.toLowerCase() === nodeValue.toLowerCase()
+                                );
                             }
                         } else {
                             headingMatch = metadata.headings.find(h => 
@@ -330,8 +336,13 @@ export class PrefixTree {
         // Get headers from metadata cache
         let headers: string[] = [];
         if (this.settings.includeHeaders && metadata?.headings) {
-            if (this.settings.headerMatchOnlyBetweenSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
-                // Only extract keywords between symbols - no plain headers added
+            const canMatchSymbols = this.settings.headerMatchSymbols
+                && this.settings.headerMatchStartSymbol
+                && this.settings.headerMatchEndSymbol
+                && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol;
+            
+            if (canMatchSymbols) {
+                // Extract keywords between symbols
                 for (const h of metadata.headings) {
                     const headingText = h.heading;
                     const startSymbol = this.settings.headerMatchStartSymbol;
@@ -356,6 +367,10 @@ export class PrefixTree {
                             searchStartIndex = afterStartIndex;
                         }
                     }
+                }
+                // If not restricted to only symbol-keywords, also add plain headers
+                if (!this.settings.headerMatchOnlyBetweenSymbols) {
+                    headers.push(...metadata.headings.map(h => h.heading));
                 }
             } else {
                 headers = metadata.headings.map(h => h.heading);

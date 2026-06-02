@@ -521,6 +521,7 @@ export interface LinkerPluginSettings {
     applyDefaultLinkStyling: boolean;
     alternativeDisplayStyle: boolean;
     includeHeaders: boolean;
+    headerMatchSymbols: boolean;
     headerMatchOnlyBetweenSymbols: boolean;
     headerMatchStartSymbol: string;
     headerMatchEndSymbol: string;
@@ -570,6 +571,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     applyDefaultLinkStyling: true,
     alternativeDisplayStyle: false,
     includeHeaders: true,
+    headerMatchSymbols: false,
     headerMatchOnlyBetweenSymbols: false,
     headerMatchStartSymbol: '',
     headerMatchEndSymbol: '',
@@ -1568,34 +1570,47 @@ class LinkerSettingTab extends PluginSettingTab {
                 })
             );
 
-        // Only match headers between symbols
+        // Enable header symbol keywords
         new Setting(containerEl)
-            .setName('Only match headers between symbols')
-            .setDesc('When enabled, only headers containing start and end symbols will produce virtual links, and only the text between symbols will be used as keyword. Unmarked headers will not produce virtual links. Start and end symbols must be different.')
+            .setName('Enable header symbol keywords')
+            .setDesc('When enabled, text between start and end symbols in headers will be used as virtual link keywords.')
             .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.headerMatchOnlyBetweenSymbols).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerMatchOnlyBetweenSymbols: value });
-                })
-            );
-
-        new Setting(containerEl)
-            .setName('Start symbol')
-            .setDesc('Symbol marking the start of the keyword in headers (can be empty, emoji allowed). Must be different from end symbol.')
-            .addText((text) =>
-                text.setValue(this.plugin.settings.headerMatchStartSymbol).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerMatchStartSymbol: value });
-                })
-            );
-
-        new Setting(containerEl)
-            .setName('End symbol')
-            .setDesc('Symbol marking the end of the keyword in headers (can be empty, emoji allowed). Must be different from start symbol.')
-            .addText((text) =>
-                text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerMatchEndSymbol: value });
+                toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
+                    await this.plugin.updateSettings({ headerMatchSymbols: value });
                     this.display();
                 })
             );
+
+        if (this.plugin.settings.headerMatchSymbols) {
+            new Setting(containerEl)
+                .setName('Start symbol')
+                .setDesc('Symbol marking the start of the keyword in headers. Must be different from end symbol.')
+                .addText((text) =>
+                    text.setValue(this.plugin.settings.headerMatchStartSymbol).onChange(async (value) => {
+                        await this.plugin.updateSettings({ headerMatchStartSymbol: value });
+                    })
+                );
+
+            new Setting(containerEl)
+                .setName('End symbol')
+                .setDesc('Symbol marking the end of the keyword in headers. Must be different from start symbol.')
+                .addText((text) =>
+                    text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
+                        await this.plugin.updateSettings({ headerMatchEndSymbol: value });
+                        this.display();
+                    })
+                );
+
+            // Only match headers between symbols
+            new Setting(containerEl)
+                .setName('Only match headers between symbols')
+                .setDesc('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.')
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.headerMatchOnlyBetweenSymbols).onChange(async (value) => {
+                        await this.plugin.updateSettings({ headerMatchOnlyBetweenSymbols: value });
+                    })
+                );
+        }
 
         // Toggle to allow virtual links in headers
         new Setting(containerEl)
