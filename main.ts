@@ -542,6 +542,7 @@ export interface LinkerPluginSettings {
     excludedKeywords: string[]; // Keywords to exclude from virtual linking
     headerAutoAppendSuffix: boolean; // Auto-append suffix to new headers
     headerAutoAppendSymbol: string; // Symbol to append to headers
+    allowLinksInHeaders: boolean; // Allow virtual links in headers
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -590,6 +591,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludedKeywords: [],
     headerAutoAppendSuffix: false,
     headerAutoAppendSymbol: '☱',
+    allowLinksInHeaders: false,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -1592,6 +1594,16 @@ class LinkerSettingTab extends PluginSettingTab {
                 text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerMatchEndSymbol: value });
                     this.display();
+                })
+            );
+
+        // Toggle to allow virtual links in headers
+        new Setting(containerEl)
+            .setName('Allow virtual links in headers')
+            .setDesc('When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.')
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.allowLinksInHeaders).onChange(async (value) => {
+                    await this.plugin.updateSettings({ allowLinksInHeaders: value });
                 })
             );
 

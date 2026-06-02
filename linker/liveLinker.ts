@@ -400,7 +400,10 @@ class AutoLinkerPlugin implements PluginValue {
             // We want to exclude some syntax nodes from being decorated,
             // such as code blocks and manually added links
             const excludedIntervalTree = new IntervalTree();
-            let excludedTypes = ['codeblock', 'code-block', 'inline-code', 'internal-link', 'link', 'url', 'hashtag', 'header-'];
+            let excludedTypes = ['codeblock', 'code-block', 'inline-code', 'internal-link', 'link', 'url', 'hashtag'];
+            if (!this.settings.allowLinksInHeaders) {
+                excludedTypes.push('header-');
+            }
 
             // We also want to exclude links to files that are already linked by a real link
             const app = this.app;
