@@ -63,6 +63,15 @@ strike .virtual-link-span a {
   position: relative;
 }
 
+/* Virtual link in header context: inherit header color */
+.virtual-link-in-header,
+.cm-header .virtual-link-a,
+.cm-header .virtual-link,
+.cm-header .virtual-link-span {
+  color: inherit;
+  filter: none;
+}
+
 /* Virtual link in bold context */
 .virtual-link.cm-strong,
 .cm-strong .virtual-link {

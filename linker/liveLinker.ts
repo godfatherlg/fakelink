@@ -44,6 +44,7 @@ export class VirtualLinkWidget extends WidgetType {
         let inHighlightContext = false;
         let inStrikethroughContext = false;
         let inCommentContext = false;
+        let inHeaderContext = false;
         
         // Get the exact text range of the virtual link
         const linkRange = { from: this.match.from, to: this.match.to };
@@ -79,6 +80,9 @@ export class VirtualLinkWidget extends WidgetType {
                     if (type.includes('comment')) {
                         inCommentContext = true;
                     }
+                    if (type.includes('header')) {
+                        inHeaderContext = true;
+                    }
                 }
             }
         });
@@ -106,6 +110,9 @@ export class VirtualLinkWidget extends WidgetType {
         }
         if (this.match.isCommentContext) {
             element.classList.add('virtual-link-in-comment');
+        }
+        if (inHeaderContext) {
+            element.classList.add('virtual-link-in-header');
         }
         if (this.match.isTripleStarContext) {
             element.classList.add('cm-strong', 'cm-em');
