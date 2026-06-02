@@ -302,28 +302,6 @@ class AutoLinkerPlugin implements PluginValue {
             // const additions: { id: number; files: TFile[]; from: number; to: number; widget: WidgetType }[] = [];
             let matches: VirtualMatch[] = [];
             let id = 0;
-            // Build set of header ranges to exclude self-links when allowLinksInHeaders
-            const headerRanges: { from: number; to: number }[] = [];
-            if (this.settings.allowLinksInHeaders) {
-                syntaxTree(view.state).iterate({
-                    from,
-                    to,
-                    enter(node) {
-                        if (node.name.contains('header-') && node.name !== 'header-tag') {
-                            headerRanges.push({ from: node.from, to: node.to });
-                        }
-                    }
-                });
-            }
-            
-            // Helper to check if a position is inside a header range
-            const isInHeader = (pos: number): boolean => {
-                for (const r of headerRanges) {
-                    if (pos >= r.from && pos <= r.to) return true;
-                }
-                return false;
-            };
-
             // Iterate over every char in the text
             for (let i = 0; i <= text.length; i) {
                 // Do this to get unicode characters as whole chars and not only half of them
@@ -335,7 +313,7 @@ class AutoLinkerPlugin implements PluginValue {
                 if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary) {
                     const currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
                         i,
-                        (this.settings.excludeLinksToOwnNote || isInHeader(from + i)) ? mappedFile : null
+                        this.settings.excludeLinksToOwnNote ? mappedFile : null
                     );
 
                     if (currentNodes.length > 0) {

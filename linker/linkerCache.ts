@@ -215,7 +215,18 @@ export class PrefixTree {
             }
 
             if (matchNode.files.size > 0) {
-                matchNodes.push(matchNode);
+                // Never allow headers to link to their own file
+                if (matchNode.type === MatchType.Header) {
+                    const activeFile = this.app.workspace.getActiveFile();
+                    if (activeFile) {
+                        matchNode.files = new Set(
+                            Array.from(matchNode.files).filter(f => f.path !== activeFile.path)
+                        );
+                    }
+                }
+                if (matchNode.files.size > 0) {
+                    matchNodes.push(matchNode);
+                }
             }
         }
 
