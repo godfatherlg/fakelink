@@ -72,8 +72,8 @@ html body .cm-header .virtual-link-default,
 html body .cm-header .virtual-link-header,
 html body .virtual-link-in-header,
 html body .virtual-link-in-header a {
-  color: inherit !important;
-  filter: none !important;
+  color: inherit;
+  filter: none;
   opacity: 1;
 }
 
