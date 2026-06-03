@@ -1,6 +1,7 @@
 import { App, EditorPosition, MarkdownView, Menu, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
+import { t } from './src/lang/helpers';
 
 import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
@@ -1498,8 +1499,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Add auto mode toggle setting item
         new Setting(containerEl)
-            .setName('Auto-toggle activation status by mode')
-            .setDesc('When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active')
+            .setName(t('Auto-toggle activation status by mode'))
+            .setDesc(t('Auto-toggle activation status by mode_desc'))
             .addToggle(toggle => 
                 toggle
                     .setValue(this.plugin.settings.autoToggleByMode)
@@ -1512,26 +1513,26 @@ class LinkerSettingTab extends PluginSettingTab {
 
 
         // Toggle to activate or deactivate the linker
-        new Setting(containerEl).setName('Activate virtual linker').addToggle((toggle) =>
+        new Setting(containerEl).setName(t('Activate virtual linker')).addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
                 await this.plugin.updateSettings({ linkerActivated: value });
             })
         );
 
         // Toggle to show advanced settings
-        new Setting(containerEl).setName('Show advanced settings').addToggle((toggle) =>
+        new Setting(containerEl).setName(t('Show advanced settings')).addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.advancedSettings).onChange(async (value) => {
                 await this.plugin.updateSettings({ advancedSettings: value });
                 this.display();
             })
         );
 
-        new Setting(containerEl).setName('Matching behavior').setHeading();
+        new Setting(containerEl).setName(t('Matching behavior')).setHeading();
 
         // Toggle to include aliases
         new Setting(containerEl)
-            .setName('Include aliases')
-            .setDesc('If enabled, the virtual linker will also match file aliases.')
+            .setName(t('Include aliases'))
+            .setDesc(t('If enabled, the virtual linker will also match file aliases.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.includeAliases).onChange(async (value) => {
                     await this.plugin.updateSettings({ includeAliases: value });
@@ -1541,8 +1542,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Toggle to only link once
             new Setting(containerEl)
-                .setName('Only link once')
-                .setDesc('When enabled, identical terms in the same note will only be linked once.')
+                .setName(t('Only link once'))
+                .setDesc(t('When enabled, identical terms in the same note will only be linked once.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.onlyLinkOnce).onChange(async (value) => {
                         await this.plugin.updateSettings({ onlyLinkOnce: value });
@@ -1551,8 +1552,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Toggle to exclude links to real linked files
             new Setting(containerEl)
-                .setName('Exclude links to real linked files')
-                .setDesc('When enabled, terms that are already manually linked in the note will not be auto-linked.')
+                .setName(t('Exclude links to real linked files'))
+                .setDesc(t('When enabled, terms that are already manually linked in the note will not be auto-linked.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToRealLinkedFiles).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToRealLinkedFiles: value });
@@ -1562,8 +1563,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // If headers should be matched or not
         new Setting(containerEl)
-            .setName('Include headers')
-            .setDesc('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.')
+            .setName(t('Include headers'))
+            .setDesc(t('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.includeHeaders).onChange(async (value) => {
                     await this.plugin.updateSettings({ includeHeaders: value });
@@ -1572,8 +1573,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Enable header symbol keywords
         new Setting(containerEl)
-            .setName('Enable header symbol keywords')
-            .setDesc('When enabled, text between start and end symbols in headers will be used as virtual link keywords.')
+            .setName(t('Enable header symbol keywords'))
+            .setDesc(t('When enabled, text between start and end symbols in headers will be used as virtual link keywords.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerMatchSymbols: value });
@@ -1583,8 +1584,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.headerMatchSymbols) {
             new Setting(containerEl)
-                .setName('Start symbol')
-                .setDesc('Symbol marking the start of the keyword in headers. Must be different from end symbol.')
+                .setName(t('Start symbol'))
+                .setDesc(t('Symbol marking the start of the keyword in headers. Must be different from end symbol.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.headerMatchStartSymbol).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerMatchStartSymbol: value });
@@ -1592,8 +1593,8 @@ class LinkerSettingTab extends PluginSettingTab {
                 );
 
             new Setting(containerEl)
-                .setName('End symbol')
-                .setDesc('Symbol marking the end of the keyword in headers. Must be different from start symbol.')
+                .setName(t('End symbol'))
+                .setDesc(t('Symbol marking the end of the keyword in headers. Must be different from start symbol.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerMatchEndSymbol: value });
@@ -1603,8 +1604,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Only match headers between symbols
             new Setting(containerEl)
-                .setName('Only match headers between symbols')
-                .setDesc('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.')
+                .setName(t('Only match headers between symbols'))
+                .setDesc(t('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.headerMatchOnlyBetweenSymbols).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerMatchOnlyBetweenSymbols: value });
@@ -1614,8 +1615,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Toggle to allow virtual links in headers
         new Setting(containerEl)
-            .setName('Allow virtual links in headers')
-            .setDesc('When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.')
+            .setName(t('Allow virtual links in headers'))
+            .setDesc(t('When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.allowLinksInHeaders).onChange(async (value) => {
                     await this.plugin.updateSettings({ allowLinksInHeaders: value });
@@ -1624,8 +1625,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Toggle setting to match only whole words or any part of the word
         new Setting(containerEl)
-            .setName('Match any part of a word')
-            .setDesc('When disabled, only complete word matches are linked. When enabled, any substring match will be linked.')
+            .setName(t('Match any part of a word'))
+            .setDesc(t('When disabled, only complete word matches are linked. When enabled, any substring match will be linked.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.matchAnyPartsOfWords).onChange(async (value) => {
                     await this.plugin.updateSettings({ matchAnyPartsOfWords: value });
@@ -1636,8 +1637,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (!this.plugin.settings.matchAnyPartsOfWords) {
             // Toggle setting to match only beginning of words
             new Setting(containerEl)
-                .setName('Match the beginning of words')
-                .setDesc('When enabled, word prefixes will be linked even without complete word matches.')
+                .setName(t('Match the beginning of words'))
+                .setDesc(t('When enabled, word prefixes will be linked even without complete word matches.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.matchBeginningOfWords).onChange(async (value) => {
                         await this.plugin.updateSettings({ matchBeginningOfWords: value });
@@ -1647,8 +1648,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Toggle setting to match only end of words
             new Setting(containerEl)
-                .setName('Match the end of words')
-                .setDesc('When enabled, word suffixes will be linked even without complete word matches.')
+                .setName(t('Match the end of words'))
+                .setDesc(t('When enabled, word suffixes will be linked even without complete word matches.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.matchEndOfWords).onChange(async (value) => {
                         await this.plugin.updateSettings({ matchEndOfWords: value });
@@ -1660,8 +1661,8 @@ class LinkerSettingTab extends PluginSettingTab {
         // Toggle setting to suppress suffix for sub words
         if (this.plugin.settings.matchAnyPartsOfWords || this.plugin.settings.matchBeginningOfWords) {
             new Setting(containerEl)
-                .setName('Suppress suffix for sub words')
-                .setDesc('When enabled, the link suffix will only be shown for complete word matches, not partial matches.')
+                .setName(t('Suppress suffix for sub words'))
+                .setDesc(t('When enabled, the link suffix will only be shown for complete word matches, not partial matches.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.suppressSuffixForSubWords).onChange(async (value) => {
                         await this.plugin.updateSettings({ suppressSuffixForSubWords: value });
@@ -1672,9 +1673,9 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Toggle setting to exclude links in the current line start for fixing IME
             new Setting(containerEl)
-                .setName('Fix ime typing issues')
+                .setName(t('Fix ime typing issues'))
                 .setDesc(
-                    'This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.'
+                t('This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.')
                 )
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
@@ -1686,8 +1687,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Toggle setting to exclude links in the current line
             new Setting(containerEl)
-                .setName('Avoid linking in current line')
-                .setDesc('If activated, there will be no links in the current line.')
+                .setName(t('Avoid linking in current line'))
+                .setDesc(t('If activated, there will be no links in the current line.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksInCurrentLine).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksInCurrentLine: value });
@@ -1696,8 +1697,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Input for setting the word boundary regex
             // new Setting(containerEl)
-            // 	.setName('Word boundary regex')
-            // 	.setDesc('The regex for the word boundary. This regex is used to find the beginning and end of a word. It is used to find the boundaries of the words to match. Defaults to /[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u to catch most word boundaries.')
+            // 	.setName(t('Word boundary regex'))
+            // 	.setDesc(t('The regex for the word boundary. This regex is used to find the beginning and end of a word. It is used to find the boundaries of the words to match. Defaults to /[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u to catch most word boundaries.'))
             // 	.addText((text) =>
             // 		text
             // 			.setValue(this.plugin.settings.wordBoundaryRegex)
@@ -1711,12 +1712,12 @@ class LinkerSettingTab extends PluginSettingTab {
             // 	);
         }
 
-        new Setting(containerEl).setName('Case sensitivity').setHeading();
+        new Setting(containerEl).setName(t('Case sensitivity')).setHeading();
 
         // Toggle setting for case sensitivity
         new Setting(containerEl)
-            .setName('Case sensitive')
-            .setDesc('If activated, the matching is case sensitive.')
+            .setName(t('Case sensitive'))
+            .setDesc(t('If activated, the matching is case sensitive.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.matchCaseSensitive).onChange(async (value) => {
                     await this.plugin.updateSettings({ matchCaseSensitive: value });
@@ -1727,9 +1728,9 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Number input setting for capital letter proportion for automatic match case
             new Setting(containerEl)
-                .setName('Capital letter percentage for automatic match case')
+                .setName(t('Capital letter percentage for automatic match case'))
                 .setDesc(
-                    'The percentage (0 - 100) of capital letters in a file name or alias to be automatically considered as case sensitive.'
+                t('The percentage (0 - 100) of capital letters in a file name or alias to be automatically considered as case sensitive.')
                 )
                 .addText((text) =>
                     text
@@ -1751,8 +1752,8 @@ class LinkerSettingTab extends PluginSettingTab {
             if (this.plugin.settings.matchCaseSensitive) {
                 // Text setting for tag to ignore case
                 new Setting(containerEl)
-                    .setName('Tag to ignore case')
-                    .setDesc('By adding this tag to a file, the linker will ignore the case for the file.')
+                    .setName(t('Tag to ignore case'))
+                    .setDesc(t('By adding this tag to a file, the linker will ignore the case for the file.'))
                     .addText((text) =>
                         text.setValue(this.plugin.settings.tagToIgnoreCase).onChange(async (value) => {
                             await this.plugin.updateSettings({ tagToIgnoreCase: value });
@@ -1761,8 +1762,8 @@ class LinkerSettingTab extends PluginSettingTab {
             } else {
                 // Text setting for tag to match case
                 new Setting(containerEl)
-                    .setName('Tag to match case')
-                    .setDesc('By adding this tag to a file, the linker will match the case for the file.')
+                    .setName(t('Tag to match case'))
+                    .setDesc(t('By adding this tag to a file, the linker will match the case for the file.'))
                     .addText((text) =>
                         text.setValue(this.plugin.settings.tagToMatchCase).onChange(async (value) => {
                             await this.plugin.updateSettings({ tagToMatchCase: value });
@@ -1772,9 +1773,9 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Text setting for property name to ignore case
             new Setting(containerEl)
-                .setName('Property name to ignore case')
+                .setName(t('Property name to ignore case'))
                 .setDesc(
-                    'By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases. This way you can decide, which alias should be insensitive.'
+                t('By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases. This way you can decide, which alias should be insensitive.')
                 )
                 .addText((text) =>
                     text.setValue(this.plugin.settings.propertyNameToIgnoreCase).onChange(async (value) => {
@@ -1784,9 +1785,9 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Text setting for property name to match case
             new Setting(containerEl)
-                .setName('Property name to match case')
+                .setName(t('Property name to match case'))
                 .setDesc(
-                    'By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases. This way you can decide, which alias should be case sensitive.'
+                t('By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases. This way you can decide, which alias should be case sensitive.')
                 )
                 .addText((text) =>
                     text.setValue(this.plugin.settings.propertyNameToMatchCase).onChange(async (value) => {
@@ -1795,11 +1796,11 @@ class LinkerSettingTab extends PluginSettingTab {
                 );
         }
 
-        new Setting(containerEl).setName('Matched files').setHeading();
+        new Setting(containerEl).setName(t('Matched files')).setHeading();
 
         new Setting(containerEl)
-            .setName('Include all files')
-            .setDesc('Include all files for the virtual linker.')
+            .setName(t('Include all files'))
+            .setDesc(t('Include all files for the virtual linker.'))
             .addToggle((toggle) =>
                 toggle
                     // .setValue(true)
@@ -1812,8 +1813,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         if (!this.plugin.settings.includeAllFiles) {
             new Setting(containerEl)
-                .setName('Glossary linker directories')
-                .setDesc('Directories to include for the virtual linker (separated by new lines).')
+                .setName(t('Glossary linker directories'))
+                .setDesc(t('Directories to include for the virtual linker (separated by new lines).'))
                     .addTextArea((text) => {
                         let setValue = '';
                         try {
@@ -1838,9 +1839,9 @@ class LinkerSettingTab extends PluginSettingTab {
         } else {
             if (this.plugin.settings.advancedSettings) {
                 new Setting(containerEl)
-                    .setName('Excluded directories')
+                    .setName(t('Excluded directories'))
                     .setDesc(
-                        'Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.'
+                t('Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.')
                     )
                     .addTextArea((text) => {
                         let setValue = '';
@@ -1869,8 +1870,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.advancedSettings) {
             // Text setting for tag to include file
             new Setting(containerEl)
-                .setName('Tag to include file')
-                .setDesc('Tag to explicitly include the file for the linker.')
+                .setName(t('Tag to include file'))
+                .setDesc(t('Tag to explicitly include the file for the linker.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.tagToIncludeFile).onChange(async (value) => {
                         await this.plugin.updateSettings({ tagToIncludeFile: value });
@@ -1879,8 +1880,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Text setting for tag to ignore file
             new Setting(containerEl)
-                .setName('Tag to ignore file')
-                .setDesc('Tag to ignore the file for the linker.')
+                .setName(t('Tag to ignore file'))
+                .setDesc(t('Tag to ignore the file for the linker.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.tagToExcludeFile).onChange(async (value) => {
                         await this.plugin.updateSettings({ tagToExcludeFile: value });
@@ -1889,8 +1890,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Toggle setting to exclude links to the active file
             new Setting(containerEl)
-                .setName('Exclude self-links to the current note')
-                .setDesc('If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.')
+                .setName(t('Exclude self-links to the current note'))
+                .setDesc(t('If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
@@ -1899,8 +1900,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Setting to exclude directories from the linker to be executed
             new Setting(containerEl)
-                .setName('Excluded directories for generating virtual links')
-                .setDesc('Directories in which the plugin will not create virtual links (separated by new lines).')
+                .setName(t('Excluded directories for generating virtual links'))
+                .setDesc(t('Directories in which the plugin will not create virtual links (separated by new lines).'))
                 .addTextArea((text) => {
                     let setValue = '';
                     try {
@@ -1925,8 +1926,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Add setting for excluded keywords
             new Setting(containerEl)
-                .setName('Excluded keywords')
-                .setDesc('Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.')
+                .setName(t('Excluded keywords'))
+                .setDesc(t('Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.'))
                 .addTextArea(text => {
                     text.setValue(this.plugin.settings.excludedKeywords.join(','))
                         .onChange(async value => {
@@ -1940,8 +1941,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Add setting for excluded file extensions
             new Setting(containerEl)
-                .setName('Excluded file extensions')
-                .setDesc('File extensions to exclude from virtual linking (one per line or comma separated)')
+                .setName(t('Excluded file extensions'))
+                .setDesc(t('File extensions to exclude from virtual linking (one per line or comma separated)'))
                 .addTextArea(text => {
                     text.setValue(this.plugin.settings.excludedExtensions.join('\n'))
                         .onChange(async value => {
@@ -1957,8 +1958,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Header auto-append suffix
         new Setting(containerEl)
-            .setName('Auto-insert symbol into headers')
-            .setDesc('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.')
+            .setName(t('Auto-insert symbol into headers'))
+            .setDesc(t('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
@@ -1968,8 +1969,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         if (this.plugin.settings.headerAutoAppendSuffix) {
             new Setting(containerEl)
-                .setName('Header marker symbol')
-                .setDesc('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.')
+                .setName(t('Header marker symbol'))
+                .setDesc(t('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.headerAutoAppendSymbol).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerAutoAppendSymbol: value });
@@ -1977,12 +1978,12 @@ class LinkerSettingTab extends PluginSettingTab {
                 );
         }
 
-        new Setting(containerEl).setName('Link style').setHeading();
+        new Setting(containerEl).setName(t('Link style')).setHeading();
 
         // Toggle setting for alternative display style (wavy underline + comment folding)
         new Setting(containerEl)
-            .setName('Alternative display style')
-            .setDesc('When enabled, strikethrough is replaced with wavy underline, and %%comments%% are collapsed into small dots that expand on the active line.')
+            .setName(t('Alternative display style'))
+            .setDesc(t('When enabled, strikethrough is replaced with wavy underline, and %%comments%% are collapsed into small dots that expand on the active line.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.alternativeDisplayStyle).onChange(async (value) => {
                     await this.plugin.updateSettings({ alternativeDisplayStyle: value });
@@ -1995,8 +1996,8 @@ class LinkerSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName('Always show multiple references')
-            .setDesc('If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.')
+            .setName(t('Always show multiple references'))
+            .setDesc(t('If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.alwaysShowMultipleReferences).onChange(async (value) => {
                     await this.plugin.updateSettings({ alwaysShowMultipleReferences: value });
@@ -2004,16 +2005,16 @@ class LinkerSettingTab extends PluginSettingTab {
             );
 
         new Setting(containerEl)
-            .setName('Virtual link suffix')
-            .setDesc('The suffix to add to auto generated virtual links.')
+            .setName(t('Virtual link suffix'))
+            .setDesc(t('The suffix to add to auto generated virtual links.'))
             .addText((text) =>
                 text.setValue(this.plugin.settings.virtualLinkSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ virtualLinkSuffix: value });
                 })
             );
         new Setting(containerEl)
-            .setName('Virtual link suffix for aliases')
-            .setDesc('The suffix to add to auto generated virtual links for aliases.')
+            .setName(t('Virtual link suffix for aliases'))
+            .setDesc(t('The suffix to add to auto generated virtual links for aliases.'))
             .addText((text) =>
                 text.setValue(this.plugin.settings.virtualLinkAliasSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ virtualLinkAliasSuffix: value });
@@ -2022,9 +2023,9 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Toggle setting to apply default link styling
         new Setting(containerEl)
-            .setName('Apply default link styling')
+            .setName(t('Apply default link styling'))
             .setDesc(
-                'If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)'
+                t('If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)')
             )
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.applyDefaultLinkStyling).onChange(async (value) => {
@@ -2035,8 +2036,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
         // Toggle setting to use default link style for conversion
         new Setting(containerEl)
-            .setName('Use default link style for conversion')
-            .setDesc('If toggled, the default link style will be used for the conversion of virtual links to real links.')
+            .setName(t('Use default link style for conversion'))
+            .setDesc(t('If toggled, the default link style will be used for the conversion of virtual links to real links.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.useDefaultLinkStyleForConversion).onChange(async (value) => {
                     await this.plugin.updateSettings({ useDefaultLinkStyleForConversion: value });
@@ -2047,8 +2048,8 @@ class LinkerSettingTab extends PluginSettingTab {
         if (!this.plugin.settings.useDefaultLinkStyleForConversion) {
             // Toggle setting to use markdown links
             new Setting(containerEl)
-                .setName('Use [[wikilinks]]')
-                .setDesc('If toggled, the virtual links will be created as wikilinks instead of Markdown links.')
+                .setName(t('Use [[wikilinks]]'))
+                .setDesc(t('If toggled, the virtual links will be created as wikilinks instead of Markdown links.'))
                 .addToggle((toggle) =>
                     toggle.setValue(!this.plugin.settings.useMarkdownLinks).onChange(async (value) => {
                         await this.plugin.updateSettings({ useMarkdownLinks: !value });
@@ -2057,8 +2058,8 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // Dropdown setting for link format
             new Setting(containerEl)
-                .setName('Link format')
-                .setDesc('The format of the generated links.')
+                .setName(t('Link format'))
+                .setDesc(t('The format of the generated links.'))
                 .addDropdown((dropdown) =>
                     dropdown
                         .addOption('shortest', 'Shortest')

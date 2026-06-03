@@ -1,0 +1,109 @@
+const lang = window.localStorage.getItem('language') || 'en';
+
+// Simplified Chinese locale - mapping English text to Chinese
+const zhCN: Record<string, string> = {
+    'Matching behavior': '匹配行为',
+    'Case sensitivity': '大小写',
+    'Matched files': '匹配文件',
+    'Link style': '链接样式',
+
+    'Auto-toggle activation status by mode': '按模式自动切换激活状态',
+    'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
+    'Activate virtual linker': '激活虚拟链接',
+    'Show advanced settings': '显示高级设置',
+
+    'Include aliases': '包含别名',
+    'If enabled, the virtual linker will also match file aliases.': '启用后，虚拟链接也会匹配文件的别名。',
+    'Only link once': '仅链接一次',
+    'When enabled, identical terms in the same note will only be linked once.': '启用后，同一笔记中相同的词只会被链接一次。',
+    'Exclude links to real linked files': '排除已手动链接的文件',
+    'When enabled, terms that are already manually linked in the note will not be auto-linked.': '启用后，笔记中已存在的手动链接不会被自动链接。',
+
+    'Include headers': '包含标题',
+    'When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.': '启用后，Markdown 标题（以 # 开头的行）也会被包含在虚拟链接中。',
+    'Enable header symbol keywords': '启用标题符号关键词',
+    'When enabled, text between start and end symbols in headers will be used as virtual link keywords.': '启用后，标题中起止符号之间的文本将被用作虚拟链接关键词。',
+    'Start symbol': '起始符号',
+    'Symbol marking the start of the keyword in headers. Must be different from end symbol.': '标记标题中关键词起始位置的符号。必须与结束符号不同。',
+    'End symbol': '结束符号',
+    'Symbol marking the end of the keyword in headers. Must be different from start symbol.': '标记标题中关键词结束位置的符号。必须与起始符号不同。',
+    'Only match headers between symbols': '仅匹配含符号的标题',
+    'When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.': '启用后，只有包含起止符号的标题才会产生虚拟链接。无标记的标题不会产生虚拟链接。',
+    'Allow virtual links in headers': '允许标题中的虚拟链接',
+    'When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.': '启用后，虚拟链接将显示在 Markdown 标题中。默认关闭以避免格式混乱。',
+
+    'Match any part of a word': '匹配单词的任意部分',
+    'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',
+    'Match the beginning of words': '匹配单词开头',
+    'When enabled, word prefixes will be linked even without complete word matches.': '启用后，单词前缀即使不是完整匹配也会被链接。',
+    'Match the end of words': '匹配单词结尾',
+    'When enabled, word suffixes will be linked even without complete word matches.': '启用后，单词后缀即使不是完整匹配也会被链接。',
+    'Suppress suffix for sub words': '部分匹配时不显示后缀',
+    'When enabled, the link suffix will only be shown for complete word matches, not partial matches.': '启用后，链接后缀仅对完整单词匹配显示，部分匹配不显示。',
+
+    'Fix ime typing issues': '修复输入法问题',
+    'This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.': '使用输入法输入中文、日文、韩文等非拉丁文字时推荐开启，可防止虚拟链接干扰行首的输入法组合。',
+    'Avoid linking in current line': '当前行不显示链接',
+    'If activated, there will be no links in the current line.': '启用后，当前行不会显示任何虚拟链接。',
+
+    'Case sensitive': '区分大小写',
+    'If activated, the matching is case sensitive.': '启用后，匹配将区分大小写。',
+    'Capital letter percentage for automatic match case': '自动区分大小写的大写比例',
+    'The percentage (0 - 100) of capital letters in a file name or alias to be automatically considered as case sensitive.': '文件名或别名中大写字母的百分比（0-100），超过此阈值将自动视为区分大小写。',
+    'Tag to ignore case': '忽略大小写的标签',
+    'By adding this tag to a file, the linker will ignore the case for the file.': '给文件添加此标签后，该文件的匹配将不区分大小写。',
+    'Tag to match case': '区分大小写的标签',
+    'By adding this tag to a file, the linker will match the case for the file.': '给文件添加此标签后，该文件的匹配将区分大小写。',
+    'Property name to ignore case': '忽略大小写的属性名',
+    'By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将不区分大小写。',
+    'Property name to match case': '区分大小写的属性名',
+    'By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将区分大小写。',
+
+    'Include all files': '包含所有文件',
+    'Include all files for the virtual linker.': '为虚拟链接包含所有文件。',
+    'Glossary linker directories': '词库目录',
+    'Directories to include for the virtual linker (separated by new lines).': '虚拟链接要包含的目录（每行一个）。',
+    'Excluded directories': '排除的目录',
+    'Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.': '虚拟链接要排除的目录（每行一个）。这些目录中的文件不会在其他文件中创建虚拟链接。',
+    'Tag to include file': '包含文件的标签',
+    'Tag to explicitly include the file for the linker.': '给文件添加此标签后，该文件将被显式包含。',
+    'Tag to ignore file': '排除文件的标签',
+    'Tag to ignore the file for the linker.': '给文件添加此标签后，该文件将被排除。',
+    'Exclude self-links to the current note': '排除指向自身的链接',
+    'If toggled, links to the note itself are excluded from the linker.': '启用后，指向当前笔记自身的链接将被排除。',
+    'Excluded directories for generating virtual links': '不生成链接的目录',
+    'Directories in which the plugin will not create virtual links (separated by new lines).': '这些目录中不会生成虚拟链接（每行一个）。',
+    'Excluded keywords': '排除的关键词',
+    'Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.': '要排除的关键词（逗号分隔）。匹配这些关键词的文件、别名或标题不会被链接。',
+    'Excluded file extensions': '排除的文件扩展名',
+    'File extensions to exclude from virtual linking (one per line or comma separated)': '要排除的文件扩展名（每行一个或逗号分隔）',
+
+    'Auto-insert symbol into headers': '自动插入标题符号',
+    'When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.': '启用后，将在新建或修改的标题文本前自动插入一个独特符号，防止被正文意外匹配。',
+    'Header marker symbol': '标题标记符号',
+    'The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.': '放置在标题文本前的符号（在 # 之后、内容之前）。使用一个在正文中罕见的字符。',
+
+    'Alternative display style': '替代显示样式',
+    'When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.': '启用后，删除线被替换为下划线，%%注释%%折叠为小圆点，光标所在行自动展开。',
+    'Always show multiple references': '始终显示多个引用',
+    'If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.': '启用后，当存在多个匹配笔记时，所有引用都会显示在匹配项后面。关闭时仅在悬停时显示。',
+    'Virtual link suffix': '虚拟链接后缀',
+    'The suffix to add to auto generated virtual links.': '自动生成的虚拟链接后添加的后缀。',
+    'Virtual link suffix for aliases': '别名虚拟链接后缀',
+    'The suffix to add to auto generated virtual links for aliases.': '别名自动生成的虚拟链接后添加的后缀。',
+    'Apply default link styling': '应用默认链接样式',
+    'If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)': '启用后，默认链接样式将应用于虚拟链接。你也可以通过 CSS 代码片段自行设置 `virtual-link` 类的样式。',
+    'Use default link style for conversion': '转换时使用默认链接样式',
+    'If toggled, the default link style will be used for the conversion of virtual links to real links.': '启用后，将虚拟链接转换为真实链接时将使用默认链接样式。',
+    'Use [[wikilinks]]': '使用 [[双链]]',
+    'If toggled, the virtual links will be created as wikilinks instead of Markdown links.': '启用后，虚拟链接将使用双链格式而非 Markdown 链接格式。',
+    'Link format': '链接格式',
+    'The format of the generated links.': '生成链接的格式。',
+};
+
+export function t(text: string): string {
+    if (lang === 'zh' || lang === 'zh-cn') {
+        return zhCN[text] || text;
+    }
+    return text;
+}
