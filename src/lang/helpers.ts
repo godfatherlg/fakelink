@@ -1,4 +1,5 @@
-const lang = window.localStorage.getItem('language') || 'en';
+// Detect language via Obsidian's global moment, not localStorage
+const lang = (window as any).moment?.locale?.() || 'en';
 
 // Simplified Chinese locale - mapping English text to Chinese
 const zhCN: Record<string, string> = {
