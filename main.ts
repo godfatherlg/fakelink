@@ -1526,6 +1526,14 @@ class LinkerSettingTab extends PluginSettingTab {
             new Notice('Fake Link: ON');
         }
         app.commands.executeCommandById('app:reload-plugins');
+
+        // Force refresh views after toggle
+        setTimeout(() => {
+            app.workspace.getLeavesOfType('markdown').forEach(l => {
+                const s = l.getViewState();
+                l.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
+            });
+        }, 200);
     } catch (e) {
         new Notice('Fake Link: toggle failed, check console');
     }
