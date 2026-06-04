@@ -1525,21 +1525,20 @@ class LinkerSettingTab extends PluginSettingTab {
             await pm.enablePlugin(id);
             new Notice('Fake Link: ON');
         }
-        app.commands.executeCommandById('app:reload-plugins');
 
-        // Force refresh Markdown and Canvas views after toggle
-        setTimeout(async () => {
-            const types = ['markdown', 'canvas'];
-            const leaves = types.flatMap(t => app.workspace.getLeavesOfType(t));
-            for (const leaf of leaves) {
-                try {
-                    const s = leaf.getViewState();
-                    await leaf.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
-                } catch (_) {}
-            }
-            app.workspace.trigger('layout-change');
-            app.workspace.activeLeaf?.rebuildView();
-        }, 200);
+        // Force refresh views first, then reload plugins
+        const types = ['markdown', 'canvas'];
+        const leaves = types.flatMap(t => app.workspace.getLeavesOfType(t));
+        for (const leaf of leaves) {
+            try {
+                const s = leaf.getViewState();
+                await leaf.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
+            } catch (_) {}
+        }
+        app.workspace.trigger('layout-change');
+        app.workspace.activeLeaf?.rebuildView();
+
+        app.commands.executeCommandById('app:reload-plugins');
     } catch (e) {
         new Notice('Fake Link: toggle failed, check console');
     }
