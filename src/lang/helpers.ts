@@ -11,6 +11,7 @@ const zhCN: Record<string, string> = {
     'Auto-toggle activation status by mode': '按模式自动切换激活状态',
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
     'Activate virtual linker': '激活虚拟链接',
+    'Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.': '由于表格和 Canvas 渲染问题，如需完全开关虚拟链接渲染，请使用 Quick Add 或第三方插件来完全开启/关闭 Fake Link 插件。',
     'Show advanced settings': '显示高级设置',
 
     'Include aliases': '包含别名',
@@ -23,7 +24,7 @@ const zhCN: Record<string, string> = {
     'Include headers': '包含标题',
     'When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.': '启用后，Markdown 标题（以 # 开头的行）也会被包含在虚拟链接中。',
     'Enable header symbol keywords': '启用标题符号关键词',
-    'When enabled, text between start and end symbols in headers will be used as virtual link keywords.': '启用后，标题中起止符号之间的文本将被用作虚拟链接关键词。',
+    'When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.': '启用后，标题中起止符号之间的文本将被用作虚拟链接关键词。推荐使用 EasyTyping 等工具选中文字并添加对应符号。',
     'Start symbol': '起始符号',
     'Symbol marking the start of the keyword in headers. Must be different from end symbol.': '标记标题中关键词起始位置的符号。必须与结束符号不同。',
     'End symbol': '结束符号',

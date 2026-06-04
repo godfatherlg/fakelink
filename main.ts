@@ -1500,7 +1500,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Add auto mode toggle setting item
         new Setting(containerEl)
             .setName(t('Auto-toggle activation status by mode'))
-            .setDesc(t('Auto-toggle activation status by mode_desc'))
+            .setDesc(t('When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active'))
             .addToggle(toggle => 
                 toggle
                     .setValue(this.plugin.settings.autoToggleByMode)
@@ -1513,7 +1513,10 @@ class LinkerSettingTab extends PluginSettingTab {
 
 
         // Toggle to activate or deactivate the linker
-        new Setting(containerEl).setName(t('Activate virtual linker')).addToggle((toggle) =>
+        new Setting(containerEl)
+            .setName(t('Activate virtual linker'))
+            .setDesc(t('Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.'))
+            .addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
                 await this.plugin.updateSettings({ linkerActivated: value });
             })
@@ -1574,7 +1577,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Enable header symbol keywords
         new Setting(containerEl)
             .setName(t('Enable header symbol keywords'))
-            .setDesc(t('When enabled, text between start and end symbols in headers will be used as virtual link keywords.'))
+            .setDesc(t('When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerMatchSymbols: value });
