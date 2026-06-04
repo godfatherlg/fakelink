@@ -1527,12 +1527,18 @@ class LinkerSettingTab extends PluginSettingTab {
         }
         app.commands.executeCommandById('app:reload-plugins');
 
-        // Force refresh views after toggle
-        setTimeout(() => {
-            app.workspace.getLeavesOfType('markdown').forEach(l => {
-                const s = l.getViewState();
-                l.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
-            });
+        // Force refresh Markdown and Canvas views after toggle
+        setTimeout(async () => {
+            const types = ['markdown', 'canvas'];
+            const leaves = types.flatMap(t => app.workspace.getLeavesOfType(t));
+            for (const leaf of leaves) {
+                try {
+                    const s = leaf.getViewState();
+                    await leaf.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
+                } catch (_) {}
+            }
+            app.workspace.trigger('layout-change');
+            app.workspace.activeLeaf?.rebuildView();
         }, 200);
     } catch (e) {
         new Notice('Fake Link: toggle failed, check console');
