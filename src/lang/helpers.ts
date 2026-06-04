@@ -12,6 +12,8 @@ const zhCN: Record<string, string> = {
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
     'Activate virtual linker': '激活虚拟链接',
     'Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.': '由于表格和 Canvas 渲染问题，如需完全开关虚拟链接渲染，请使用 Quick Add 或第三方插件来完全开启/关闭 Fake Link 插件。',
+    'Copy Quick Add script': '复制 Quick Add 脚本',
+    'Quick Add script copied to clipboard!': 'Quick Add 脚本已复制到剪贴板！',
     'Show advanced settings': '显示高级设置',
 
     'Include aliases': '包含别名',

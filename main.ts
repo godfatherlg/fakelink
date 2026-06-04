@@ -1,4 +1,4 @@
-import { App, EditorPosition, MarkdownView, Menu, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { App, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -1513,6 +1513,24 @@ class LinkerSettingTab extends PluginSettingTab {
 
 
         // Toggle to activate or deactivate the linker
+        const quickAddCode = `module.exports = async (params) => {
+    const id = 'fakelink';
+    const pm = app.plugins;
+
+    try {
+        if (pm.enabledPlugins.has(id)) {
+            await pm.disablePlugin(id);
+            new Notice('Fake Link: OFF');
+        } else {
+            await pm.enablePlugin(id);
+            new Notice('Fake Link: ON');
+        }
+        app.commands.executeCommandById('app:reload-plugins');
+    } catch (e) {
+        new Notice('Fake Link: toggle failed, check console');
+    }
+};`;
+
         new Setting(containerEl)
             .setName(t('Activate virtual linker'))
             .setDesc(t('Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.'))
@@ -1520,7 +1538,15 @@ class LinkerSettingTab extends PluginSettingTab {
             toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
                 await this.plugin.updateSettings({ linkerActivated: value });
             })
-        );
+            )
+            .addExtraButton((button) => 
+                button.setTooltip(t('Copy Quick Add script'))
+                    .setIcon('clipboard-copy')
+                    .onClick(async () => {
+                        await navigator.clipboard.writeText(quickAddCode);
+                        new Notice(t('Quick Add script copied to clipboard!'));
+                    })
+            );
 
         // Toggle to show advanced settings
         new Setting(containerEl).setName(t('Show advanced settings')).addToggle((toggle) =>
