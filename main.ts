@@ -1980,10 +1980,10 @@ class LinkerSettingTab extends PluginSettingTab {
 
         new Setting(containerEl).setName(t('Link style')).setHeading();
 
-        // Toggle setting for alternative display style (wavy underline + comment folding)
+        // Toggle setting for alternative display style (underline + comment folding)
         new Setting(containerEl)
             .setName(t('Alternative display style'))
-            .setDesc(t('When enabled, strikethrough is replaced with wavy underline, and %%comments%% are collapsed into small dots that expand on the active line.'))
+            .setDesc(t('When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.alternativeDisplayStyle).onChange(async (value) => {
                     await this.plugin.updateSettings({ alternativeDisplayStyle: value });
