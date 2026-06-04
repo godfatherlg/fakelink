@@ -103,7 +103,7 @@ const zhCN: Record<string, string> = {
 };
 
 export function t(text: string): string {
-    if (lang === 'zh' || lang === 'zh-cn') {
+    if (lang && lang.toLowerCase().startsWith('zh')) {
         return zhCN[text] || text;
     }
     return text;
