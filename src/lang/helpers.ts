@@ -57,8 +57,10 @@ const zhCN: Record<string, string> = {
     'By adding this tag to a file, the linker will match the case for the file.': '给文件添加此标签后，该文件的匹配将区分大小写。',
     'Property name to ignore case': '忽略大小写的属性名',
     'By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将不区分大小写。',
+    'By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases. This way you can decide, which alias should be insensitive.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将不区分大小写。',
     'Property name to match case': '区分大小写的属性名',
     'By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将区分大小写。',
+    'By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases. This way you can decide, which alias should be case sensitive.': '在笔记中添加此属性（包含名称列表），指定的名称/别名将区分大小写。',
 
     'Include all files': '包含所有文件',
     'Include all files for the virtual linker.': '为虚拟链接包含所有文件。',
@@ -72,6 +74,7 @@ const zhCN: Record<string, string> = {
     'Tag to ignore the file for the linker.': '给文件添加此标签后，该文件将被排除。',
     'Exclude self-links to the current note': '排除指向自身的链接',
     'If toggled, links to the note itself are excluded from the linker.': '启用后，指向当前笔记自身的链接将被排除。',
+    'If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.': '启用后，指向当前笔记自身的链接将被排除。',
     'Excluded directories for generating virtual links': '不生成链接的目录',
     'Directories in which the plugin will not create virtual links (separated by new lines).': '这些目录中不会生成虚拟链接（每行一个）。',
     'Excluded keywords': '排除的关键词',
