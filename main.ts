@@ -307,7 +307,7 @@ function handleTableCellConversion(targetElement: Element, app: App, settings: L
                 updateManager.update();
 
                 // Add post-execution verification
-                activeWindow.setTimeout(() => {
+                window.setTimeout(() => {
                     editor.getLine(fromPos.line);
                 }, 100);
             } else {
@@ -958,7 +958,7 @@ export default class LinkerPlugin extends Plugin {
                         editor.replaceRange(replacement.text, fromPos, toPos);
                         
                         // Wait a bit and check again (to catch async issues)
-                        activeWindow.setTimeout(() => {
+                        window.setTimeout(() => {
                         }, 100);
                         
                         // If we're in table and verification fails, try alternative approach
@@ -1068,7 +1068,7 @@ export default class LinkerPlugin extends Plugin {
                         virtualLinkSpan.classList.add('virtual-link-hover-lock');
                         
                         // Set timer to remove lock class
-                        activeWindow.setTimeout(() => {
+                        window.setTimeout(() => {
                             virtualLinkSpan.classList.remove('virtual-link-hover-lock');
                         }, 3000); // Remove after 3 seconds to balance operation time and UI responsiveness
                     }
