@@ -1265,10 +1265,10 @@ export default class LinkerPlugin extends Plugin {
 
                             // Add the tag to the file
                             const fileCache = app.metadataCache.getFileCache(targetFile);
-                            const frontmatter = fileCache?.frontmatter || {};
+                            const frontmatter = fileCache?.frontmatter || {} as Record<string, unknown>;
 
                             const tag = settings.tagToExcludeFile;
-                            let tags = frontmatter['tags'];
+                            let tags: string[] | string = frontmatter['tags'] as string[] | string;
 
                             if (typeof tags === 'string') {
                                 tags = [tags];
@@ -1317,10 +1317,10 @@ export default class LinkerPlugin extends Plugin {
 
                             // Add the tag to the file
                             const fileCache = app.metadataCache.getFileCache(targetFile);
-                            const frontmatter = fileCache?.frontmatter || {};
+                            const frontmatter = fileCache?.frontmatter || {} as Record<string, unknown>;
 
                             const tag = settings.tagToIncludeFile;
-                            let tags = frontmatter['tags'];
+                            let tags: string[] | string = frontmatter['tags'] as string[] | string;
 
                             if (typeof tags === 'string') {
                                 tags = [tags];
@@ -1445,9 +1445,9 @@ export default class LinkerPlugin extends Plugin {
         // We also Cannot use the vault API because it only reads the vault files not the .obsidian folder
         try {
             const fileContent = await this.app.vault.adapter.read(this.app.vault.configDir + '/app.json');
-            const appSettings = JSON.parse(fileContent);
-            this.settings.defaultUseMarkdownLinks = appSettings.useMarkdownLinks;
-            this.settings.defaultLinkFormat = appSettings.newLinkFormat ?? 'shortest';
+            const appSettings: { useMarkdownLinks?: boolean; newLinkFormat?: string } = JSON.parse(fileContent);
+            this.settings.defaultUseMarkdownLinks = appSettings.useMarkdownLinks ?? false;
+            this.settings.defaultLinkFormat = (appSettings.newLinkFormat ?? 'shortest') as 'shortest' | 'relative' | 'absolute';
         } catch {
             // Set default values
             this.settings.defaultUseMarkdownLinks = false;

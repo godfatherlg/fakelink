@@ -331,7 +331,7 @@ export class PrefixTree {
         }
 
         const metadata = this.app.metadataCache.getFileCache(file);
-        let aliases: string[] = metadata?.frontmatter?.aliases ?? [];
+        let aliases: string[] = (metadata?.frontmatter?.aliases as string[]) ?? [];
         
         // Get headers from metadata cache
         let headers: string[] = [];
@@ -377,8 +377,8 @@ export class PrefixTree {
             }
         }
 
-        let aliasesWithMatchCase: Set<string> = new Set(metadata?.frontmatter?.[this.settings.propertyNameToMatchCase] ?? []);
-        let aliasesWithIgnoreCase: Set<string> = new Set(metadata?.frontmatter?.[this.settings.propertyNameToIgnoreCase] ?? []);
+        let aliasesWithMatchCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToMatchCase] as string[]) ?? []);
+        let aliasesWithIgnoreCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToIgnoreCase] as string[]) ?? []);
 
         // If aliases is not an array, convert it to an array
         if (!Array.isArray(aliases)) {
