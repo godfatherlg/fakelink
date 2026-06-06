@@ -1615,6 +1615,14 @@ class LinkerSettingTab extends PluginSettingTab {
                 toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerMatchSymbols: value });
                 })
+            )
+            .addExtraButton((button) =>
+                button.setTooltip(t('Copy EasyTyping template'))
+                    .setIcon('clipboard-copy')
+                    .onClick(async () => {
+                        await navigator.clipboard.writeText('⟦${0:${SEL}}⟧');
+                        new Notice(t('EasyTyping template copied to clipboard!'));
+                    })
             );
 
         if (this.plugin.settings.headerMatchSymbols) {
@@ -1650,7 +1658,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Toggle to allow virtual links in headers
         new Setting(containerEl)
             .setName(t('Allow virtual links in headers'))
-            .setDesc(t('When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.'))
+            .setDesc(t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.allowLinksInHeaders).onChange(async (value) => {
                     await this.plugin.updateSettings({ allowLinksInHeaders: value });

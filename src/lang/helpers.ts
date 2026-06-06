@@ -14,6 +14,8 @@ const zhCN: Record<string, string> = {
     'Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.': '由于表格和 Canvas 渲染问题，如需完全开关虚拟链接渲染，请使用 Quick Add 或第三方插件来完全开启/关闭 Fake Link 插件。',
     'Copy Quick Add script': '复制 Quick Add 脚本',
     'Quick Add script copied to clipboard!': 'Quick Add 脚本已复制到剪贴板！',
+    'Copy EasyTyping template': '复制 EasyTyping 模板',
+    'EasyTyping template copied to clipboard!': 'EasyTyping 模板已复制到剪贴板！',
     'Show advanced settings': '显示高级设置',
 
     'Include aliases': '包含别名',
@@ -34,7 +36,7 @@ const zhCN: Record<string, string> = {
     'Only match headers between symbols': '仅匹配含符号的标题',
     'When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.': '启用后，只有包含起止符号的标题才会产生虚拟链接。无标记的标题不会产生虚拟链接。',
     'Allow virtual links in headers': '允许标题中的虚拟链接',
-    'When enabled, virtual links will be displayed inside Markdown headings. Disabled by default to avoid formatting clutter.': '启用后，虚拟链接将显示在 Markdown 标题中。默认关闭以避免格式混乱。',
+    'When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.': '启用后，虚拟链接将显示在 Markdown 标题中。可以配合 Quick Switcher++ 进行标题的检索使用。',
 
     'Match any part of a word': '匹配单词的任意部分',
     'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',
