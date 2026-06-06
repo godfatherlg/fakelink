@@ -1561,13 +1561,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     })
             );
 
-        // Toggle to show advanced settings
-        new Setting(containerEl).setName(t('Show advanced settings')).addToggle((toggle) =>
-            toggle.setValue(this.plugin.settings.advancedSettings).onChange(async (value) => {
-                await this.plugin.updateSettings({ advancedSettings: value });
-                this.display();
-            })
-        );
+
 
         new Setting(containerEl).setName(t('Matching behavior')).setHeading();
 
@@ -1620,7 +1614,6 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerMatchSymbols: value });
-                    this.display();
                 })
             );
 
@@ -1640,7 +1633,6 @@ class LinkerSettingTab extends PluginSettingTab {
                 .addText((text) =>
                     text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
                         await this.plugin.updateSettings({ headerMatchEndSymbol: value });
-                        this.display();
                     })
                 );
 
@@ -1672,7 +1664,6 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.matchAnyPartsOfWords).onChange(async (value) => {
                     await this.plugin.updateSettings({ matchAnyPartsOfWords: value });
-                    this.display();
                 })
             );
 
@@ -1684,7 +1675,6 @@ class LinkerSettingTab extends PluginSettingTab {
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.matchBeginningOfWords).onChange(async (value) => {
                         await this.plugin.updateSettings({ matchBeginningOfWords: value });
-                        this.display();
                     })
                 );
 
@@ -1695,7 +1685,6 @@ class LinkerSettingTab extends PluginSettingTab {
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.matchEndOfWords).onChange(async (value) => {
                         await this.plugin.updateSettings({ matchEndOfWords: value });
-                        this.display();
                     })
                 );
         }
@@ -1763,7 +1752,6 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.matchCaseSensitive).onChange(async (value) => {
                     await this.plugin.updateSettings({ matchCaseSensitive: value });
-                    this.display();
                 })
             );
 
@@ -1849,7 +1837,6 @@ class LinkerSettingTab extends PluginSettingTab {
                     .setValue(this.plugin.settings.includeAllFiles)
                     .onChange(async (value) => {
                         await this.plugin.updateSettings({ includeAllFiles: value });
-                        this.display();
                     })
             );
 
@@ -2005,7 +1992,6 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
-                    this.display();
                 })
             );
 
@@ -2084,7 +2070,6 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.useDefaultLinkStyleForConversion).onChange(async (value) => {
                     await this.plugin.updateSettings({ useDefaultLinkStyleForConversion: value });
-                    this.display();
                 })
             );
 
