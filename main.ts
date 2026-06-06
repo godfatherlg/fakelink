@@ -650,8 +650,8 @@ export default class LinkerPlugin extends Plugin {
         }
 
         // Listen for view changes
-        this.registerEvent(this.app.workspace.on('layout-change', this.handleLayoutChange.bind(this)));
-        this.registerEvent(this.app.workspace.on('active-leaf-change', this.handleLayoutChange.bind(this)));
+        this.registerEvent(this.app.workspace.on('layout-change', () => { void this.handleLayoutChange(); }));
+        this.registerEvent(this.app.workspace.on('active-leaf-change', () => { void this.handleLayoutChange(); }));
 
         // Set callback to update the cache when the settings are changed
         this.updateManager.registerCallback(() => {
@@ -1279,17 +1279,17 @@ export default class LinkerPlugin extends Plugin {
                             }
 
                             if (!tags.includes(tag)) {
-                                await app.fileManager.processFrontMatter(targetFile, (frontMatter) => {
+                                await app.fileManager.processFrontMatter(targetFile, (frontMatter: Record<string, unknown> & { tags?: string[] | Set<string> }) => {
                                     if (!frontMatter.tags) {
-                                        frontMatter.tags = new Set();
+                                        frontMatter.tags = new Set<string>();
                                     }
-                                    const currentTags = [...frontMatter.tags];
+                                    const currentTags = [...frontMatter.tags] as string[];
 
                                     frontMatter.tags = new Set([...currentTags, tag]);
 
                                     // Remove include tag if it exists
                                     const includeTag = settings.tagToIncludeFile;
-                                    if (frontMatter.tags.has(includeTag)) {
+                                    if (frontMatter.tags instanceof Set && frontMatter.tags.has(includeTag)) {
                                         frontMatter.tags.delete(includeTag);
                                     }
                                 }).catch(() => {});
@@ -1331,17 +1331,17 @@ export default class LinkerPlugin extends Plugin {
                             }
 
                             if (!tags.includes(tag)) {
-                                await app.fileManager.processFrontMatter(targetFile, (frontMatter) => {
+                                await app.fileManager.processFrontMatter(targetFile, (frontMatter: Record<string, unknown> & { tags?: string[] | Set<string> }) => {
                                     if (!frontMatter.tags) {
-                                        frontMatter.tags = new Set();
+                                        frontMatter.tags = new Set<string>();
                                     }
-                                    const currentTags = [...frontMatter.tags];
+                                    const currentTags = [...frontMatter.tags] as string[];
 
                                     frontMatter.tags = new Set([...currentTags, tag]);
 
                                     // Remove exclude tag if it exists
                                     const excludeTag = settings.tagToExcludeFile;
-                                    if (frontMatter.tags.has(excludeTag)) {
+                                    if (frontMatter.tags instanceof Set && frontMatter.tags.has(excludeTag)) {
                                         frontMatter.tags.delete(excludeTag);
                                     }
                                 }).catch(() => {});
@@ -1437,7 +1437,7 @@ export default class LinkerPlugin extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<LinkerPluginSettings>);
 
         // Load markdown links from obsidian settings
         // At the moment obsidian does not provide a clean way to get the settings through an API
