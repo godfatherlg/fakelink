@@ -646,7 +646,7 @@ export default class LinkerPlugin extends Plugin {
 
         // Apply alternative display style body class based on settings
         if (this.settings.alternativeDisplayStyle) {
-            document.body.classList.add('virtual-linker-alt-style');
+            activeWindow.document.body.classList.add('virtual-linker-alt-style');
         }
 
         // Listen for view changes
@@ -1419,7 +1419,7 @@ export default class LinkerPlugin extends Plugin {
             const originalText = anchor?.getAttribute('origin-text') || anchor?.textContent || '';
             if (originalText) {
                 // Replace virtual link element with text node
-                const textNode = document.createTextNode(originalText);
+                const textNode = activeDocument.createTextNode(originalText);
                 link.replaceWith(textNode);
             } else {
                 // Delete if no text found
@@ -2029,10 +2029,11 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.alternativeDisplayStyle).onChange(async (value) => {
                     await this.plugin.updateSettings({ alternativeDisplayStyle: value });
+                    const doc = this.containerEl.ownerDocument;
                     if (value) {
-                        document.body.classList.add('virtual-linker-alt-style');
+                        doc.body.classList.add('virtual-linker-alt-style');
                     } else {
-                        document.body.classList.remove('virtual-linker-alt-style');
+                        doc.body.classList.remove('virtual-linker-alt-style');
                     }
                 })
             );
