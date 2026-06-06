@@ -1445,7 +1445,7 @@ export default class LinkerPlugin extends Plugin {
         // We also Cannot use the vault API because it only reads the vault files not the .obsidian folder
         try {
             const fileContent = await this.app.vault.adapter.read(this.app.vault.configDir + '/app.json');
-            const appSettings: { useMarkdownLinks?: boolean; newLinkFormat?: string } = JSON.parse(fileContent);
+            const appSettings = JSON.parse(fileContent) as { useMarkdownLinks?: boolean; newLinkFormat?: string };
             this.settings.defaultUseMarkdownLinks = appSettings.useMarkdownLinks ?? false;
             this.settings.defaultLinkFormat = (appSettings.newLinkFormat ?? 'shortest') as 'shortest' | 'relative' | 'absolute';
         } catch {
