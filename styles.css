@@ -382,7 +382,7 @@ body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link,
 body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-span,
 body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
   font-size: inherit;
-  color: inherit;
+  color: #409eff;
 }
 
 /* 6. (Optional) If you want expand on hover, replace the active-line version above with these */
