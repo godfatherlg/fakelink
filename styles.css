@@ -369,7 +369,7 @@ body.virtual-linker-alt-style .cm-line:not(.cm-active) .cm-comment .virtual-link
 /* 5. When on active line: restore comment text and hide dot */
 .virtual-linker-alt-style .cm-line.cm-active .cm-comment {
   font-size: inherit;
-  color: var(--text-faint);
+  color: var(--text-normal);
 }
 .virtual-linker-alt-style .cm-line.cm-active .cm-comment:not(.cm-formatting)::before {
   display: none;
@@ -389,8 +389,7 @@ body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
 /*
 .virtual-linker-alt-style .cm-line:hover .cm-comment {
   font-size: inherit;
-  color: var(--text-faint);
-}
+  color: var(--text-normal);
 .virtual-linker-alt-style .cm-line:hover .cm-comment:not(.cm-formatting)::before {
   display: none;
 }
