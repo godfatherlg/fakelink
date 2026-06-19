@@ -107,6 +107,8 @@ export class PrefixTree {
 
     getCurrentMatchNodes(index: number, excludedNote?: TFile | null, specificFile?: TFile): MatchNode[] {
         const matchNodes: MatchNode[] = [];
+        // Track total unique files across all match types for early exit
+        const allFiles = new Set<TFile>();
 
         if (excludedNote === undefined && this.settings.excludeLinksToOwnNote) {
             excludedNote = this.app.workspace.getActiveFile();
@@ -124,6 +126,11 @@ export class PrefixTree {
                 matchNode.files = new Set(Array.from(node.node.files).filter((file) => file.path === specificFile.path));
             } else {
                 matchNode.files = new Set(Array.from(node.node.files).filter((file) => !excludedNote || file.path !== excludedNote.path));
+            }
+            // Early exit: if total files from all types exceed threshold, skip this keyword entirely
+            matchNode.files.forEach(f => allFiles.add(f));
+            if (this.settings.maxReferencesToHideLink > 0 && allFiles.size > this.settings.maxReferencesToHideLink) {
+                return [];
             }
             matchNode.value = node.node.value;
             matchNode.requiresCaseMatch = node.node.requiresCaseMatch;
