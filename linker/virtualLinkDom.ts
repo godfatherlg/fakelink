@@ -49,15 +49,34 @@ export class VirtualMatch {
     // DOM methods
 
     getCompleteLinkElement(inTableCellEditor = false) {
+        // Hide link if total matches exceed threshold
+        if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
+            const emptySpan = activeDocument.createElement('span');
+            emptySpan.textContent = this.originText;
+            return emptySpan;
+        }
+
+        // Sort files: Note → Alias → Header
+        const sortedFiles = [...this.files].sort((a, b) => {
+            const typeA = this.getFileTypeOrder(a);
+            const typeB = this.getFileTypeOrder(b);
+            return typeA - typeB;
+        });
+
+        // Limit visible files
+        const visibleFiles = this.settings.maxReferenceCount > 0
+            ? sortedFiles.slice(0, this.settings.maxReferenceCount)
+            : sortedFiles;
+
         const span = this.getLinkRootSpan(inTableCellEditor);
-        const firstFile = this.files.length > 0 ? this.files[0] : undefined;
+        const firstFile = visibleFiles.length > 0 ? visibleFiles[0] : undefined;
         const firstPath = firstFile ? getLinkpath(firstFile.path) : "";
         span.appendChild(this.getLinkAnchorElement(this.originText, firstPath, firstFile));
-        if (this.files.length > 1) {
+        if (visibleFiles.length > 1) {
             if (!this.isSubWord) {
                 span.appendChild(this.getMultipleReferencesIndicatorSpan());
             }
-            span.appendChild(this.getMultipleReferencesSpan());
+            span.appendChild(this.getMultipleReferencesSpan(visibleFiles));
         }
 
         if (!this.isSubWord || !this.settings.suppressSuffixForSubWords) {
@@ -65,6 +84,16 @@ export class VirtualMatch {
             if (icon) span.appendChild(icon);
         }
         return span;
+    }
+
+    // Get sort order for file type: 0=Note, 1=Alias, 2=Header
+    private getFileTypeOrder(file: TFile): number {
+        if (this.fileHeaderIds.has(file.path)) return 2; // Header
+        // Check if file basename matches (Note match)
+        const keyword = this.originText;
+        if (file.basename.toLowerCase() === keyword.toLowerCase()) return 0;
+        if (file.basename.includes(keyword)) return 0;
+        return 1; // Alias
     }
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {

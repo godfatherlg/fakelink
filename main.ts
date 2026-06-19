@@ -540,6 +540,8 @@ export interface LinkerPluginSettings {
     onlyLinkOnce: boolean;
     excludeLinksToRealLinkedFiles: boolean;
     includeAliases: boolean;
+    maxReferenceCount: number; // Max number of references to show
+    maxReferencesToHideLink: number; // Hide link when total references exceed this
     alwaysShowMultipleReferences: boolean;
     excludedKeywords: string[]; // Keywords to exclude from virtual linking
     headerAutoAppendSuffix: boolean; // Auto-append suffix to new headers
@@ -590,6 +592,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     onlyLinkOnce: false,
     excludeLinksToRealLinkedFiles: false,
     includeAliases: true,
+    maxReferenceCount: 5,
+    maxReferencesToHideLink: 10,
     alwaysShowMultipleReferences: false,
     excludedKeywords: [],
     headerAutoAppendSuffix: true,
@@ -1750,6 +1754,34 @@ class LinkerSettingTab extends PluginSettingTab {
             // 			})
             // 	);
         }
+
+        // Max references to show in virtual link suffix
+        new Setting(containerEl)
+            .setName(t('Maximum references to show'))
+            .setDesc(t('The maximum number of reference markers [1][2]... shown after a virtual link.'))
+            .addText((text) => {
+                text.setValue(String(this.plugin.settings.maxReferenceCount)).onChange(async (value) => {
+                    const n = parseInt(value);
+                    if (n > 0) await this.plugin.updateSettings({ maxReferenceCount: n });
+                });
+                text.inputEl.type = 'number';
+                text.inputEl.min = '1';
+                text.inputEl.max = '20';
+            });
+
+        // Hide link when references exceed threshold
+        new Setting(containerEl)
+            .setName(t('Hide link when references exceed'))
+            .setDesc(t('When the total number of matching files (names + aliases + headers) exceeds this threshold, the virtual link will not be displayed.'))
+            .addText((text) => {
+                text.setValue(String(this.plugin.settings.maxReferencesToHideLink)).onChange(async (value) => {
+                    const n = parseInt(value);
+                    if (n > 0) await this.plugin.updateSettings({ maxReferencesToHideLink: n });
+                });
+                text.inputEl.type = 'number';
+                text.inputEl.min = '1';
+                text.inputEl.max = '50';
+            });
 
         new Setting(containerEl).setName(t('Case sensitivity')).setHeading();
 
