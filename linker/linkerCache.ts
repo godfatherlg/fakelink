@@ -28,7 +28,7 @@ export class PrefixNode {
     children: Map<string, PrefixNode> = new Map();
     files: Set<TFile> = new Set();
     charValue: string = '';
-    value: string = '';
+    depth: number = 0;
     requiresCaseMatch: boolean = false;
 }
 
@@ -115,11 +115,12 @@ export class PrefixTree {
         }
 
         for (const node of this._currentNodes) {
-            if (node.node.files.size === 0 || this.isExcluded(node.node.value)) {
+            const valueString = this.getNodeValue(node.node);
+            if (node.node.files.size === 0 || this.isExcluded(valueString)) {
                 continue;
             }
             const matchNode = new MatchNode();
-            matchNode.length = node.node.value.length + node.formattingDelta;
+            matchNode.length = node.node.depth + node.formattingDelta;
             matchNode.start = index - matchNode.length;
             // If a specific file is specified, only include that file
             if (specificFile) {
@@ -132,12 +133,12 @@ export class PrefixTree {
             if (this.settings.maxReferencesToHideLink > 0 && allFiles.size > this.settings.maxReferencesToHideLink) {
                 return [];
             }
-            matchNode.value = node.node.value;
+            matchNode.value = valueString;
             matchNode.requiresCaseMatch = node.node.requiresCaseMatch;
 
             // Determine match type
             const fileNames = Array.from(matchNode.files).map((file) => file.basename);
-            const nodeValue = node.node.value;
+            const nodeValue = valueString;
             
             if (fileNames.map((n) => n.toLowerCase()).includes(nodeValue.toLowerCase())) {
                 matchNode.type = MatchType.Note;  // Matches note name
@@ -260,7 +261,7 @@ export class PrefixTree {
                 child = new PrefixNode();
                 child.parent = node;
                 child.charValue = char;
-                child.value = node.value + char;
+                child.depth = node.depth + 1;
                 node.children.set(char, child);
             }
             node = child;
@@ -276,6 +277,17 @@ export class PrefixTree {
         // console.log("Adding file", file, name);
     }
 
+    // Reconstruct full string by walking parent chain — replaces stored node.value
+    private getNodeValue(node: PrefixNode): string {
+        const chars: string[] = [];
+        let current: PrefixNode | undefined = node;
+        while (current && current !== this.root) {
+            if (current.charValue) chars.push(current.charValue);
+            current = current.parent;
+        }
+        return chars.reverse().join('');
+    }
+
     private static isNoneEmptyString(this: void, value: string | null | undefined): value is string {
         return value !== null && value !== undefined && typeof value === 'string' && value.trim().length > 0;
     }
@@ -286,7 +298,9 @@ export class PrefixTree {
         }
 
         const length = value.length;
-        const upperCaseChars = value.split('').filter((char) => char === char.toUpperCase()).length;
+        const upperCaseChars = [...value].filter(
+            (char) => char.toLowerCase() !== char.toUpperCase() && char === char.toUpperCase()
+        ).length;
 
         return upperCaseChars / length >= upperCasePart;
     }
@@ -536,6 +550,8 @@ export class PrefixTree {
         // Remove files that are no longer in the vault
         const filesToRemove = [...this.setIndexedFilePaths].filter((f) => !currentVaultFiles.has(f));
         filesToRemove.forEach((f) => this.removeFileFromTree(f));
+
+        console.log(`[FakeLink] indexed ${this.setIndexedFilePaths.size} files`);
     }
 
     findFiles(prefix: string): Set<TFile> {
