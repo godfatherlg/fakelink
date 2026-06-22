@@ -659,8 +659,8 @@ export default class LinkerPlugin extends Plugin {
 
         // Apply color-only display mode
         if (this.settings.colorOnlyDisplay) {
-            activeDocument.body.classList.add('virtual-link-color-only');
-            activeDocument.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
+            activeWindow.document.body.classList.add('virtual-link-color-only');
+            activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
         }
 
         // Listen for view changes
@@ -2065,24 +2065,25 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.colorOnlyDisplay).onChange(async (value) => {
                     await this.plugin.updateSettings({ colorOnlyDisplay: value });
+                    const doc = this.containerEl.ownerDocument;
                     if (value) {
-                        activeDocument.body.classList.add('virtual-link-color-only');
-                        activeDocument.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
+                        doc.body.classList.add('virtual-link-color-only');
+                        doc.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
                     } else {
-                        activeDocument.body.classList.remove('virtual-link-color-only');
-                        activeDocument.body.style.removeProperty('--virtual-link-color');
+                        doc.body.classList.remove('virtual-link-color-only');
+                        doc.body.style.removeProperty('--virtual-link-color');
                     }
                 })
             );
 
         new Setting(containerEl)
             .setName(t('Virtual link color'))
-            .setDesc(t('Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled.'))
+            .setDesc(t('Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled. (Restart plugin to apply)'))
             .addText((text) => {
                 text.setValue(this.plugin.settings.virtualLinkColor).onChange(async (value) => {
                     await this.plugin.updateSettings({ virtualLinkColor: value });
                     if (this.plugin.settings.colorOnlyDisplay) {
-                        activeDocument.body.style.setProperty('--virtual-link-color', value);
+                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-color', value);
                     }
                 });
                 text.inputEl.placeholder = '#409eff';

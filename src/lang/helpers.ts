@@ -99,7 +99,7 @@ const zhCN: Record<string, string> = {
     'Color-only display': '纯颜色显示',
     'When enabled, virtual links are shown in a custom text color instead of the default background shadow.': '启用后，虚拟链接以自定义文本颜色显示，而非默认背景阴影。',
     'Virtual link color': '虚拟链接颜色',
-    'Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled.': '自定义虚拟链接的 CSS 颜色（如 #409eff、var(--text-accent)）。仅在纯颜色显示模式下生效。',
+    'Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled. (Restart plugin to apply)': '自定义虚拟链接的 CSS 颜色（如 #409eff、var(--text-accent)）。仅在纯颜色显示模式下生效。（需重启插件生效）',
     'Alternative display style': '替代显示样式',
     'When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.': '启用后，删除线被替换为下划线，%%注释%%折叠为小圆点，光标所在行自动展开。',
     'Always show multiple references': '始终显示多个引用',
