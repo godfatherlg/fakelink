@@ -547,6 +547,8 @@ export interface LinkerPluginSettings {
     headerAutoAppendSuffix: boolean; // Auto-append suffix to new headers
     headerAutoAppendSymbol: string; // Symbol to append to headers
     allowLinksInHeaders: boolean; // Allow virtual links in headers
+    colorOnlyDisplay: boolean; // Use color-only display for virtual links
+    virtualLinkColor: string; // Custom color for virtual links in color-only mode
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -599,6 +601,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerAutoAppendSuffix: true,
     headerAutoAppendSymbol: '☱',
     allowLinksInHeaders: true,
+    colorOnlyDisplay: true,
+    virtualLinkColor: 'var(--text-accent)',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -651,6 +655,12 @@ export default class LinkerPlugin extends Plugin {
         // Apply alternative display style body class based on settings
         if (this.settings.alternativeDisplayStyle) {
             activeWindow.document.body.classList.add('virtual-linker-alt-style');
+        }
+
+        // Apply color-only display mode
+        if (this.settings.colorOnlyDisplay) {
+            document.body.classList.add('virtual-link-color-only');
+            document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
         }
 
         // Listen for view changes
@@ -2047,6 +2057,36 @@ class LinkerSettingTab extends PluginSettingTab {
         }
 
         new Setting(containerEl).setName(t('Link style')).setHeading();
+
+        // Color-only display mode for virtual links
+        new Setting(containerEl)
+            .setName(t('Color-only display'))
+            .setDesc(t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.colorOnlyDisplay).onChange(async (value) => {
+                    await this.plugin.updateSettings({ colorOnlyDisplay: value });
+                    if (value) {
+                        document.body.classList.add('virtual-link-color-only');
+                        document.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
+                    } else {
+                        document.body.classList.remove('virtual-link-color-only');
+                        document.body.style.removeProperty('--virtual-link-color');
+                    }
+                })
+            );
+
+        new Setting(containerEl)
+            .setName(t('Virtual link color'))
+            .setDesc(t('Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled.'))
+            .addText((text) => {
+                text.setValue(this.plugin.settings.virtualLinkColor).onChange(async (value) => {
+                    await this.plugin.updateSettings({ virtualLinkColor: value });
+                    if (this.plugin.settings.colorOnlyDisplay) {
+                        document.body.style.setProperty('--virtual-link-color', value);
+                    }
+                });
+                text.inputEl.placeholder = '#409eff';
+            });
 
         // Toggle setting for alternative display style (underline + comment folding)
         new Setting(containerEl)

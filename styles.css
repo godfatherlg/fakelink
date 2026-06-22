@@ -20,6 +20,25 @@
   filter: brightness(var(--virtual-link-opacity));
 }
 
+/* Color-only display mode: text color instead of background shadow */
+body.virtual-link-color-only .virtual-link-span {
+  background-color: transparent;
+}
+body.virtual-link-color-only .virtual-link-span,
+body.virtual-link-color-only .virtual-link-span a,
+body.virtual-link-color-only .virtual-link-default,
+body.virtual-link-color-only .virtual-link-header,
+body.virtual-link-color-only .virtual-link-span .internal-link,
+body.virtual-link-color-only .virtual-link-a {
+  color: var(--virtual-link-color);
+  filter: none;
+  opacity: 1;
+}
+body.virtual-link-color-only .virtual-link:hover .virtual-link-a,
+body.virtual-link-color-only .virtual-link-span:hover .virtual-link-a {
+  color: var(--virtual-link-color);
+}
+
 /* Preserve strikethrough in virtual links */
 .cm-strikethrough .virtual-link-span,
 .cm-strikethrough .virtual-link-span a,
