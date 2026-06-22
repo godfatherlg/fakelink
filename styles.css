@@ -373,11 +373,6 @@ body.virtual-linker-alt-style .markdown-preview-view strike .virtual-link-span::
   vertical-align: baseline;
 }
 
-/* In color-only mode, use the custom color for comment dot */
-body.virtual-link-color-only.virtual-linker-alt-style .cm-line .cm-comment:not(.cm-formatting)::before {
-  color: var(--virtual-link-color);
-}
-
 /* 2b. Subsequent non-formatting comment text no longer shows dot */
 .virtual-linker-alt-style .cm-line .cm-comment:not(.cm-formatting) ~ .cm-comment:not(.cm-formatting)::before {
   content: none;
@@ -420,11 +415,6 @@ body.virtual-linker-alt-style .cm-line:not(.cm-active) .cm-comment .virtual-link
   display: none;
 }
 
-/* In color-only mode, use custom color for expanded comment text */
-body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment {
-  color: var(--virtual-link-color);
-}
-
 /* 5b. When on active line: restore visibility of virtual links inside comment blocks */
 body.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment,
 body.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment .virtual-link-a,
@@ -435,15 +425,6 @@ body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
   color: #409eff;
   filter: none;
   opacity: 1;
-}
-
-/* Color-only mode: virtual links in comments use custom color */
-html body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment,
-html body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment .virtual-link-a,
-html body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link,
-html body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-span,
-html body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
-  color: var(--virtual-link-color);
 }
 
 /* 6. (Optional) If you want expand on hover, replace the active-line version above with these */
