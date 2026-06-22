@@ -21,7 +21,8 @@
 }
 
 /* Color-only display mode: text color instead of background shadow */
-body.virtual-link-color-only .virtual-link-span {
+body.virtual-link-color-only .virtual-link-span,
+body.virtual-link-color-only .virtual-link {
   background-color: transparent;
 }
 body.virtual-link-color-only .virtual-link-span,
@@ -29,13 +30,33 @@ body.virtual-link-color-only .virtual-link-span a,
 body.virtual-link-color-only .virtual-link-default,
 body.virtual-link-color-only .virtual-link-header,
 body.virtual-link-color-only .virtual-link-span .internal-link,
-body.virtual-link-color-only .virtual-link-a {
+body.virtual-link-color-only .virtual-link-a,
+body.virtual-link-color-only .virtual-link {
   color: var(--virtual-link-color);
   filter: none;
   opacity: 1;
 }
 body.virtual-link-color-only .virtual-link:hover .virtual-link-a,
 body.virtual-link-color-only .virtual-link-span:hover .virtual-link-a {
+  color: var(--virtual-link-color);
+}
+
+/* Color-only mode: override background in italic and table contexts */
+body.virtual-link-color-only .virtual-link.cm-em,
+body.virtual-link-color-only .cm-em .virtual-link,
+body.virtual-link-color-only .virtual-link-in-italic,
+body.virtual-link-color-only table th .virtual-link,
+body.virtual-link-color-only table th .virtual-link-span {
+  background-color: transparent;
+}
+/* Color-only mode: override brightness filter in table headers */
+body.virtual-link-color-only table th .virtual-link-span,
+body.virtual-link-color-only table th .virtual-link-span a,
+body.virtual-link-color-only table th .virtual-link-default,
+body.virtual-link-color-only table th .virtual-link-header,
+body.virtual-link-color-only table th .virtual-link-span .internal-link {
+  filter: none;
+  opacity: 1;
   color: var(--virtual-link-color);
 }
 
