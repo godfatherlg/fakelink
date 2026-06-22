@@ -659,8 +659,8 @@ export default class LinkerPlugin extends Plugin {
 
         // Apply color-only display mode
         if (this.settings.colorOnlyDisplay) {
-            document.body.classList.add('virtual-link-color-only');
-            document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
+            activeWindow.document.body.classList.add('virtual-link-color-only');
+            activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
         }
 
         // Listen for view changes
@@ -2065,12 +2065,13 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.colorOnlyDisplay).onChange(async (value) => {
                     await this.plugin.updateSettings({ colorOnlyDisplay: value });
+                    const doc = this.containerEl.ownerDocument;
                     if (value) {
-                        document.body.classList.add('virtual-link-color-only');
-                        document.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
+                        doc.body.classList.add('virtual-link-color-only');
+                        doc.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
                     } else {
-                        document.body.classList.remove('virtual-link-color-only');
-                        document.body.style.removeProperty('--virtual-link-color');
+                        doc.body.classList.remove('virtual-link-color-only');
+                        doc.body.style.removeProperty('--virtual-link-color');
                     }
                 })
             );
@@ -2082,7 +2083,7 @@ class LinkerSettingTab extends PluginSettingTab {
                 text.setValue(this.plugin.settings.virtualLinkColor).onChange(async (value) => {
                     await this.plugin.updateSettings({ virtualLinkColor: value });
                     if (this.plugin.settings.colorOnlyDisplay) {
-                        document.body.style.setProperty('--virtual-link-color', value);
+                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-color', value);
                     }
                 });
                 text.inputEl.placeholder = '#409eff';
