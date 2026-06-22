@@ -602,7 +602,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerAutoAppendSymbol: '☱',
     allowLinksInHeaders: true,
     colorOnlyDisplay: true,
-    virtualLinkColor: '#3a6b9c',
+    virtualLinkColor: '#517ea0',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
