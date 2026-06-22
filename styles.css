@@ -426,6 +426,15 @@ body.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
   filter: none;
   opacity: 1;
 }
+/* In color-only mode, virtual links inside comments show the custom link color */
+body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment,
+body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .virtual-link-in-comment .virtual-link-a,
+body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link,
+body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-span,
+body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-comment .virtual-link-a {
+  color: var(--virtual-link-color);
+  opacity: 1;
+}
 
 /* 6. (Optional) If you want expand on hover, replace the active-line version above with these */
 /*
