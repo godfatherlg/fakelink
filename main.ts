@@ -643,24 +643,29 @@ export default class LinkerPlugin extends Plugin {
         const doHighlight = (el: HTMLElement) => {
             el.style.transition = 'background-color 0.3s ease';
             el.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             setTimeout(() => {
                 el.style.backgroundColor = 'transparent';
             }, 2000);
+        };
+
+        const doScroll = (el: HTMLElement) => {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         };
 
         const tryHighlight = () => {
             retries++;
             const el = findHeading();
             if (el) {
-                // Wait for images to load, then highlight
+                // Highlight immediately
+                doHighlight(el);
+                // Wait for images to load, then scroll into position
                 const images = el.closest('.markdown-preview-view')?.querySelectorAll('img') ?? [];
                 if (images.length > 0) {
                     let loadedCount = 0;
                     const onLoad = () => {
                         loadedCount++;
                         if (loadedCount >= images.length) {
-                            doHighlight(el);
+                            doScroll(el);
                         }
                     };
                     images.forEach((img: HTMLImageElement) => {
@@ -672,12 +677,12 @@ export default class LinkerPlugin extends Plugin {
                         }
                     });
                     if (loadedCount >= images.length) {
-                        doHighlight(el);
+                        doScroll(el);
                     }
-                    // Fallback: highlight anyway after 2s even if images not loaded
-                    setTimeout(() => doHighlight(el), 2000);
+                    // Fallback: scroll after 2s even if images not loaded
+                    setTimeout(() => doScroll(el), 2000);
                 } else {
-                    doHighlight(el);
+                    doScroll(el);
                 }
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
