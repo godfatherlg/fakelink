@@ -162,9 +162,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             // Check parent elements for format context
                                             const parentEl = childNode.parentElement;
                                             if (parentEl) {
-                                                const _checkMatches: typeof HTMLElement.prototype.matches = parentEl.matches;
-                                                const _checkClosest: typeof HTMLElement.prototype.closest = parentEl.closest;
-
+                                                /* eslint-disable @typescript-eslint/no-unsafe-call */
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;
                                                 match.isItalicContext = parentEl.matches('em') || 
@@ -177,6 +175,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                     parentEl.closest('s') !== null;
                                                 match.isCommentContext = parentEl.matches('.cm-comment') ||
                                                     parentEl.closest('.cm-comment') !== null;
+                                                /* eslint-enable @typescript-eslint/no-unsafe-call */
                                                 match.isTripleStarContext = match.isBoldContext && 
                                                     match.isItalicContext;
                                             }
