@@ -807,6 +807,42 @@ export default class LinkerPlugin extends Plugin {
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
 
+        // Re-navigate after async content loads to reposition heading (click + Hover Editor)
+        this.registerEvent(this.app.workspace.on('file-open', () => {
+            const hash = window.location.hash;
+            if (!hash || !hash.startsWith('#') || hash.length <= 1) return;
+            const headingHash = hash;
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view) return;
+            const targetEl = view.contentEl;
+            let mutationTimer: ReturnType<typeof setTimeout> | null = null;
+            let settled = false;
+            const observer = new MutationObserver(() => {
+                if (settled) return;
+                if (mutationTimer) clearTimeout(mutationTimer);
+                mutationTimer = setTimeout(() => {
+                    settled = true;
+                    observer.disconnect();
+                    const currentFile = this.app.workspace.getActiveFile();
+                    if (currentFile) {
+                        void this.app.workspace.openLinkText(currentFile.path + headingHash, '', false, { active: true });
+                    }
+                }, 500);
+            });
+            observer.observe(targetEl, { childList: true, subtree: true });
+            // Fallback after 3s
+            setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    observer.disconnect();
+                    const currentFile = this.app.workspace.getActiveFile();
+                    if (currentFile) {
+                        void this.app.workspace.openLinkText(currentFile.path + headingHash, '', false, { active: true });
+                    }
+                }
+            }, 3000);
+        }));
+
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
 
