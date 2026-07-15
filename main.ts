@@ -807,6 +807,23 @@ export default class LinkerPlugin extends Plugin {
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
 
+        // Re-navigate after async content loads for Hover Editor preview (file-open event)
+        this.registerEvent(this.app.workspace.on('file-open', () => {
+            const leaf = this.app.workspace.activeLeaf;
+            if (!leaf) return;
+            const vs = leaf.getViewState();
+            const heading = (vs as { state?: { eState?: { heading?: string } } }).state?.eState?.heading;
+            if (!heading) return;
+            const file = this.app.workspace.getActiveFile();
+            if (!file) return;
+            const refullPath = file.path + '#' + heading;
+            [500, 1500, 3000].forEach(delay => {
+                setTimeout(() => {
+                    void this.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                }, delay);
+            });
+        }));
+
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
 
