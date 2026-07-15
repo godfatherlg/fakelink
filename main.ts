@@ -618,13 +618,9 @@ export default class LinkerPlugin extends Plugin {
         return false;
     }
 
-    // Highlight heading and keep it centered by locking scroll offset
+    // Highlight heading with delayed scroll (wait for images to stabilize DOM)
     public highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
         let retries = 0;
-        let headingEl: HTMLElement | null = null;
-        let targetScrollTop = 0;
-        let scrollContainer: HTMLElement | null = null;
-        let keepLocked = true;
 
         const findHeading = (): HTMLElement | null => {
             const allLeaves = this.app.workspace.getLeavesOfType('markdown');
@@ -644,40 +640,45 @@ export default class LinkerPlugin extends Plugin {
             return null;
         };
 
-        const doHighlight = () => {
-            if (!headingEl) return;
-            headingEl.style.transition = 'background-color 0.3s ease';
-            headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
-            headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-
-            // Record target scroll position
-            scrollContainer = headingEl.closest('.markdown-preview-view, .markdown-source-view') as HTMLElement | null;
-            if (scrollContainer) {
-                targetScrollTop = scrollContainer.scrollTop;
-            }
-
-            // Lock scroll position: keep pulling back to target while images load
-            const lockLoop = () => {
-                if (!keepLocked || !scrollContainer || !headingEl || !document.body.contains(headingEl)) return;
-                if (Math.abs(scrollContainer.scrollTop - targetScrollTop) > 5) {
-                    scrollContainer.scrollTop = targetScrollTop;
-                }
-                if (keepLocked) requestAnimationFrame(lockLoop);
-            };
-            requestAnimationFrame(lockLoop);
-
-            // Release lock after timeout
+        const doHighlight = (el: HTMLElement) => {
+            el.style.transition = 'background-color 0.3s ease';
+            el.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             setTimeout(() => {
-                keepLocked = false;
-                if (headingEl) headingEl.style.backgroundColor = 'transparent';
-            }, 3000);
+                el.style.backgroundColor = 'transparent';
+            }, 2000);
         };
 
         const tryHighlight = () => {
             retries++;
-            headingEl = findHeading();
-            if (headingEl) {
-                doHighlight();
+            const el = findHeading();
+            if (el) {
+                // Wait for images to load, then highlight
+                const images = el.closest('.markdown-preview-view')?.querySelectorAll('img') ?? [];
+                if (images.length > 0) {
+                    let loadedCount = 0;
+                    const onLoad = () => {
+                        loadedCount++;
+                        if (loadedCount >= images.length) {
+                            doHighlight(el);
+                        }
+                    };
+                    images.forEach((img: HTMLImageElement) => {
+                        if (img.complete) {
+                            loadedCount++;
+                        } else {
+                            img.addEventListener('load', onLoad, { once: true });
+                            img.addEventListener('error', onLoad, { once: true });
+                        }
+                    });
+                    if (loadedCount >= images.length) {
+                        doHighlight(el);
+                    }
+                    // Fallback: highlight anyway after 2s even if images not loaded
+                    setTimeout(() => doHighlight(el), 2000);
+                } else {
+                    doHighlight(el);
+                }
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
             }
