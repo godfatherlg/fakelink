@@ -658,31 +658,34 @@ export default class LinkerPlugin extends Plugin {
             if (el) {
                 // Highlight immediately
                 doHighlight(el);
-                // Wait for images to load, then scroll into position
-                const images = el.closest('.markdown-preview-view')?.querySelectorAll('img') ?? [];
-                if (images.length > 0) {
-                    let loadedCount = 0;
-                    const onLoad = () => {
-                        loadedCount++;
-                        if (loadedCount >= images.length) {
-                            doScroll(el);
-                        }
-                    };
-                    images.forEach((img: HTMLImageElement) => {
-                        if (img.complete) {
-                            loadedCount++;
-                        } else {
-                            img.addEventListener('load', onLoad, { once: true });
-                            img.addEventListener('error', onLoad, { once: true });
-                        }
-                    });
-                    if (loadedCount >= images.length) {
+                // Scroll once right away
+                doScroll(el);
+
+                // Watch container height changes (covers images, PDF embeds, any async content)
+                const scrollContainer = el.closest('.markdown-preview-view, .cm-content') as HTMLElement | null;
+                if (scrollContainer) {
+                    let stableCount = 0;
+                    const STABLE_TARGET = 4;
+                    const resizeObserver = new ResizeObserver(() => {
                         doScroll(el);
-                    }
-                    // Fallback: scroll after 2s even if images not loaded
-                    setTimeout(() => doScroll(el), 2000);
-                } else {
-                    doScroll(el);
+                        stableCount = 0; // Reset — keep scrolling while layout shifts
+                    });
+                    resizeObserver.observe(scrollContainer);
+
+                    // After layout stabilizes (no resize for ~2s), stop observing
+                    const stabilityCheck = setInterval(() => {
+                        stableCount++;
+                        if (stableCount >= STABLE_TARGET) {
+                            resizeObserver.disconnect();
+                            clearInterval(stabilityCheck);
+                        }
+                    }, 500);
+
+                    // Safety: disconnect after 8s max
+                    setTimeout(() => {
+                        resizeObserver.disconnect();
+                        clearInterval(stabilityCheck);
+                    }, 8000);
                 }
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
