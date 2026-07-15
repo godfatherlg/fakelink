@@ -160,7 +160,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             }
                                         
                                             // Check parent elements for format context
-                                            const parentEl = childNode.parentElement;
+                                            const parentEl = childNode.parentElement as HTMLElement | null;
                                             if (parentEl) {
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;

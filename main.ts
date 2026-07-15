@@ -1297,7 +1297,7 @@ export default class LinkerPlugin extends Plugin {
                                     if (!frontMatter.tags) {
                                         frontMatter.tags = new Set<string>();
                                     }
-                                    const currentTags = [...frontMatter.tags] as string[];
+                                    const currentTags = [...frontMatter.tags];
 
                                     frontMatter.tags = new Set([...currentTags, tag]);
 
@@ -1349,7 +1349,7 @@ export default class LinkerPlugin extends Plugin {
                                     if (!frontMatter.tags) {
                                         frontMatter.tags = new Set<string>();
                                     }
-                                    const currentTags = [...frontMatter.tags] as string[];
+                                    const currentTags = [...frontMatter.tags];
 
                                     frontMatter.tags = new Set([...currentTags, tag]);
 
@@ -1494,6 +1494,7 @@ export default class LinkerPlugin extends Plugin {
         
         // Force refresh all views to ensure settings changes take effect immediately
         this.app.workspace.getLeavesOfType('markdown').forEach(leaf => {
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
             const view = leaf.view as MarkdownView;
             if (view.previewMode) {
                 view.previewMode.rerender(true);
