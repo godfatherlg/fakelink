@@ -86,7 +86,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 const item = index == nodeList.length ? this.containerEl : nodeList.item(index)!;
 
                 for (let childNodeIndex = 0; childNodeIndex < item.childNodes.length; childNodeIndex++) {
-                    const childNode = item.childNodes[childNodeIndex];
+                    const childNode = item.childNodes[childNodeIndex] as Node;
 
                     if (childNode.nodeType === Node.TEXT_NODE) {
                         let text = childNode.textContent || '';
@@ -160,7 +160,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             }
                                         
                                             // Check parent elements for format context
-                                            const parentEl = childNode.parentElement as HTMLElement | null;
+                                            const parentEl = childNode.parentElement;
                                             if (parentEl) {
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;

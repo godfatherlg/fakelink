@@ -1279,7 +1279,7 @@ export default class LinkerPlugin extends Plugin {
 
                             // Add the tag to the file
                             const fileCache = app.metadataCache.getFileCache(targetFile);
-                            const frontmatter = fileCache?.frontmatter || {} as Record<string, unknown>;
+                            const frontmatter = fileCache?.frontmatter ?? {};
 
                             const tag = settings.tagToExcludeFile;
                             let tags: string[] | string = frontmatter['tags'] as string[] | string;
@@ -1331,7 +1331,7 @@ export default class LinkerPlugin extends Plugin {
 
                             // Add the tag to the file
                             const fileCache = app.metadataCache.getFileCache(targetFile);
-                            const frontmatter = fileCache?.frontmatter || {} as Record<string, unknown>;
+                            const frontmatter = fileCache?.frontmatter ?? {};
 
                             const tag = settings.tagToIncludeFile;
                             let tags: string[] | string = frontmatter['tags'] as string[] | string;
@@ -1470,7 +1470,7 @@ export default class LinkerPlugin extends Plugin {
     }
 
     /** Update plugin settings. */
-    async updateSettings(settings: Partial<LinkerPluginSettings> = <Partial<LinkerPluginSettings>>{}) {
+    async updateSettings(settings: Partial<LinkerPluginSettings> = {}) {
         Object.assign(this.settings, settings);
         
         // Create a settings object copy without circular references
