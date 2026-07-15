@@ -138,7 +138,7 @@ export class VirtualMatch {
                 // Re-navigate after async content loads to reposition heading
                 if (headerIdToUse) {
                     const refullPath = fullPath;
-                    [500, 1500, 3000].forEach(delay => {
+                    [500, 3000, 6000].forEach(delay => {
                         window.setTimeout(() => {
                             void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
                         }, delay);
