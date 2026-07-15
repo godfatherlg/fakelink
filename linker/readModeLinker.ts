@@ -83,10 +83,10 @@ export class GlossaryLinker extends MarkdownRenderChild {
             // if (nodeList.length === 0) continue;
             // if (nodeList.length != 0) console.log(tag, nodeList.length);
             for (let index = 0; index <= nodeList.length; index++) {
-                const item: Node = index == nodeList.length ? this.containerEl : nodeList.item(index)!;
+                const item: Element = index == nodeList.length ? this.containerEl : nodeList.item(index)!;
 
                 for (let childNodeIndex = 0; childNodeIndex < item.childNodes.length; childNodeIndex++) {
-                    const childNode: Node = item.childNodes[childNodeIndex];
+                    const childNode = item.childNodes[childNodeIndex];
 
                     if (childNode.nodeType === Node.TEXT_NODE) {
                         let text = childNode.textContent || '';
@@ -160,7 +160,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             }
                                         
                                             // Check parent elements for format context
-                                            const parentEl = childNode.parentElement;
+                                            const parentEl: HTMLElement | null = childNode.parentElement;
                                             if (parentEl) {
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;
