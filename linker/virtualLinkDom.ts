@@ -1,6 +1,6 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { TFile, getLinkpath } from 'obsidian';
+import { MarkdownView, TFile, getLinkpath } from 'obsidian';
 import { MatchType } from './linkerCache';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -96,6 +96,46 @@ export class VirtualMatch {
         return 1; // Alias
     }
 
+    // Highlight heading with retry (for files with images or slow render)
+    private highlightHeadingWithRetry(headingId: string, delayMs: number, maxRetries: number) {
+        let retries = 0;
+        const tryHighlight = () => {
+            retries++;
+            // Find heading element in preview or editor mode
+            const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view) return;
+
+            let headingEl: HTMLElement | null = null;
+
+            // Try preview mode first
+            const previewContainer = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
+            if (previewContainer) {
+                const allHeadings = previewContainer.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                for (const h of Array.from(allHeadings)) {
+                    const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
+                    if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
+                        headingEl = h as HTMLElement;
+                        break;
+                    }
+                }
+            }
+
+            if (headingEl) {
+                // Scroll to heading
+                headingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Highlight just the heading line
+                headingEl.style.transition = 'background-color 0.3s ease';
+                headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
+                setTimeout(() => {
+                    headingEl!.style.backgroundColor = 'transparent';
+                }, 2000);
+            } else if (retries < maxRetries) {
+                setTimeout(tryHighlight, delayMs);
+            }
+        };
+        setTimeout(tryHighlight, delayMs);
+    }
+
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
         const link = activeDocument.createElement('a');
 
@@ -132,7 +172,12 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true }).then(() => {
+                    // After file opens, retry highlight until heading is found
+                    if (headerIdToUse) {
+                        this.highlightHeadingWithRetry(headerIdToUse, 300, 5);
+                    }
+                });
             }
 
             return false;
