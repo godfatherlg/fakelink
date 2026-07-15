@@ -160,8 +160,11 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             }
                                         
                                             // Check parent elements for format context
-                                            const parentEl: HTMLElement | null = childNode.parentElement;
+                                            const parentEl = childNode.parentElement;
                                             if (parentEl) {
+                                                const _checkMatches: typeof HTMLElement.prototype.matches = parentEl.matches;
+                                                const _checkClosest: typeof HTMLElement.prototype.closest = parentEl.closest;
+
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;
                                                 match.isItalicContext = parentEl.matches('em') || 
