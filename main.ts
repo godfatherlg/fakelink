@@ -618,31 +618,30 @@ export default class LinkerPlugin extends Plugin {
         return false;
     }
 
-    // Highlight heading with viewport tracking (shared between click and Hover Editor)
-    private highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
+    // Highlight heading with IntersectionObserver tracking (works with images pushing content)
+    public highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
         let retries = 0;
         let headingEl: HTMLElement | null = null;
-        let stabilityCount = 0;
-        const STABILITY_TARGET = 3;
+        let observer: IntersectionObserver | null = null;
+        let highlightTimer: ReturnType<typeof setTimeout> | null = null;
 
         const findHeading = (): HTMLElement | null => {
-            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-            if (!view) return null;
-            const container = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
-            if (!container) return null;
-            const allHeadings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
-            for (const h of Array.from(allHeadings)) {
-                const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
-                if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
-                    return h as HTMLElement;
+            // Search all leaves (including Hover Editor popovers)
+            const allLeaves = this.app.workspace.getLeavesOfType('markdown');
+            for (const leaf of allLeaves) {
+                const view = leaf.view;
+                if (!view || !(view instanceof MarkdownView)) continue;
+                const container = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
+                if (!container) continue;
+                const allHeadings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                for (const h of Array.from(allHeadings)) {
+                    const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
+                    if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
+                        return h as HTMLElement;
+                    }
                 }
             }
             return null;
-        };
-
-        const isInViewport = (el: HTMLElement): boolean => {
-            const rect = el.getBoundingClientRect();
-            return rect.bottom > 0 && rect.top < window.innerHeight;
         };
 
         const doHighlight = () => {
@@ -650,24 +649,24 @@ export default class LinkerPlugin extends Plugin {
             headingEl.style.transition = 'background-color 0.3s ease';
             headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
             headingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(() => {
-                if (headingEl) headingEl.style.backgroundColor = 'transparent';
-            }, 2500);
-        };
 
-        const trackAndReposition = () => {
-            if (!headingEl || !document.body.contains(headingEl)) {
-                headingEl = findHeading();
-                if (!headingEl) return;
-            }
-            if (isInViewport(headingEl)) {
-                stabilityCount++;
-                if (stabilityCount >= STABILITY_TARGET) return;
-            } else {
-                stabilityCount = 0;
-                headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-            }
-            setTimeout(trackAndReposition, 500);
+            // Use IntersectionObserver to track when heading leaves viewport
+            observer = new IntersectionObserver((entries) => {
+                for (const entry of entries) {
+                    if (!entry.isIntersecting && headingEl && document.body.contains(headingEl)) {
+                        // Heading pushed offscreen — scroll back
+                        headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+                    }
+                }
+            }, { threshold: 0.1 });
+
+            if (headingEl) observer.observe(headingEl);
+
+            // Clear highlight after delay
+            highlightTimer = setTimeout(() => {
+                if (headingEl) headingEl.style.backgroundColor = 'transparent';
+                if (observer) observer.disconnect();
+            }, 3000);
         };
 
         const tryHighlight = () => {
@@ -675,9 +674,12 @@ export default class LinkerPlugin extends Plugin {
             headingEl = findHeading();
             if (headingEl) {
                 doHighlight();
-                setTimeout(trackAndReposition, 500);
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
+            } else {
+                // Cleanup on failure
+                if (observer) observer.disconnect();
+                if (highlightTimer) clearTimeout(highlightTimer);
             }
         };
 

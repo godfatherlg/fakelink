@@ -96,80 +96,9 @@ export class VirtualMatch {
         return 1; // Alias
     }
 
-    // Highlight heading with retry and viewport tracking (for files with images)
+    // Highlight heading — delegates to LinkerPlugin's shared implementation
     private highlightHeadingWithRetry(headingId: string, delayMs: number, maxRetries: number) {
-        let retries = 0;
-        let headingEl: HTMLElement | null = null;
-        let stabilityCount = 0;
-        const STABILITY_TARGET = 3;
-
-        const findHeading = (): HTMLElement | null => {
-            const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-            if (!view) return null;
-
-            const previewContainer = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
-            if (!previewContainer) return null;
-
-            const allHeadings = previewContainer.querySelectorAll('h1, h2, h3, h4, h5, h6');
-            for (const h of Array.from(allHeadings)) {
-                const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
-                if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
-                    return h as HTMLElement;
-                }
-            }
-            return null;
-        };
-
-        const isInViewport = (el: HTMLElement): boolean => {
-            const rect = el.getBoundingClientRect();
-            return rect.bottom > 0 && rect.top < window.innerHeight;
-        };
-
-        const doHighlight = () => {
-            if (!headingEl) return;
-            headingEl.style.transition = 'background-color 0.3s ease';
-            headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
-            headingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            setTimeout(() => {
-                if (headingEl) headingEl.style.backgroundColor = 'transparent';
-            }, 2500);
-        };
-
-        const trackAndReposition = () => {
-            if (!headingEl || !document.body.contains(headingEl)) {
-                // Heading lost, try to find again
-                headingEl = findHeading();
-                if (!headingEl) return;
-            }
-
-            if (isInViewport(headingEl)) {
-                stabilityCount++;
-                if (stabilityCount >= STABILITY_TARGET) {
-                    // Stable — stop tracking
-                    return;
-                }
-            } else {
-                stabilityCount = 0;
-                headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-            }
-
-            setTimeout(trackAndReposition, 500);
-        };
-
-        const tryHighlight = () => {
-            retries++;
-            headingEl = findHeading();
-
-            if (headingEl) {
-                doHighlight();
-                // Start tracking: keep heading in viewport while images load
-                setTimeout(trackAndReposition, 500);
-            } else if (retries < maxRetries) {
-                setTimeout(tryHighlight, delayMs);
-            }
-        };
-
-        setTimeout(tryHighlight, delayMs);
+        this.plugin.highlightHeading(headingId, delayMs, maxRetries);
     }
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
