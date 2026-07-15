@@ -618,6 +618,72 @@ export default class LinkerPlugin extends Plugin {
         return false;
     }
 
+    // Highlight heading with viewport tracking (shared between click and Hover Editor)
+    private highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
+        let retries = 0;
+        let headingEl: HTMLElement | null = null;
+        let stabilityCount = 0;
+        const STABILITY_TARGET = 3;
+
+        const findHeading = (): HTMLElement | null => {
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (!view) return null;
+            const container = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
+            if (!container) return null;
+            const allHeadings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            for (const h of Array.from(allHeadings)) {
+                const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
+                if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
+                    return h as HTMLElement;
+                }
+            }
+            return null;
+        };
+
+        const isInViewport = (el: HTMLElement): boolean => {
+            const rect = el.getBoundingClientRect();
+            return rect.bottom > 0 && rect.top < window.innerHeight;
+        };
+
+        const doHighlight = () => {
+            if (!headingEl) return;
+            headingEl.style.transition = 'background-color 0.3s ease';
+            headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
+            headingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            setTimeout(() => {
+                if (headingEl) headingEl.style.backgroundColor = 'transparent';
+            }, 2500);
+        };
+
+        const trackAndReposition = () => {
+            if (!headingEl || !document.body.contains(headingEl)) {
+                headingEl = findHeading();
+                if (!headingEl) return;
+            }
+            if (isInViewport(headingEl)) {
+                stabilityCount++;
+                if (stabilityCount >= STABILITY_TARGET) return;
+            } else {
+                stabilityCount = 0;
+                headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+            }
+            setTimeout(trackAndReposition, 500);
+        };
+
+        const tryHighlight = () => {
+            retries++;
+            headingEl = findHeading();
+            if (headingEl) {
+                doHighlight();
+                setTimeout(trackAndReposition, 500);
+            } else if (retries < maxRetries) {
+                setTimeout(tryHighlight, delayMs);
+            }
+        };
+
+        setTimeout(tryHighlight, delayMs);
+    }
+
     public async handleLayoutChange() {
         if (!this.settings.autoToggleByMode) return;
         
@@ -806,6 +872,15 @@ export default class LinkerPlugin extends Plugin {
 
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
+
+        // Handle file-open to highlight target heading (works for direct click and Hover Editor preview)
+        this.registerEvent(this.app.workspace.on('file-open', () => {
+            const hash = window.location.hash;
+            if (hash && hash.startsWith('#') && hash.length > 1) {
+                const headingId = hash.slice(1);
+                this.highlightHeading(headingId);
+            }
+        }));
 
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
