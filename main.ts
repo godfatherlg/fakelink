@@ -618,15 +618,15 @@ export default class LinkerPlugin extends Plugin {
         return false;
     }
 
-    // Highlight heading with IntersectionObserver tracking (works with images pushing content)
+    // Highlight heading and keep it centered by locking scroll offset
     public highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
         let retries = 0;
         let headingEl: HTMLElement | null = null;
-        let observer: IntersectionObserver | null = null;
-        let highlightTimer: ReturnType<typeof setTimeout> | null = null;
+        let targetScrollTop = 0;
+        let scrollContainer: HTMLElement | null = null;
+        let keepLocked = true;
 
         const findHeading = (): HTMLElement | null => {
-            // Search all leaves (including Hover Editor popovers)
             const allLeaves = this.app.workspace.getLeavesOfType('markdown');
             for (const leaf of allLeaves) {
                 const view = leaf.view;
@@ -648,24 +648,28 @@ export default class LinkerPlugin extends Plugin {
             if (!headingEl) return;
             headingEl.style.transition = 'background-color 0.3s ease';
             headingEl.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
-            headingEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
 
-            // Use IntersectionObserver to track when heading leaves viewport
-            observer = new IntersectionObserver((entries) => {
-                for (const entry of entries) {
-                    if (!entry.isIntersecting && headingEl && document.body.contains(headingEl)) {
-                        // Heading pushed offscreen — scroll back
-                        headingEl.scrollIntoView({ behavior: 'auto', block: 'center' });
-                    }
+            // Record target scroll position
+            scrollContainer = headingEl.closest('.markdown-preview-view, .markdown-source-view') as HTMLElement | null;
+            if (scrollContainer) {
+                targetScrollTop = scrollContainer.scrollTop;
+            }
+
+            // Lock scroll position: keep pulling back to target while images load
+            const lockLoop = () => {
+                if (!keepLocked || !scrollContainer || !headingEl || !document.body.contains(headingEl)) return;
+                if (Math.abs(scrollContainer.scrollTop - targetScrollTop) > 5) {
+                    scrollContainer.scrollTop = targetScrollTop;
                 }
-            }, { threshold: 0.1 });
+                if (keepLocked) requestAnimationFrame(lockLoop);
+            };
+            requestAnimationFrame(lockLoop);
 
-            if (headingEl) observer.observe(headingEl);
-
-            // Clear highlight after delay
-            highlightTimer = setTimeout(() => {
+            // Release lock after timeout
+            setTimeout(() => {
+                keepLocked = false;
                 if (headingEl) headingEl.style.backgroundColor = 'transparent';
-                if (observer) observer.disconnect();
             }, 3000);
         };
 
@@ -676,10 +680,6 @@ export default class LinkerPlugin extends Plugin {
                 doHighlight();
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
-            } else {
-                // Cleanup on failure
-                if (observer) observer.disconnect();
-                if (highlightTimer) clearTimeout(highlightTimer);
             }
         };
 
