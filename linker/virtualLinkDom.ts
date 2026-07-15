@@ -134,11 +134,16 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true }).then(() => {
-                    if (headerIdToUse) {
-                        this.plugin.scrollToHeading(headerIdToUse);
-                    }
-                });
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
+                // Re-navigate after async content loads to reposition
+                if (headerIdToUse) {
+                    const refullPath = fullPath;
+                    [500, 1500, 3000].forEach(delay => {
+                        setTimeout(() => {
+                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                        }, delay);
+                    });
+                }
             }
 
             return false;
