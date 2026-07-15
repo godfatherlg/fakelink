@@ -162,6 +162,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             // Check parent elements for format context
                                             const parentEl = childNode.parentElement;
                                             if (parentEl) {
+                                                // HTMLElement.matches/closest are correctly typed,
+                                                // but @typescript-eslint/no-unsafe-call reports false positives.
                                                 /* eslint-disable @typescript-eslint/no-unsafe-call */
                                                 match.isBoldContext = parentEl.matches('strong') || 
                                                     parentEl.closest('strong') !== null;
