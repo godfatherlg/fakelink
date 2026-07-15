@@ -649,17 +649,7 @@ export default class LinkerPlugin extends Plugin {
         };
 
         const doScroll = (el: HTMLElement) => {
-            // Try Obsidian editor scroll first (works in live preview / source mode)
-            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-            if (view) {
-                const editorScrollEl = view.contentEl.querySelector('.cm-scroller');
-                if (editorScrollEl && editorScrollEl.contains(el)) {
-                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    return;
-                }
-            }
-            // Fallback: direct scrollIntoView
-            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.scrollIntoView({ behavior: 'auto', block: 'center' });
         };
 
         const tryHighlight = () => {
@@ -668,33 +658,22 @@ export default class LinkerPlugin extends Plugin {
             if (el) {
                 // Highlight immediately
                 doHighlight(el);
-                // Scroll once right away
+                // Re-scroll every second for 5 seconds — catches any layout shift
                 doScroll(el);
-
-                // Watch container height changes (covers images, PDF embeds, any async content)
-                const scrollContainer = el.closest('.markdown-preview-view, .cm-content, .cm-scroller') as HTMLElement | null;
-                if (scrollContainer) {
-                    let stableCount = 0;
-                    const STABLE_TARGET = 4;
-                    const resizeObserver = new ResizeObserver(() => {
-                        doScroll(el);
-                        stableCount = 0;
-                    });
-                    resizeObserver.observe(scrollContainer);
-
-                    const stabilityCheck = setInterval(() => {
-                        stableCount++;
-                        if (stableCount >= STABLE_TARGET) {
-                            resizeObserver.disconnect();
-                            clearInterval(stabilityCheck);
+                let scrollCount = 0;
+                const maxScrolls = 5;
+                const scrollInterval = setInterval(() => {
+                    const current = findHeading();
+                    if (current && document.body.contains(current)) {
+                        doScroll(current);
+                        scrollCount++;
+                        if (scrollCount >= maxScrolls) {
+                            clearInterval(scrollInterval);
                         }
-                    }, 500);
-
-                    setTimeout(() => {
-                        resizeObserver.disconnect();
-                        clearInterval(stabilityCheck);
-                    }, 8000);
-                }
+                    } else {
+                        clearInterval(scrollInterval);
+                    }
+                }, 1000);
             } else if (retries < maxRetries) {
                 setTimeout(tryHighlight, delayMs);
             }
