@@ -135,14 +135,35 @@ export class VirtualMatch {
 
             if (this.plugin && this.plugin.app) {
                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
-                // Re-navigate after async content loads to reposition
+                // Re-navigate once after DOM settles (async content loaded)
                 if (headerIdToUse) {
                     const refullPath = fullPath;
-                    [500, 1500, 3000].forEach(delay => {
-                        setTimeout(() => {
-                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
-                        }, delay);
-                    });
+                    let mutationTimer: ReturnType<typeof setTimeout> | null = null;
+                    const FALLBACK_DELAY = 3000;
+                    const SETTLE_DELAY = 500;
+
+                    const doNavigation = () => {
+                        if (observer) observer.disconnect();
+                        void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                    };
+
+                    // Fallback
+                    const fallbackTimer = setTimeout(doNavigation, FALLBACK_DELAY);
+
+                    // Watch DOM for changes — when it settles, re-navigate
+                    const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+                    const targetEl = view?.contentEl;
+                    const observer = targetEl ? new MutationObserver(() => {
+                        if (mutationTimer) clearTimeout(mutationTimer);
+                        mutationTimer = setTimeout(() => {
+                            clearTimeout(fallbackTimer);
+                            doNavigation();
+                        }, SETTLE_DELAY);
+                    }) : null;
+
+                    if (observer && targetEl) {
+                        observer.observe(targetEl, { childList: true, subtree: true });
+                    }
                 }
             }
 
