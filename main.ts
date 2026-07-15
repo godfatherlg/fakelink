@@ -1494,9 +1494,8 @@ export default class LinkerPlugin extends Plugin {
         
         // Force refresh all views to ensure settings changes take effect immediately
         this.app.workspace.getLeavesOfType('markdown').forEach(leaf => {
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
-            const view = leaf.view as MarkdownView;
-            if (view.previewMode) {
+            const view = leaf.view;
+            if (view instanceof MarkdownView && view.previewMode) {
                 view.previewMode.rerender(true);
             }
         });
