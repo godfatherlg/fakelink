@@ -79,6 +79,7 @@ export class PrefixTree {
     setIndexedFilePaths: Set<string> = new Set();
     mapIndexedFilePathsToUpdateTime: Map<string, number> = new Map();
     mapFilePathToLeaveNodes: Map<string, PrefixNode[]> = new Map();
+    mapFileHeaderIds: Map<string, Map<string, string>> = new Map();
 
     private static readonly SUPPORTED_EXTENSIONS = [
         'md', 'png', 'jpg', 'jpeg', 'gif', 'svg',
@@ -239,6 +240,16 @@ export class PrefixTree {
                     }
                 }
                 if (matchNode.files.size > 0) {
+                    // Fill headerId for heading matches from mapFileHeaderIds
+                    if (matchNode.type === MatchType.Header && !matchNode.headerId) {
+                        for (const f of matchNode.files) {
+                            const headerId = this.getFileHeaderId(f, nodeValue);
+                            if (headerId) {
+                                matchNode.headerId = headerId;
+                                break;
+                            }
+                        }
+                    }
                     matchNodes.push(matchNode);
                 }
             }
@@ -250,7 +261,7 @@ export class PrefixTree {
         return matchNodes;
     }
 
-    private addFileWithName(name: string, file: TFile, matchCase: boolean) {
+    private addFileWithName(name: string, file: TFile, matchCase: boolean, headerId?: string) {
         let node = this.root;
 
         // For each character in the name, add a node to the trie
@@ -271,10 +282,22 @@ export class PrefixTree {
         node.files.add(file);
         node.requiresCaseMatch = matchCase;
 
+        // Store headerId if present — used for heading highlight on jump
+        if (headerId) {
+            const existingIds = this.mapFileHeaderIds.get(file.path) ?? new Map<string, string>();
+            existingIds.set(name, headerId);
+            this.mapFileHeaderIds.set(file.path, existingIds);
+        }
+
         // Store the leaf node for the file to be able to remove it later
         const path = file.path;
         this.mapFilePathToLeaveNodes.set(path, [node, ...(this.mapFilePathToLeaveNodes.get(path) ?? [])]);
         // console.log("Adding file", file, name);
+    }
+
+    // Get the header ID for a file and keyword, used for heading highlight on jump
+    getFileHeaderId(file: TFile, keyword: string): string | undefined {
+        return this.mapFileHeaderIds.get(file.path)?.get(keyword);
     }
 
     // Reconstruct full string by walking parent chain — replaces stored node.value
@@ -354,8 +377,8 @@ export class PrefixTree {
         const metadata = this.app.metadataCache.getFileCache(file);
         let aliases: string[] = (metadata?.frontmatter?.aliases as string[]) ?? [];
         
-        // Get headers from metadata cache
-        let headers: string[] = [];
+        // Get headers from metadata cache — store as {keyword, headerId} pairs
+        let headerEntries: { keyword: string; headerId?: string }[] = [];
         if (this.settings.includeHeaders && metadata?.headings) {
             const canMatchSymbols = this.settings.headerMatchSymbols
                 && this.settings.headerMatchStartSymbol
@@ -363,6 +386,7 @@ export class PrefixTree {
                 && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol;
             
             if (canMatchSymbols) {
+                const symbolKeywords = new Set<string>();
                 // Extract keywords between symbols
                 for (const h of metadata.headings) {
                     const headingText = h.heading;
@@ -381,7 +405,8 @@ export class PrefixTree {
                         if (startIndex < endIndex) {
                             const keyword = headingText.substring(startIndex + startSymbol.length, endIndex).trim();
                             if (keyword) {
-                                headers.push(keyword);
+                                headerEntries.push({ keyword, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                                symbolKeywords.add(keyword);
                             }
                             searchStartIndex = endIndex + endSymbol.length;
                         } else {
@@ -389,12 +414,16 @@ export class PrefixTree {
                         }
                     }
                 }
-                // If not restricted to only symbol-keywords, also add plain headers
+                // If not restricted to only symbol-keywords, also add plain headers (non-duplicate with symbol-extracted ones)
                 if (!this.settings.headerMatchOnlyBetweenSymbols) {
-                    headers.push(...metadata.headings.map(h => h.heading));
+                    for (const h of metadata.headings) {
+                        if (!symbolKeywords.has(h.heading)) {
+                            headerEntries.push({ keyword: h.heading, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                        }
+                    }
                 }
             } else {
-                headers = metadata.headings.map(h => h.heading);
+                headerEntries = metadata.headings.map(h => ({ keyword: h.heading, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
             }
         }
 
@@ -417,8 +446,8 @@ export class PrefixTree {
         if (aliases && this.settings.includeAliases) {
             names.push(...aliases);
         }
-        if (headers && this.settings.includeHeaders) {
-            names.push(...headers);
+        if (headerEntries.length > 0 && this.settings.includeHeaders) {
+            names.push(...headerEntries.map(e => e.keyword));
         }
 
         names = names.filter(s => PrefixTree.isNoneEmptyString(s));
@@ -469,6 +498,15 @@ export class PrefixTree {
         namesWithCaseMatch.forEach((name) => {
             this.addFileWithName(name, file, true);
         });
+
+        // After adding, store headerId mappings for this file
+        for (const entry of headerEntries) {
+            if (entry.headerId) {
+                const existingIds = this.mapFileHeaderIds.get(file.path) ?? new Map<string, string>();
+                existingIds.set(entry.keyword, entry.headerId);
+                this.mapFileHeaderIds.set(file.path, existingIds);
+            }
+        }
     }
 
     private removeFileFromTree(file: TFile | string) {
@@ -498,6 +536,7 @@ export class PrefixTree {
         // Remove the file from the set of indexed files
         this.setIndexedFilePaths.delete(path);
         this.mapFilePathToLeaveNodes.delete(path);
+        this.mapFileHeaderIds.delete(path);
 
         // Remove the update time of the file
         this.mapIndexedFilePathsToUpdateTime.delete(path);
