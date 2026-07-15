@@ -122,7 +122,7 @@ export class VirtualMatch {
 
         const isInViewport = (el: HTMLElement): boolean => {
             const rect = el.getBoundingClientRect();
-            return rect.top >= 0 && rect.top <= window.innerHeight * 0.8;
+            return rect.bottom > 0 && rect.top < window.innerHeight;
         };
 
         const doHighlight = () => {
