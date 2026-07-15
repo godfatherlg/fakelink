@@ -96,10 +96,7 @@ export class VirtualMatch {
         return 1; // Alias
     }
 
-    // Highlight heading — delegates to LinkerPlugin's shared implementation
-    private highlightHeadingWithRetry(headingId: string, delayMs: number, maxRetries: number) {
-        this.plugin.highlightHeading(headingId, delayMs, maxRetries);
-    }
+
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
         const link = activeDocument.createElement('a');
@@ -137,12 +134,7 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true }).then(() => {
-                    // After file opens, retry highlight until heading is found
-                    if (headerIdToUse) {
-                        this.highlightHeadingWithRetry(headerIdToUse, 300, 5);
-                    }
-                });
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
             }
 
             return false;

@@ -619,69 +619,6 @@ export default class LinkerPlugin extends Plugin {
     }
 
     // Highlight heading with delayed scroll (wait for images to stabilize DOM)
-    public highlightHeading(headingId: string, delayMs = 300, maxRetries = 5) {
-        let retries = 0;
-
-        const findHeading = (): HTMLElement | null => {
-            const allLeaves = this.app.workspace.getLeavesOfType('markdown');
-            for (const leaf of allLeaves) {
-                const view = leaf.view;
-                if (!view || !(view instanceof MarkdownView)) continue;
-                const container = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
-                if (!container) continue;
-                const allHeadings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
-                for (const h of Array.from(allHeadings)) {
-                    const id = h.getAttribute('id') || h.textContent?.replace(/\s+/g, '-').toLowerCase();
-                    if (id === headingId || h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingId) {
-                        return h as HTMLElement;
-                    }
-                }
-            }
-            return null;
-        };
-
-        const doHighlight = (el: HTMLElement) => {
-            el.style.transition = 'background-color 0.3s ease';
-            el.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
-            setTimeout(() => {
-                el.style.backgroundColor = 'transparent';
-            }, 2000);
-        };
-
-        const doScroll = (el: HTMLElement) => {
-            el.scrollIntoView({ behavior: 'auto', block: 'center' });
-        };
-
-        const tryHighlight = () => {
-            retries++;
-            const el = findHeading();
-            if (el) {
-                // Highlight immediately
-                doHighlight(el);
-                // Re-scroll every second for 5 seconds — catches any layout shift
-                doScroll(el);
-                let scrollCount = 0;
-                const maxScrolls = 5;
-                const scrollInterval = setInterval(() => {
-                    const current = findHeading();
-                    if (current && document.body.contains(current)) {
-                        doScroll(current);
-                        scrollCount++;
-                        if (scrollCount >= maxScrolls) {
-                            clearInterval(scrollInterval);
-                        }
-                    } else {
-                        clearInterval(scrollInterval);
-                    }
-                }, 1000);
-            } else if (retries < maxRetries) {
-                setTimeout(tryHighlight, delayMs);
-            }
-        };
-
-        setTimeout(tryHighlight, delayMs);
-    }
-
     public async handleLayoutChange() {
         if (!this.settings.autoToggleByMode) return;
         
@@ -870,15 +807,6 @@ export default class LinkerPlugin extends Plugin {
 
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
-
-        // Handle file-open to highlight target heading (works for direct click and Hover Editor preview)
-        this.registerEvent(this.app.workspace.on('file-open', () => {
-            const hash = window.location.hash;
-            if (hash && hash.startsWith('#') && hash.length > 1) {
-                const headingId = hash.slice(1);
-                this.highlightHeading(headingId);
-            }
-        }));
 
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
