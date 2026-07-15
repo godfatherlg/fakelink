@@ -86,7 +86,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 const item = index == nodeList.length ? this.containerEl : nodeList.item(index)!;
 
                 for (let childNodeIndex = 0; childNodeIndex < item.childNodes.length; childNodeIndex++) {
-                    const childNode = item.childNodes[childNodeIndex] as Node;
+                    const childNode: Node = item.childNodes[childNodeIndex];
 
                     if (childNode.nodeType === Node.TEXT_NODE) {
                         let text = childNode.textContent || '';
