@@ -809,19 +809,24 @@ export default class LinkerPlugin extends Plugin {
 
         // Re-navigate after async content loads for Hover Editor preview (file-open event)
         this.registerEvent(this.app.workspace.on('file-open', () => {
-            const leaf = this.app.workspace.activeLeaf;
-            if (!leaf) return;
-            const vs = leaf.getViewState();
-            const heading = (vs as { state?: { eState?: { heading?: string } } }).state?.eState?.heading;
-            if (!heading) return;
-            const file = this.app.workspace.getActiveFile();
-            if (!file) return;
-            const refullPath = file.path + '#' + heading;
-            [500, 1500, 3000].forEach(delay => {
-                setTimeout(() => {
-                    void this.app.workspace.openLinkText(refullPath, '', false, { active: true });
-                }, delay);
-            });
+            // Use the leaf's history state to extract the heading target
+            const leaves = this.app.workspace.getLeavesOfType('markdown');
+            for (const leaf of leaves) {
+                const history = (leaf as { history?: { backHistory?: Array<{ state?: { eState?: { heading?: string } } }> } }).history;
+                const current = history?.backHistory?.[history.backHistory.length - 1];
+                const heading = current?.state?.eState?.heading;
+                if (heading) {
+                    const file = this.app.workspace.getActiveFile();
+                    if (!file) return;
+                    const refullPath = file.path + '#' + heading;
+                    [500, 1500, 3000].forEach(delay => {
+                        window.setTimeout(() => {
+                            void this.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                        }, delay);
+                    });
+                    return;
+                }
+            }
         }));
 
         // Context menu item to convert virtual links to real links

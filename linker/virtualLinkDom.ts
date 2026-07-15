@@ -1,6 +1,6 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { MarkdownView, TFile, getLinkpath } from 'obsidian';
+import { TFile, getLinkpath } from 'obsidian';
 import { MatchType } from './linkerCache';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -139,7 +139,7 @@ export class VirtualMatch {
                 if (headerIdToUse) {
                     const refullPath = fullPath;
                     [500, 1500, 3000].forEach(delay => {
-                        setTimeout(() => {
+                        window.setTimeout(() => {
                             void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
                         }, delay);
                     });
