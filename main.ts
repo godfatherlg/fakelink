@@ -807,28 +807,6 @@ export default class LinkerPlugin extends Plugin {
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
 
-        // Re-navigate after async content loads for Hover Editor preview (file-open event)
-        this.registerEvent(this.app.workspace.on('file-open', () => {
-            // Use the leaf's history state to extract the heading target
-            const leaves = this.app.workspace.getLeavesOfType('markdown');
-            for (const leaf of leaves) {
-                const history = (leaf as { history?: { backHistory?: Array<{ state?: { eState?: { heading?: string } } }> } }).history;
-                const current = history?.backHistory?.[history.backHistory.length - 1];
-                const heading = current?.state?.eState?.heading;
-                if (heading) {
-                    const file = this.app.workspace.getActiveFile();
-                    if (!file) return;
-                    const refullPath = file.path + '#' + heading;
-                    [500, 1500, 3000].forEach(delay => {
-                        window.setTimeout(() => {
-                            void this.app.workspace.openLinkText(refullPath, '', false, { active: true });
-                        }, delay);
-                    });
-                    return;
-                }
-            }
-        }));
-
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
 
