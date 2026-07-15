@@ -135,7 +135,36 @@ export class VirtualMatch {
 
             if (this.plugin && this.plugin.app) {
                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
-                // Re-navigation is handled by file-open listener in main.ts
+                // Re-navigate after DOM settles for async content (images, PDFs)
+                if (headerIdToUse) {
+                    const refullPath = fullPath;
+                    let mutationTimer: ReturnType<typeof setTimeout> | null = null;
+                    let settled = false;
+
+                    const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
+                    const targetEl = view?.contentEl;
+                    if (!targetEl) return false;
+
+                    const observer = new MutationObserver(() => {
+                        if (settled) return;
+                        if (mutationTimer) clearTimeout(mutationTimer);
+                        mutationTimer = setTimeout(() => {
+                            settled = true;
+                            observer.disconnect();
+                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                        }, 500);
+                    });
+                    observer.observe(targetEl, { childList: true, subtree: true });
+
+                    // Fallback 3s
+                    setTimeout(() => {
+                        if (!settled) {
+                            settled = true;
+                            observer.disconnect();
+                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                        }
+                    }, 3000);
+                }
             }
 
             return false;
