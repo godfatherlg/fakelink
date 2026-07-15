@@ -618,7 +618,61 @@ export default class LinkerPlugin extends Plugin {
         return false;
     }
 
-    // Highlight heading with delayed scroll (wait for images to stabilize DOM)
+    // Scroll to heading by directly setting scrollTop — more reliable than scrollIntoView in Obsidian
+    public scrollToHeading(headingText: string) {
+        const findScrollContainer = (el: HTMLElement): HTMLElement | null => {
+            let node: HTMLElement | null = el.parentElement;
+            while (node) {
+                const style = window.getComputedStyle(node);
+                if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+                    return node;
+                }
+                node = node.parentElement;
+            }
+            return null;
+        };
+
+        const findHeading = (): { el: HTMLElement; container: HTMLElement } | null => {
+            const allLeaves = this.app.workspace.getLeavesOfType('markdown');
+            for (const leaf of allLeaves) {
+                const view = leaf.view;
+                if (!view || !(view instanceof MarkdownView)) continue;
+                const container = view.contentEl.querySelector('.markdown-preview-view, .markdown-source-view');
+                if (!container) continue;
+                const allHeadings = container.querySelectorAll('h1, h2, h3, h4, h5, h6');
+                for (const h of Array.from(allHeadings)) {
+                    if (h.textContent?.replace(/\s+/g, '-').toLowerCase() === headingText ||
+                        h.getAttribute('id') === headingText) {
+                        const el = h as HTMLElement;
+                        const scrollContainer = findScrollContainer(el);
+                        if (scrollContainer) return { el, container: scrollContainer };
+                    }
+                }
+            }
+            return null;
+        };
+
+        const doScroll = () => {
+            const found = findHeading();
+            if (!found) return false;
+            const { el, container } = found;
+            // Highlight
+            el.style.transition = 'background-color 0.3s ease';
+            el.style.backgroundColor = 'rgba(255, 230, 0, 0.4)';
+            setTimeout(() => { el.style.backgroundColor = 'transparent'; }, 2000);
+            // Direct scrollTop — bypass scrollIntoView which gets swallowed by cm-scroller
+            const targetTop = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+            container.scrollTop = targetTop;
+            return true;
+        };
+
+        // Retry: find heading + scroll at multiple intervals
+        const intervals = [100, 300, 600, 1000, 2000, 3000];
+        intervals.forEach(delay => {
+            setTimeout(() => doScroll(), delay);
+        });
+    }
+
     public async handleLayoutChange() {
         if (!this.settings.autoToggleByMode) return;
         

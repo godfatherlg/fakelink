@@ -134,7 +134,11 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true }).then(() => {
+                    if (headerIdToUse) {
+                        this.plugin.scrollToHeading(headerIdToUse);
+                    }
+                });
             }
 
             return false;
