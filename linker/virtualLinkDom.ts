@@ -134,38 +134,16 @@ export class VirtualMatch {
             if (!targetFile) return false;
 
             if (this.plugin && this.plugin.app) {
-                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true }).then(() => {
-                    // Re-navigate after DOM settles for async content (images, PDFs)
-                    if (headerIdToUse) {
-                        const refullPath = fullPath;
-                        let mutationTimer: ReturnType<typeof setTimeout> | null = null;
-                        let settled = false;
-
-                        const view = this.plugin.app.workspace.getActiveViewOfType(MarkdownView);
-                        const targetEl = view?.contentEl;
-                        if (!targetEl) return;
-
-                        const observer = new MutationObserver(() => {
-                            if (settled) return;
-                            if (mutationTimer) clearTimeout(mutationTimer);
-                            mutationTimer = setTimeout(() => {
-                                settled = true;
-                                observer.disconnect();
-                                void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
-                            }, 500);
-                        });
-                        observer.observe(targetEl, { childList: true, subtree: true });
-
-                        // Fallback 3s
+                void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
+                // Re-navigate after async content loads to reposition heading
+                if (headerIdToUse) {
+                    const refullPath = fullPath;
+                    [500, 1500, 3000].forEach(delay => {
                         setTimeout(() => {
-                            if (!settled) {
-                                settled = true;
-                                observer.disconnect();
-                                void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
-                            }
-                        }, 3000);
-                    }
-                });
+                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                        }, delay);
+                    });
+                }
             }
 
             return false;
