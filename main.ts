@@ -649,6 +649,16 @@ export default class LinkerPlugin extends Plugin {
         };
 
         const doScroll = (el: HTMLElement) => {
+            // Try Obsidian editor scroll first (works in live preview / source mode)
+            const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+            if (view) {
+                const editorScrollEl = view.contentEl.querySelector('.cm-scroller');
+                if (editorScrollEl && editorScrollEl.contains(el)) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    return;
+                }
+            }
+            // Fallback: direct scrollIntoView
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         };
 
@@ -662,17 +672,16 @@ export default class LinkerPlugin extends Plugin {
                 doScroll(el);
 
                 // Watch container height changes (covers images, PDF embeds, any async content)
-                const scrollContainer = el.closest('.markdown-preview-view, .cm-content') as HTMLElement | null;
+                const scrollContainer = el.closest('.markdown-preview-view, .cm-content, .cm-scroller') as HTMLElement | null;
                 if (scrollContainer) {
                     let stableCount = 0;
                     const STABLE_TARGET = 4;
                     const resizeObserver = new ResizeObserver(() => {
                         doScroll(el);
-                        stableCount = 0; // Reset — keep scrolling while layout shifts
+                        stableCount = 0;
                     });
                     resizeObserver.observe(scrollContainer);
 
-                    // After layout stabilizes (no resize for ~2s), stop observing
                     const stabilityCheck = setInterval(() => {
                         stableCount++;
                         if (stableCount >= STABLE_TARGET) {
@@ -681,7 +690,6 @@ export default class LinkerPlugin extends Plugin {
                         }
                     }, 500);
 
-                    // Safety: disconnect after 8s max
                     setTimeout(() => {
                         resizeObserver.disconnect();
                         clearInterval(stabilityCheck);
