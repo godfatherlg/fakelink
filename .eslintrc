@@ -1,7 +1,7 @@
 {
     "root": true,
     "parser": "@typescript-eslint/parser",
-    "env": { "node": true },
+    "env": { "node": true, "browser": true },
     "plugins": [
       "@typescript-eslint"
     ],
@@ -11,7 +11,8 @@
       "plugin:@typescript-eslint/recommended"
     ], 
     "parserOptions": {
-        "sourceType": "module"
+        "sourceType": "module",
+        "project": "./tsconfig.json"
     },
     "rules": {
       "no-unused-vars": "off",
