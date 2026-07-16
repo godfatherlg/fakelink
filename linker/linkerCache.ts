@@ -590,7 +590,7 @@ export class PrefixTree {
         const filesToRemove = [...this.setIndexedFilePaths].filter((f) => !currentVaultFiles.has(f));
         filesToRemove.forEach((f) => this.removeFileFromTree(f));
 
-        console.log(`[FakeLink] indexed ${this.setIndexedFilePaths.size} files`);
+        // console.log(`[FakeLink] indexed ${this.setIndexedFilePaths.size} files`);
     }
 
     findFiles(prefix: string): Set<TFile> {
