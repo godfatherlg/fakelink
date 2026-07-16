@@ -162,23 +162,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             // Check parent elements for format context
                                             const parentEl = childNode.parentElement;
                                             if (parentEl) {
-                                                // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- TypeScript correctly types HTMLElement.matches but eslint reports false positive
-                                                match.isBoldContext = parentEl.matches('strong') || 
-                                                    parentEl.closest('strong') !== null;
-                                                // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- TypeScript correctly types HTMLElement.matches but eslint reports false positive
-                                                match.isItalicContext = parentEl.matches('em') || 
-                                                    parentEl.closest('em') !== null;
-                                                // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- TypeScript correctly types HTMLElement.matches but eslint reports false positive
-                                                match.isHighlightContext = parentEl.matches('mark') || 
-                                                    parentEl.closest('mark') !== null;
-                                                // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- TypeScript correctly types HTMLElement.matches but eslint reports false positive
-                                                match.isStrikethroughContext = parentEl.matches('del') || 
-                                                    parentEl.matches('s') || 
-                                                    parentEl.closest('del') !== null || 
-                                                    parentEl.closest('s') !== null;
-                                                // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- TypeScript correctly types HTMLElement.matches but eslint reports false positive
-                                                match.isCommentContext = parentEl.matches('.cm-comment') ||
-                                                    parentEl.closest('.cm-comment') !== null;
+                                                const hasSelector = (selector: string) => {
+                                                    // eslint-disable-next-line @typescript-eslint/no-unsafe-call -- Native DOM methods trigger false positive
+                                                    return parentEl.matches(selector) || parentEl.closest(selector) !== null;
+                                                };
+                                                match.isBoldContext = hasSelector('strong');
+                                                match.isItalicContext = hasSelector('em');
+                                                match.isHighlightContext = hasSelector('mark');
+                                                match.isStrikethroughContext = hasSelector('del') || hasSelector('s');
+                                                match.isCommentContext = hasSelector('.cm-comment');
                                                 match.isTripleStarContext = match.isBoldContext && 
                                                     match.isItalicContext;
                                             }
