@@ -2,6 +2,8 @@
   --virtual-link-opacity: 0.6;
   --settings-box-min-width: 200px;
   --settings-box-min-height: 60px;
+  --virtual-link-note-color: #c0392b;
+  --virtual-link-header-color: #517ea0;
 }
 
 /* Basic virtual link styles */
@@ -58,6 +60,33 @@ body.virtual-link-color-only table th .virtual-link-span .internal-link {
   filter: none;
   opacity: 1;
   color: var(--virtual-link-color);
+}
+
+/* Separate colors for header vs note/alias links (only when enabled) */
+body.virtual-link-separate-colors .virtual-link-span.virtual-link-type-header,
+body.virtual-link-separate-colors .virtual-link-type-header .virtual-link-a,
+body.virtual-link-separate-colors .virtual-link.virtual-link-type-header {
+  color: var(--virtual-link-header-color);
+  filter: none;
+  opacity: 1;
+}
+body.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header),
+body.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header) .virtual-link-a {
+  color: var(--virtual-link-note-color);
+  filter: none;
+  opacity: 1;
+}
+/* When color-only is also enabled, use separate colors */
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header),
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header) a,
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header),
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header) .virtual-link-a {
+  color: var(--virtual-link-note-color);
+}
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span.virtual-link-type-header,
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-type-header .virtual-link-a,
+body.virtual-link-color-only.virtual-link-separate-colors .virtual-link.virtual-link-type-header {
+  color: var(--virtual-link-header-color);
 }
 
 /* Preserve strikethrough in virtual links */

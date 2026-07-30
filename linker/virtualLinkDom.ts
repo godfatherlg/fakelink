@@ -160,6 +160,11 @@ export class VirtualMatch {
             span.classList.add('virtual-link-default');
         }
 
+        // Add type-specific class for separate color support
+        if (this.type === MatchType.Header) {
+            span.classList.add('virtual-link-type-header');
+        }
+
         // Add context-specific classes
         if (this.isBoldContext) {
             span.classList.add('virtual-link-in-bold');

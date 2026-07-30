@@ -103,7 +103,36 @@ export class PrefixTree {
 
     private isExcluded(value: string): boolean {
         const valueLower = value.toLowerCase();
+        // If per-note mode is enabled, only apply exclusion to notes with the frontmatter property
+        if (this.settings.perNoteExcludeKeywords) {
+            const activeFile = this.app.workspace.getActiveFile();
+            if (!activeFile) return false;
+            const metadata = this.app.metadataCache.getFileCache(activeFile);
+            const propValue = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
+            // Only exclude if the note has the property set to true/truthy
+            if (!propValue) return false;
+        }
         return this.settings.excludedKeywords.some(kw => kw.toLowerCase() === valueLower);
+    }
+
+    // Collect extra per-note excluded keywords from the active file's frontmatter
+    private getFrontmatterExcludeList(): Set<string> {
+        const excluded = new Set<string>();
+        if (!this.settings.enableFrontmatterExcludeList) return excluded;
+
+        const activeFile = this.app.workspace.getActiveFile();
+        if (!activeFile) return excluded;
+
+        const metadata = this.app.metadataCache.getFileCache(activeFile);
+        const propValue = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
+        if (Array.isArray(propValue)) {
+            for (const item of propValue) {
+                if (typeof item === 'string' && item.trim().length > 0) {
+                    excluded.add(item.trim().toLowerCase());
+                }
+            }
+        }
+        return excluded;
     }
 
     getCurrentMatchNodes(index: number, excludedNote?: TFile | null, specificFile?: TFile): MatchNode[] {
@@ -115,9 +144,16 @@ export class PrefixTree {
             excludedNote = this.app.workspace.getActiveFile();
         }
 
+        // Get per-note extra excluded keywords from frontmatter
+        const frontmatterExcluded = this.getFrontmatterExcludeList();
+
         for (const node of this._currentNodes) {
             const valueString = this.getNodeValue(node.node);
             if (node.node.files.size === 0 || this.isExcluded(valueString)) {
+                continue;
+            }
+            // Also check per-note frontmatter extra exclusions
+            if (frontmatterExcluded.size > 0 && frontmatterExcluded.has(valueString.toLowerCase())) {
                 continue;
             }
             const matchNode = new MatchNode();

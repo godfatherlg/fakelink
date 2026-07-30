@@ -549,6 +549,12 @@ export interface LinkerPluginSettings {
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
     virtualLinkColor: string; // Custom color for virtual links in color-only mode
+    frontmatterExcludeProperty: string; // Frontmatter property name for per-note excluded keywords
+    perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
+    enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
+    headerVirtualLinkColor: string; // Color for header virtual links
+    noteVirtualLinkColor: string; // Color for note/alias virtual links
+    enableSeparateColors: boolean; // Enable separate colors for header vs note links
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -603,6 +609,12 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     allowLinksInHeaders: true,
     colorOnlyDisplay: true,
     virtualLinkColor: '#517ea0',
+    frontmatterExcludeProperty: 'fakelink-exclude',
+    perNoteExcludeKeywords: false,
+    enableFrontmatterExcludeList: false,
+    headerVirtualLinkColor: '#517ea0',
+    noteVirtualLinkColor: '#c0392b',
+    enableSeparateColors: false,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -661,6 +673,13 @@ export default class LinkerPlugin extends Plugin {
         if (this.settings.colorOnlyDisplay) {
             activeWindow.document.body.classList.add('virtual-link-color-only');
             activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
+        }
+
+        // Apply separate header/note link colors
+        if (this.settings.enableSeparateColors) {
+            activeWindow.document.body.classList.add('virtual-link-separate-colors');
+            activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
+            activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
         }
 
         // Listen for view changes
@@ -1915,6 +1934,28 @@ class LinkerSettingTab extends PluginSettingTab {
                     // Set default size
                     text.inputEl.addClass('linker-settings-text-box');
                 });
+
+            // Per-note excluded keywords via frontmatter
+            new Setting(containerEl)
+                .setName(t('Per-note excluded keywords'))
+                .setDesc(t('When enabled, excluded keywords only apply to notes that have the specified frontmatter property. When disabled, excluded keywords apply globally.'))
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
+                        await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
+                        this.display();
+                    })
+                );
+
+            if (this.plugin.settings.perNoteExcludeKeywords) {
+                new Setting(containerEl)
+                    .setName(t('Frontmatter exclusion property'))
+                    .setDesc(t('Only notes with this frontmatter property (set to true) will have excluded keywords applied.'))
+                    .addText((text) =>
+                        text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
+                            await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
+                        })
+                    );
+            }
         } else {
             if (this.plugin.settings.advancedSettings) {
                 new Setting(containerEl)
@@ -2033,6 +2074,38 @@ class LinkerSettingTab extends PluginSettingTab {
                         });
                     text.inputEl.addClass('linker-settings-text-box');
                 });
+
+            // Per-note excluded keywords via frontmatter
+            new Setting(containerEl)
+                .setName(t('Per-note excluded keywords'))
+                .setDesc(t('When enabled, excluded keywords only apply to notes with the frontmatter property set to true. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to enable exclusion for that note.'))
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
+                        await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
+                        this.display();
+                    })
+                );
+
+            if (this.plugin.settings.perNoteExcludeKeywords) {
+                new Setting(containerEl)
+                    .setName(t('Frontmatter exclusion property'))
+                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have excluded keywords applied.'))
+                    .addText((text) =>
+                        text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
+                            await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
+                        })
+                    );
+            }
+
+            // Extra per-note excluded keywords via frontmatter list
+            new Setting(containerEl)
+                .setName(t('Enable frontmatter exclude list'))
+                .setDesc(t('When enabled, each note can define additional excluded keywords in its frontmatter as a list. These add on top of the global excluded keywords. Usage: add "fakelink-exclude: [keyword1, keyword2]" to a note\'s frontmatter.'))
+                .addToggle((toggle) =>
+                    toggle.setValue(this.plugin.settings.enableFrontmatterExcludeList).onChange(async (value) => {
+                        await this.plugin.updateSettings({ enableFrontmatterExcludeList: value });
+                    })
+                );
         }
 
         // Header auto-append suffix
@@ -2088,6 +2161,48 @@ class LinkerSettingTab extends PluginSettingTab {
                 });
                 text.inputEl.placeholder = '#409eff';
             });
+
+        // Separate colors for header vs note/alias links
+        new Setting(containerEl)
+            .setName(t('Separate header and note colors'))
+            .setDesc(t('When enabled, header virtual links and note/alias virtual links use different colors.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableSeparateColors).onChange(async (value) => {
+                    await this.plugin.updateSettings({ enableSeparateColors: value });
+                    const doc = this.containerEl.ownerDocument;
+                    if (value) {
+                        doc.body.classList.add('virtual-link-separate-colors');
+                        doc.body.style.setProperty('--virtual-link-header-color', this.plugin.settings.headerVirtualLinkColor);
+                        doc.body.style.setProperty('--virtual-link-note-color', this.plugin.settings.noteVirtualLinkColor);
+                    } else {
+                        doc.body.classList.remove('virtual-link-separate-colors');
+                    }
+                })
+            );
+
+        if (this.plugin.settings.enableSeparateColors) {
+            new Setting(containerEl)
+                .setName(t('Header link color'))
+                .setDesc(t('Color for header virtual links (e.g., #517ea0).'))
+                .addText((text) => {
+                    text.setValue(this.plugin.settings.headerVirtualLinkColor).onChange(async (value) => {
+                        await this.plugin.updateSettings({ headerVirtualLinkColor: value });
+                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-header-color', value);
+                    });
+                    text.inputEl.placeholder = '#517ea0';
+                });
+
+            new Setting(containerEl)
+                .setName(t('Note link color'))
+                .setDesc(t('Color for note and alias virtual links (e.g., #c0392b).'))
+                .addText((text) => {
+                    text.setValue(this.plugin.settings.noteVirtualLinkColor).onChange(async (value) => {
+                        await this.plugin.updateSettings({ noteVirtualLinkColor: value });
+                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-note-color', value);
+                    });
+                    text.inputEl.placeholder = '#c0392b';
+                });
+        }
 
         // Toggle setting for alternative display style (underline + comment folding)
         new Setting(containerEl)
