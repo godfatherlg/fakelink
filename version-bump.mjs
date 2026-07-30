@@ -2,6 +2,11 @@ import { readFileSync, writeFileSync } from "fs";
 
 const targetVersion = process.env.npm_package_version;
 
+if (!targetVersion) {
+    console.error("Error: npm_package_version is not set. Run this script via 'npm run version'.");
+    process.exit(1);
+}
+
 // read minAppVersion from manifest.json and bump version to target version
 let manifest = JSON.parse(readFileSync("manifest.json", "utf8"));
 const { minAppVersion } = manifest;
