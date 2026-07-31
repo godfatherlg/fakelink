@@ -1,7 +1,6 @@
-/* eslint-disable obsidianmd/prefer-create-el */
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { TFile, getLinkpath } from 'obsidian';
+import { TFile, getLinkpath, createEl } from 'obsidian';
 import { MatchType } from './linkerCache';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -52,7 +51,7 @@ export class VirtualMatch {
     getCompleteLinkElement(inTableCellEditor = false) {
         // Hide link if total matches exceed threshold
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
-            const emptySpan = activeDocument.createElement('span');
+            const emptySpan = createEl('span');
             emptySpan.textContent = this.originText;
             return emptySpan;
         }
@@ -100,7 +99,7 @@ export class VirtualMatch {
 
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
-        const link = activeDocument.createElement('a');
+        const link = createEl('a');
 
         let headerIdToUse: string | undefined;
         if (file) {
@@ -154,7 +153,7 @@ export class VirtualMatch {
     }
 
     getLinkRootSpan(inTableCellEditor = false) {
-        const span = activeDocument.createElement('span');
+        const span = createEl('span');
         span.classList.add('glossary-entry', 'virtual-link', 'virtual-link-span');
         
         if (this.settings.applyDefaultLinkStyling) {
@@ -217,7 +216,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesSpan(files?: TFile[]) {
-        const spanReferences = activeDocument.createElement('span');
+        const spanReferences = createEl('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
         }
@@ -230,7 +229,7 @@ export class VirtualMatch {
 
         fileList.forEach((file, index) => {
             if (index === 0) {
-                const bracket = activeDocument.createElement('span');
+                const bracket = createEl('span');
                 bracket.textContent = '[';
                 spanReferences.appendChild(bracket);
             }
@@ -246,7 +245,7 @@ export class VirtualMatch {
             spanReferences.appendChild(link);
 
             if (index == fileList.length - 1) {
-                const bracket = activeDocument.createElement('span');
+                const bracket = createEl('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
             }
@@ -256,7 +255,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesIndicatorSpan() {
-        const spanIndicator = activeDocument.createElement('span');
+        const spanIndicator = createEl('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
         return spanIndicator;
@@ -265,7 +264,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
-            let icon = activeDocument.createElement('sup');
+            let icon = createEl('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
             return icon;
