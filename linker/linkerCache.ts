@@ -108,7 +108,8 @@ export class PrefixTree {
             const activeFile = this.app.workspace.getActiveFile();
             if (!activeFile) return false;
             const metadata = this.app.metadataCache.getFileCache(activeFile);
-            const propValue = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
+            const frontmatter = metadata?.frontmatter as Record<string, unknown> | undefined;
+            const propValue = frontmatter?.[this.settings.frontmatterExcludeProperty];
             // Only exclude if the note has the property set to true/truthy
             if (!propValue) return false;
         }
@@ -124,7 +125,8 @@ export class PrefixTree {
         if (!activeFile) return excluded;
 
         const metadata = this.app.metadataCache.getFileCache(activeFile);
-        const propValue = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
+        const frontmatter = metadata?.frontmatter as Record<string, unknown> | undefined;
+        const propValue = frontmatter?.[this.settings.frontmatterExcludeProperty];
         if (Array.isArray(propValue)) {
             for (const item of propValue) {
                 if (typeof item === 'string' && item.trim().length > 0) {
