@@ -115,21 +115,54 @@ export class PrefixTree {
         return this.settings.excludedKeywords.some(kw => kw.toLowerCase() === valueLower);
     }
 
-    // Collect extra per-note excluded keywords from the active file's frontmatter
-    private getFrontmatterExcludeList(): Set<string> {
+    // Global-only exclusion check (used when building the trie, not per-note)
+    private isGloballyExcluded(value: string): boolean {
+        // When per-note mode is enabled, don't filter from the trie
+        // (filtering happens at match time in getCurrentMatchNodes)
+        if (this.settings.perNoteExcludeKeywords) return false;
+        const valueLower = value.toLowerCase();
+        return this.settings.excludedKeywords.some(kw => kw.toLowerCase() === valueLower);
+    }
+
+    // Collect extra per-note excluded keywords from a file's frontmatter list property
+    private getFrontmatterExcludeListForFile(file: TFile): Set<string> {
         const excluded = new Set<string>();
         if (!this.settings.enableFrontmatterExcludeList) return excluded;
 
-        const activeFile = this.app.workspace.getActiveFile();
-        if (!activeFile) return excluded;
-
-        const metadata = this.app.metadataCache.getFileCache(activeFile);
-        const propValue: unknown = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
+        const metadata = this.app.metadataCache.getFileCache(file);
+        const propValue: unknown = metadata?.frontmatter?.[this.settings.frontmatterExcludeListProperty];
+        // Accepts: a real YAML array, a "[a, b]" string, or a plain "a, b" string
         if (Array.isArray(propValue)) {
             for (const item of propValue) {
                 if (typeof item === 'string' && item.trim().length > 0) {
                     excluded.add(item.trim().toLowerCase());
                 }
+            }
+        } else if (typeof propValue === 'string') {
+            const inner = propValue.trim();
+            // Strip surrounding brackets if present, then split by comma
+            const listBody = inner.startsWith('[') && inner.endsWith(']') ? inner.slice(1, -1) : inner;
+            for (const item of listBody.split(',')) {
+                const kw = item.trim();
+                if (kw.length > 0) {
+                    excluded.add(kw.toLowerCase());
+                }
+            }
+        }
+        return excluded;
+    }
+
+    // Collect extra per-note excluded keywords:
+    // 1) from the active file (exclude words while reading that note)
+    // 2) from every matched target file (a note can opt its own name/keywords out of being linked anywhere)
+    private getFrontmatterExcludeList(): Set<string> {
+        const excluded = new Set<string>();
+        if (!this.settings.enableFrontmatterExcludeList) return excluded;
+
+        const activeFile = this.app.workspace.getActiveFile();
+        if (activeFile) {
+            for (const kw of this.getFrontmatterExcludeListForFile(activeFile)) {
+                excluded.add(kw);
             }
         }
         return excluded;
@@ -152,9 +185,25 @@ export class PrefixTree {
             if (node.node.files.size === 0 || this.isExcluded(valueString)) {
                 continue;
             }
-            // Also check per-note frontmatter extra exclusions
+            // Also check per-note frontmatter extra exclusions from the active file's list
             if (frontmatterExcluded.size > 0 && frontmatterExcluded.has(valueString.toLowerCase())) {
                 continue;
+            }
+            // Also check each matched target file's own exclude list
+            // (a note can opt its own name/keywords out of being linked from anywhere)
+            if (this.settings.enableFrontmatterExcludeList) {
+                const lower = valueString.toLowerCase();
+                let targetExcluded = false;
+                for (const file of node.node.files) {
+                    const fileList = this.getFrontmatterExcludeListForFile(file);
+                    if (fileList.has(lower)) {
+                        targetExcluded = true;
+                        break;
+                    }
+                }
+                if (targetExcluded) {
+                    continue;
+                }
             }
             const matchNode = new MatchNode();
             matchNode.length = node.node.depth + node.formattingDelta;
@@ -180,12 +229,10 @@ export class PrefixTree {
             if (fileNames.map((n) => n.toLowerCase()).includes(nodeValue.toLowerCase())) {
                 matchNode.type = MatchType.Note;  // Matches note name
             } else {
-                // Check if it's a heading match
-                const file = Array.from(matchNode.files)[0];
-                if (file) {
+                // Check ALL files for heading match (not just the first one)
+                let headingMatch = null;
+                for (const file of matchNode.files) {
                     const metadata = this.app.metadataCache.getFileCache(file);
-                    // First check for heading match
-                    let headingMatch = null;
                     if (metadata?.headings) {
                         if (this.settings.headerMatchSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
                             // Try matching keywords between symbols first
@@ -228,25 +275,16 @@ export class PrefixTree {
                             );
                         }
                     }
-                    
-                    if (headingMatch) {
-                        matchNode.type = MatchType.Header;
-                        // Only perform trim, preserve original case and all special characters
-                        // This is consistent with Obsidian behavior
-                        matchNode.headerId = headingMatch.heading.trim();
-                    }
-                    // Then check for note name match
-                    else if (fileNames.map((n) => n.toLowerCase()).includes(nodeValue.toLowerCase())) {
-                        matchNode.type = MatchType.Note;
-                    } 
-                    // Default to alias match
-                    else {
-                        matchNode.type = MatchType.Alias;
-                    }
-                    } else {
-                        matchNode.type = MatchType.Alias;  // Matches alias
-                    }
+                    if (headingMatch) break;
                 }
+                
+                if (headingMatch) {
+                    matchNode.type = MatchType.Header;
+                    matchNode.headerId = headingMatch.heading.trim();
+                } else {
+                    matchNode.type = MatchType.Alias;
+                }
+            }
 
             // Check if the case is matched
             let currentNode: PrefixNode | undefined = node.node;
@@ -524,8 +562,8 @@ export class PrefixTree {
         namesWithCaseIgnore.push(...namesWithCaseIgnore.map((name) => name.toLowerCase()));
 
         // Filter out excluded keywords before adding to tree
-        namesWithCaseIgnore = namesWithCaseIgnore.filter(name => !this.isExcluded(name));
-        namesWithCaseMatch = namesWithCaseMatch.filter(name => !this.isExcluded(name));
+        namesWithCaseIgnore = namesWithCaseIgnore.filter(name => !this.isGloballyExcluded(name));
+        namesWithCaseMatch = namesWithCaseMatch.filter(name => !this.isGloballyExcluded(name));
 
         namesWithCaseIgnore.forEach((name) => {
             this.addFileWithName(name, file, false);

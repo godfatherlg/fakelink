@@ -353,20 +353,15 @@ class AutoLinkerPlugin implements PluginValue {
                                 );
                             });
                             
-                            // Skip if name is in excluded keywords
-                            const nameToCheck = this.settings.matchCaseSensitive ? name : name.toLowerCase();
-                            const excludedKeywords = this.settings.matchCaseSensitive 
-                                ? this.settings.excludedKeywords 
-                                : this.settings.excludedKeywords.map(k => k.toLowerCase());
-                            
-                            if (filteredFiles.length > 0 && !excludedKeywords.includes(nameToCheck)) {
+                            // getCurrentMatchNodes already handles excluded keywords (including per-note)
+                            if (filteredFiles.length > 0) {
                                 const virtualMatch = new VirtualMatch(
                                     id++,
                                     name,
                                     aFrom,
                                     aTo,
                                     filteredFiles,
-                                    isAlias ? MatchType.Alias : MatchType.Note,
+                                    node.type,
                                     !isWordBoundary,
                                     this.settings,
                                     this.plugin, // Add plugin parameter

@@ -548,9 +548,10 @@ export interface LinkerPluginSettings {
     headerAutoAppendSymbol: string; // Symbol to append to headers
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
-    frontmatterExcludeProperty: string; // Frontmatter property name for per-note excluded keywords
+    frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
+    frontmatterExcludeListProperty: string; // Frontmatter property for per-note keyword list
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     // wordBoundaryRegex: string;
@@ -609,6 +610,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
+    frontmatterExcludeListProperty: 'fakelink-exclude-keywords',
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
@@ -1931,7 +1933,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Per-note excluded keywords via frontmatter
             new Setting(containerEl)
                 .setName(t('Per-note excluded keywords'))
-                .setDesc(t('When enabled, excluded keywords only apply to notes that have the specified frontmatter property. When disabled, excluded keywords apply globally.'))
+                .setDesc(t('When enabled, the global excluded keywords only apply to notes that opt in via a frontmatter property. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to opt in for that note.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
                         await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
@@ -1942,7 +1944,7 @@ class LinkerSettingTab extends PluginSettingTab {
             if (this.plugin.settings.perNoteExcludeKeywords) {
                 new Setting(containerEl)
                     .setName(t('Frontmatter exclusion property'))
-                    .setDesc(t('Only notes with this frontmatter property (set to true) will have excluded keywords applied.'))
+                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have the global excluded keywords applied. Default: fakelink-exclude.'))
                     .addText((text) =>
                         text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
                             await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
@@ -2071,7 +2073,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // Per-note excluded keywords via frontmatter
             new Setting(containerEl)
                 .setName(t('Per-note excluded keywords'))
-                .setDesc(t('When enabled, excluded keywords only apply to notes with the frontmatter property set to true. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to enable exclusion for that note.'))
+                .setDesc(t('When enabled, the global excluded keywords only apply to notes that opt in via a frontmatter property. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to opt in for that note.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
                         await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
@@ -2082,7 +2084,7 @@ class LinkerSettingTab extends PluginSettingTab {
             if (this.plugin.settings.perNoteExcludeKeywords) {
                 new Setting(containerEl)
                     .setName(t('Frontmatter exclusion property'))
-                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have excluded keywords applied.'))
+                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have the global excluded keywords applied. Default: fakelink-exclude.'))
                     .addText((text) =>
                         text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
                             await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
@@ -2093,12 +2095,24 @@ class LinkerSettingTab extends PluginSettingTab {
             // Extra per-note excluded keywords via frontmatter list
             new Setting(containerEl)
                 .setName(t('Enable frontmatter exclude list'))
-                .setDesc(t('When enabled, each note can define additional excluded keywords in its frontmatter as a list. These add on top of the global excluded keywords. Usage: add "fakelink-exclude: [keyword1, keyword2]" to a note\'s frontmatter.'))
+                .setDesc(t('When enabled, each note can define excluded keywords in its frontmatter. These keywords will not be linked anywhere (added on top of the global excluded keywords). Usage: add "fakelink-exclude-keywords: [keyword1, keyword2]" or "fakelink-exclude-keywords: keyword1, keyword2" to a note\'s frontmatter.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.enableFrontmatterExcludeList).onChange(async (value) => {
                         await this.plugin.updateSettings({ enableFrontmatterExcludeList: value });
+                        this.display();
                     })
                 );
+
+            if (this.plugin.settings.enableFrontmatterExcludeList) {
+                new Setting(containerEl)
+                    .setName(t('Frontmatter exclude list property'))
+                    .setDesc(t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'))
+                    .addText((text) =>
+                        text.setValue(this.plugin.settings.frontmatterExcludeListProperty).onChange(async (value) => {
+                            await this.plugin.updateSettings({ frontmatterExcludeListProperty: value || 'fakelink-exclude-keywords' });
+                        })
+                    );
+            }
         }
 
         // Header auto-append suffix
