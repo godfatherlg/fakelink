@@ -5,7 +5,7 @@ import { App, MarkdownView, TFile, Vault } from 'obsidian';
 
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { ExternalUpdateManager, LinkerCache, MatchType, PrefixTree } from './linkerCache';
+import { ExternalUpdateManager, LinkerCache, PrefixTree } from './linkerCache';
 import { VirtualMatch } from './virtualLinkDom';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -339,7 +339,6 @@ class AutoLinkerPlugin implements PluginValue {
                             const nFrom = node.start;
                             const nTo = node.end;
                             const name = text.slice(nFrom, nTo);
-                            const isAlias = node.isAlias;
 
                             const aFrom = from + nFrom;
                             const aTo = from + nTo;

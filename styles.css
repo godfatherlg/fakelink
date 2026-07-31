@@ -43,7 +43,7 @@ body.virtual-link-color-only .virtual-link-span:not(.virtual-link-type-header),
 body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header) .virtual-link-a,
 body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header) a,
 body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header) .internal-link {
-  color: var(--virtual-link-note-color) !important;
+  color: var(--virtual-link-note-color);
   filter: none;
   opacity: 1;
 }
@@ -53,7 +53,7 @@ body.virtual-link-color-only .virtual-link-span.virtual-link-type-header,
 body.virtual-link-color-only .virtual-link-type-header .virtual-link-a,
 body.virtual-link-color-only .virtual-link-type-header a,
 body.virtual-link-color-only .virtual-link-type-header .internal-link {
-  color: var(--virtual-link-header-color) !important;
+  color: var(--virtual-link-header-color);
   filter: none;
   opacity: 1;
 }
