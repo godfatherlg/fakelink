@@ -548,13 +548,11 @@ export interface LinkerPluginSettings {
     headerAutoAppendSymbol: string; // Symbol to append to headers
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
-    virtualLinkColor: string; // Custom color for virtual links in color-only mode
     frontmatterExcludeProperty: string; // Frontmatter property name for per-note excluded keywords
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
-    enableSeparateColors: boolean; // Enable separate colors for header vs note links
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -608,13 +606,11 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerAutoAppendSymbol: '☱',
     allowLinksInHeaders: true,
     colorOnlyDisplay: true,
-    virtualLinkColor: '#517ea0',
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
-    enableSeparateColors: false,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -672,15 +668,12 @@ export default class LinkerPlugin extends Plugin {
         // Apply color-only display mode
         if (this.settings.colorOnlyDisplay) {
             activeWindow.document.body.classList.add('virtual-link-color-only');
-            activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.virtualLinkColor);
         }
 
-        // Apply separate header/note link colors
-        if (this.settings.enableSeparateColors) {
-            activeWindow.document.body.classList.add('virtual-link-separate-colors');
-            activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
-            activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
-        }
+        // Always set link colors (header vs note)
+        activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
+        activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
+        activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
 
         // Listen for view changes
         this.registerEvent(this.app.workspace.on('layout-change', () => { void this.handleLayoutChange(); }));
@@ -2141,68 +2134,35 @@ class LinkerSettingTab extends PluginSettingTab {
                     const doc = this.containerEl.ownerDocument;
                     if (value) {
                         doc.body.classList.add('virtual-link-color-only');
-                        doc.body.style.setProperty('--virtual-link-color', this.plugin.settings.virtualLinkColor);
                     } else {
                         doc.body.classList.remove('virtual-link-color-only');
-                        doc.body.style.removeProperty('--virtual-link-color');
                     }
                 })
             );
 
+        // Header link color
         new Setting(containerEl)
-            .setName(t('Virtual link color'))
-            .setDesc(t('Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled. (Restart plugin to apply)'))
+            .setName(t('Header link color'))
+            .setDesc(t('Color for header virtual links (e.g., #517ea0).'))
             .addText((text) => {
-                text.setValue(this.plugin.settings.virtualLinkColor).onChange(async (value) => {
-                    await this.plugin.updateSettings({ virtualLinkColor: value });
-                    if (this.plugin.settings.colorOnlyDisplay) {
-                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-color', value);
-                    }
+                text.setValue(this.plugin.settings.headerVirtualLinkColor).onChange(async (value) => {
+                    await this.plugin.updateSettings({ headerVirtualLinkColor: value });
+                    this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-header-color', value);
                 });
-                text.inputEl.placeholder = '#409eff';
+                text.inputEl.placeholder = '#517ea0';
             });
 
-        // Separate colors for header vs note/alias links
+        // Note link color
         new Setting(containerEl)
-            .setName(t('Separate header and note colors'))
-            .setDesc(t('When enabled, header virtual links and note/alias virtual links use different colors.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableSeparateColors).onChange(async (value) => {
-                    await this.plugin.updateSettings({ enableSeparateColors: value });
-                    const doc = this.containerEl.ownerDocument;
-                    if (value) {
-                        doc.body.classList.add('virtual-link-separate-colors');
-                        doc.body.style.setProperty('--virtual-link-header-color', this.plugin.settings.headerVirtualLinkColor);
-                        doc.body.style.setProperty('--virtual-link-note-color', this.plugin.settings.noteVirtualLinkColor);
-                    } else {
-                        doc.body.classList.remove('virtual-link-separate-colors');
-                    }
-                })
-            );
-
-        if (this.plugin.settings.enableSeparateColors) {
-            new Setting(containerEl)
-                .setName(t('Header link color'))
-                .setDesc(t('Color for header virtual links (e.g., #517ea0).'))
-                .addText((text) => {
-                    text.setValue(this.plugin.settings.headerVirtualLinkColor).onChange(async (value) => {
-                        await this.plugin.updateSettings({ headerVirtualLinkColor: value });
-                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-header-color', value);
-                    });
-                    text.inputEl.placeholder = '#517ea0';
+            .setName(t('Note link color'))
+            .setDesc(t('Color for note and alias virtual links (e.g., #c0392b).'))
+            .addText((text) => {
+                text.setValue(this.plugin.settings.noteVirtualLinkColor).onChange(async (value) => {
+                    await this.plugin.updateSettings({ noteVirtualLinkColor: value });
+                    this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-note-color', value);
                 });
-
-            new Setting(containerEl)
-                .setName(t('Note link color'))
-                .setDesc(t('Color for note and alias virtual links (e.g., #c0392b).'))
-                .addText((text) => {
-                    text.setValue(this.plugin.settings.noteVirtualLinkColor).onChange(async (value) => {
-                        await this.plugin.updateSettings({ noteVirtualLinkColor: value });
-                        this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-note-color', value);
-                    });
-                    text.inputEl.placeholder = '#c0392b';
-                });
-        }
+                text.inputEl.placeholder = '#c0392b';
+            });
 
         // Toggle setting for alternative display style (underline + comment folding)
         new Setting(containerEl)

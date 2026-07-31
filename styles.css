@@ -62,30 +62,30 @@ body.virtual-link-color-only table th .virtual-link-span .internal-link {
   color: var(--virtual-link-color);
 }
 
-/* Separate colors for header vs note/alias links (only when enabled) */
-body.virtual-link-separate-colors .virtual-link-span.virtual-link-type-header,
-body.virtual-link-separate-colors .virtual-link-type-header .virtual-link-a,
-body.virtual-link-separate-colors .virtual-link.virtual-link-type-header {
+/* Separate colors for header vs note/alias links (always active) */
+.virtual-link-span.virtual-link-type-header,
+.virtual-link-type-header .virtual-link-a,
+.virtual-link.virtual-link-type-header {
   color: var(--virtual-link-header-color);
   filter: none;
   opacity: 1;
 }
-body.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header),
-body.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header) .virtual-link-a {
+.virtual-link-span:not(.virtual-link-type-header),
+.virtual-link:not(.virtual-link-type-header) .virtual-link-a {
   color: var(--virtual-link-note-color);
   filter: none;
   opacity: 1;
 }
 /* When color-only is also enabled, use separate colors */
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header),
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span:not(.virtual-link-type-header) a,
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header),
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link:not(.virtual-link-type-header) .virtual-link-a {
+body.virtual-link-color-only .virtual-link-span:not(.virtual-link-type-header),
+body.virtual-link-color-only .virtual-link-span:not(.virtual-link-type-header) a,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header),
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header) .virtual-link-a {
   color: var(--virtual-link-note-color);
 }
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-span.virtual-link-type-header,
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link-type-header .virtual-link-a,
-body.virtual-link-color-only.virtual-link-separate-colors .virtual-link.virtual-link-type-header {
+body.virtual-link-color-only .virtual-link-span.virtual-link-type-header,
+body.virtual-link-color-only .virtual-link-type-header .virtual-link-a,
+body.virtual-link-color-only .virtual-link.virtual-link-type-header {
   color: var(--virtual-link-header-color);
 }
 

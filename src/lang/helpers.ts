@@ -98,10 +98,6 @@ const zhCN: Record<string, string> = {
 
     'Color-only display': '纯颜色显示',
     'When enabled, virtual links are shown in a custom text color instead of the default background shadow.': '启用后，虚拟链接以自定义文本颜色显示，而非默认背景阴影。',
-    'Virtual link color': '虚拟链接颜色',
-    'Custom CSS color for virtual links (e.g., #409eff, var(--text-accent)). Only used when color-only display is enabled. (Restart plugin to apply)': '自定义虚拟链接的 CSS 颜色（如 #409eff、var(--text-accent)）。仅在纯颜色显示模式下生效。（需重启插件生效）',
-    'Separate header and note colors': '区分标题与笔记颜色',
-    'When enabled, header virtual links and note/alias virtual links use different colors.': '启用后，标题虚拟链接和笔记/别名虚拟链接使用不同的颜色。',
     'Header link color': '标题链接颜色',
     'Color for header virtual links (e.g., #517ea0).': '标题虚拟链接的颜色（如 #517ea0）。',
     'Note link color': '笔记链接颜色',
