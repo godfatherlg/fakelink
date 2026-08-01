@@ -603,7 +603,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     maxReferencesToHideLink: 10,
     alwaysShowMultipleReferences: false,
     excludedKeywords: [],
-    headerAutoAppendSuffix: true,
+    headerAutoAppendSuffix: false,
     headerAutoAppendSymbol: '☱',
     allowLinksInHeaders: true,
     colorOnlyDisplay: true,
@@ -2122,6 +2122,7 @@ class LinkerSettingTab extends PluginSettingTab {
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
                     await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
+                    this.display();
                 })
             );
 

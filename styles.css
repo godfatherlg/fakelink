@@ -4,6 +4,7 @@
   --settings-box-min-height: 60px;
   --virtual-link-note-color: #c0392b;
   --virtual-link-header-color: #517ea0;
+  --virtual-link-highlight-bg: rgba(255, 212, 0, 0.5);
 }
 
 /* Basic virtual link styles */
@@ -56,6 +57,16 @@ body.virtual-link-color-only .virtual-link-type-header .internal-link {
   color: var(--virtual-link-header-color);
   filter: none;
   opacity: 1;
+}
+
+/* Color-only mode: highlight context keeps yellow background (方案Q) */
+body.virtual-link-color-only .virtual-link.cm-highlight,
+body.virtual-link-color-only .cm-highlight .virtual-link,
+body.virtual-link-color-only .virtual-link-in-highlight,
+body.virtual-link-color-only .virtual-link-span.virtual-link-in-highlight,
+body.virtual-link-color-only .markdown-preview-view mark .virtual-link,
+body.virtual-link-color-only .markdown-preview-view mark .virtual-link-span {
+  background-color: var(--virtual-link-highlight-bg);
 }
 
 /* Preserve strikethrough in virtual links */

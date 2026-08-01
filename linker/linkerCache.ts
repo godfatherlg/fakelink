@@ -346,7 +346,11 @@ export class PrefixTree {
                 child = new PrefixNode();
                 child.parent = node;
                 child.charValue = char;
-                child.depth = node.depth + 1;
+                // depth is measured in UTF-16 code units (char.length), so it
+                // stays aligned with the scan-side index (which advances by
+                // char.length too). This keeps emoji / surrogate-pair keywords
+                // from producing misaligned slices.
+                child.depth = node.depth + char.length;
                 node.children.set(char, child);
             }
             node = child;
