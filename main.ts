@@ -1574,7 +1574,7 @@ class LinkerSettingTab extends PluginSettingTab {
 
         new Setting(containerEl)
             .setName(t('Activate virtual linker'))
-            .setDesc(t('Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.'))
+            .setDesc(t('To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).'))
             .addToggle((toggle) =>
             toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
                 await this.plugin.updateSettings({ linkerActivated: value });

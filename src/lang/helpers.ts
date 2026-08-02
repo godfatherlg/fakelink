@@ -11,7 +11,7 @@ const zhCN: Record<string, string> = {
     'Auto-toggle activation status by mode': '按模式自动切换激活状态',
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
     'Activate virtual linker': '激活虚拟链接',
-    'Due to table and canvas rendering issues, to fully enable/disable virtual link rendering, use Quick Add or a third-party plugin to toggle the Fake Link plugin on/off.': '由于表格和 Canvas 渲染问题，如需完全开关虚拟链接渲染，请使用 Quick Add 或第三方插件来完全开启/关闭 Fake Link 插件。',
+    'To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).': '如需【显示/关闭】普通笔记正文（段落、列表等）中的虚拟链接，请【打开/关闭】此开关。\n注：此开关【无法控制】表格和 Canvas 中的虚拟链接（由于渲染机制不同）。若表格或 Canvas 中的虚拟链接不显示或出现渲染异常，请勿操作此开关，直接重启本插件（通过 QuickAdd 或其他方式）即可。',
     'Copy Quick Add script': '复制 Quick Add 脚本',
     'Quick Add script copied to clipboard!': 'Quick Add 脚本已复制到剪贴板！',
     'Copy EasyTyping template': '复制 EasyTyping 模板',
