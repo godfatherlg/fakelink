@@ -1689,7 +1689,14 @@ class LinkerSettingTab extends PluginSettingTab {
             .setDesc(t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.allowLinksInHeaders).onChange(async (value) => {
-                    await this.plugin.updateSettings({ allowLinksInHeaders: value });
+                    const update: Partial<FakeLinkSettings> = { allowLinksInHeaders: value };
+                    // Enabling header links auto-enables excluding self-links,
+                    // so a heading that matches the current note's own name does not link to itself.
+                    if (value && !this.plugin.settings.excludeLinksToOwnNote) {
+                        update.excludeLinksToOwnNote = true;
+                    }
+                    await this.plugin.updateSettings(update);
+                    this.display();
                 })
             );
 
@@ -2003,10 +2010,10 @@ class LinkerSettingTab extends PluginSettingTab {
                     })
                 );
 
-            // Toggle setting to exclude links to the active file
-            new Setting(containerEl)
-                .setName(t('Exclude self-links to the current note'))
-                .setDesc(t('If toggled, links to the note itself are excluded from the linker, but this might not work in reading view.'))
+        // Toggle setting to exclude links to the active file
+        new Setting(containerEl)
+            .setName(t('Exclude self-links to the current note'))
+            .setDesc(t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically.'))
                 .addToggle((toggle) =>
                     toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
