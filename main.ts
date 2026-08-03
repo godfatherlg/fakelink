@@ -554,6 +554,7 @@ export interface LinkerPluginSettings {
     frontmatterExcludeListProperty: string; // Frontmatter property for per-note keyword list
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
+    headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -613,6 +614,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     frontmatterExcludeListProperty: 'fakelink-exclude-keywords',
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
+    headerJumpRetryDelay: 500,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -1699,6 +1701,18 @@ class LinkerSettingTab extends PluginSettingTab {
                     this.display();
                 })
             );
+
+        // Setting for the base delay (ms) of repeated header-jump retries
+        new Setting(containerEl)
+            .setName(t('Header jump retry delay (ms)'))
+            .setDesc(t('When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.'))
+            .addText(text => text
+                .setValue(this.plugin.settings.headerJumpRetryDelay.toString())
+                .onChange(async (value) => {
+                    const parsed = parseInt(value, 10);
+                    const delay = Number.isFinite(parsed) && parsed >= 100 ? parsed : 100;
+                    await this.plugin.updateSettings({ headerJumpRetryDelay: delay });
+                }));
 
         // Toggle setting to match only whole words or any part of the word
         new Setting(containerEl)

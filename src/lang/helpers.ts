@@ -37,6 +37,8 @@ const zhCN: Record<string, string> = {
     'When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.': '启用后，只有包含起止符号的标题才会产生虚拟链接。无标记的标题不会产生虚拟链接。',
     'Allow virtual links in headers': '允许标题中的虚拟链接',
     'When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.': '启用后，虚拟链接将显示在 Markdown 标题中。可以配合 Quick Switcher++ 进行标题的检索使用。',
+    'Header jump retry delay (ms)': '标题跳转重试延时（毫秒）',
+    'When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.': '点击指向标题的虚拟链接时，插件会在短暂延时后再次跳转，以修正大文件中的定位漂移。这是基础延时（毫秒），共重试 3 次且间隔递增。最小值为 100。',
 
     'Match any part of a word': '匹配单词的任意部分',
     'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',
