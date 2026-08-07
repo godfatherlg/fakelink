@@ -149,9 +149,11 @@ export class BatchConvertModal extends Modal {
 
         // Sort from last to first so earlier offsets stay valid when replacing
         items.sort((a, b) => b.from - a.from);
-        // Default-enabled: links with multiple targets are unchecked (they
-        // convert only the first target when enabled).
-        this.enabled = items.map((item) => !item.multipleTargets);
+        // All items default to checked. (When "skip multiple targets" is on,
+        // multi-target links are already excluded above; when off, they are
+        // included and checked so the user doesn't have to tick them one by one.
+        // Converting a multi-target link only uses its first target.)
+        this.enabled = items.map(() => true);
         return items;
     }
 
