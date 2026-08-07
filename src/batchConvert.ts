@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Setting, TFile, getLinkpath } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Setting, TFile } from 'obsidian';
 
 import { LinkerPluginSettings } from 'main';
 
@@ -23,7 +23,11 @@ function relative(from: string, to: string): string {
     }
     const up = fromParts.length - i;
     const down = toParts.slice(i);
-    return [...Array(up).fill('..'), ...down].join('/');
+    const parts: string[] = [];
+    for (let j = 0; j < up; j++) {
+        parts.push('..');
+    }
+    return [...parts, ...down].join('/');
 }
 
 interface BatchLinkItem {
