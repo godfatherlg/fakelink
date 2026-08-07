@@ -318,22 +318,14 @@ class AutoLinkerPlugin implements PluginValue {
 
                 // If we are at a word boundary, get the current fitting files
                 const isWordBoundary = PrefixTree.checkWordBoundary(char); // , this.settings.wordBoundaryRegex
-                // Skip single-character (too-short) document words entirely so they
-                // are never linked as virtual links — neither by exact sub-word
-                // matching nor by the fuzzy fallback below. This stops spurious
-                // links like a lone "关" or "骨" being matched to a note/heading
-                // that merely contains that character.
-                const rawDocWord = text.slice(wordStartRel, i).trim();
-                const docWordTooShort = rawDocWord.length < 2;
                 let currentNodes: ReturnType<typeof this.linkerCache.cache.getCurrentMatchNodes> = [];
-                if (!docWordTooShort && (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary)) {
+                if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary) {
                     currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
                         i,
                         this.settings.excludeLinksToOwnNote ? mappedFile : null
                     );
 
                     if (currentNodes.length > 0) {
-                        // console.log('NODES', currentNodes);
                         for (const node of currentNodes) {
                             // Check if we want to include this note based on the settings
                             if (!this.settings.matchAnyPartsOfWords) {
@@ -347,9 +339,20 @@ class AutoLinkerPlugin implements PluginValue {
 
                             const nFrom = node.start;
                             const nTo = node.end;
-                            const name = text.slice(nFrom, nTo);
+                            let name = text.slice(nFrom, nTo);
 
-                            const aFrom = from + nFrom;
+                            // Fix: if the match range starts at a newline (can happen
+                            // when the prefix tree's depth counting includes a boundary
+                            // char), trim leading newlines so the decoration doesn't
+                            // span a line break (which crashes CodeMirror).
+                            let actualFrom = nFrom;
+                            while (actualFrom < nTo && text[actualFrom] === '\n') {
+                                actualFrom++;
+                            }
+                            if (actualFrom > nFrom) {
+                                name = text.slice(actualFrom, nTo);
+                            }
+                            const aFrom = from + actualFrom;
                             const aTo = from + nTo;
 
                             // console.log("MATCH", name, aFrom, aTo, node.caseIsMatched, node.requiresCaseMatch)
@@ -400,15 +403,19 @@ class AutoLinkerPlugin implements PluginValue {
                     // Fuzzy (词义模糊) fallback: if no exact match was found and
                     // fuzzy matching is enabled, normalize the current document
                     // word and link it when similarity >= the configured threshold.
-                    if (!docWordTooShort && currentNodes.length === 0 && this.settings.enableStemming) {
+                    if (currentNodes.length === 0 && this.settings.enableStemming) {
                         const rawWord = text.slice(wordStartRel, i).trim();
                         if (rawWord.length > 0) {
                             const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
                             if (normWord) {
                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold);
                                 for (const fr of fuzzyResults) {
-                                    const fFromRel = wordStartRel;
+                                    let fFromRel = wordStartRel;
                                     const fToRel = i;
+                                    // Trim leading newlines to avoid cross-line decorations
+                                    while (fFromRel < fToRel && text[fFromRel] === '\n') {
+                                        fFromRel++;
+                                    }
                                     const fName = text.slice(fFromRel, fToRel);
                                     const aFrom = from + fFromRel;
                                     const aTo = from + fToRel;
@@ -420,13 +427,25 @@ class AutoLinkerPlugin implements PluginValue {
                                     });
                                     if (filteredFiles.length === 0) continue;
 
+                                    // Determine match type from the fuzzy result:
+                                    // - if the entry has a headerId, it's a Header match
+                                    // - else if the canonical keyword matches a file basename, it's a Note
+                                    // - otherwise it's an Alias
+                                    let fuzzyMatchType = MatchType.Note;
+                                    if (fr.headerId) {
+                                        fuzzyMatchType = MatchType.Header;
+                                    } else if (fr.canonical) {
+                                        const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === fr.canonical!.toLowerCase());
+                                        if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                    }
+
                                     const virtualMatch = new VirtualMatch(
                                         id++,
                                         fName,
                                         aFrom,
                                         aTo,
                                         filteredFiles,
-                                        MatchType.Note,
+                                        fuzzyMatchType,
                                         false,
                                         this.settings,
                                         this.plugin,
@@ -588,6 +607,23 @@ class AutoLinkerPlugin implements PluginValue {
             }
             
 
+
+            // Decoration.replace cannot span a line break; skip any match whose
+            // range crosses one. Otherwise CodeMirror throws
+            // "Decorations that replace line breaks may not be specified via plugins"
+            // and the whole plugin crashes (no links render at all).
+            // We check for a literal '\n' in the sliced text (more reliable than
+            // comparing line numbers, which can misbehave at line boundaries).
+            matches = matches.filter((addition) => {
+                if (addition.from > addition.to) return false;
+                const slice = view.state.sliceDoc(addition.from, addition.to);
+                if (slice.includes('\n')) return false;
+                const line = view.state.doc.lineAt(addition.from);
+                if (/^#{1,6}\s/.test(line.text)) return false;
+                return true;
+            });
+            // RangeSetBuilder requires decorations to be added in ascending order.
+            matches.sort((a, b) => a.from - b.from || a.to - b.to);
 
             matches.forEach((addition) => {
                 const [from, to] = [addition.from, addition.to];

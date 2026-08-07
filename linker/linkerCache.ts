@@ -607,10 +607,11 @@ export class PrefixTree {
         // we also stop indexing to protect performance on large vaults.
         if (canonicalKeyword && canonicalKeyword !== name) {
             const key = name.toLowerCase();
-            const minLen = this.fuzzyMinLength ?? 0;
-            // Only index keywords strictly longer than the minimum: short titles
-            // are skipped (fuzzy-matching them is error-prone and useless).
-            if (key.length > minLen) {
+            // Only index keywords with at least 2 chars: single-char titles are
+            // skipped (fuzzy-matching them is error-prone and useless). Longer
+            // titles (including the long Chinese titles the user cares about) are
+            // always indexed so that dropping one character still matches.
+            if (key.length >= 2) {
                 const entry = { files: node.files, headerId, canonical: canonicalKeyword };
                 const list = this.fuzzyKeywordMap.get(key);
                 if (list) {
