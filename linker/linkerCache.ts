@@ -2,6 +2,7 @@ import { App, getAllTags, TFile, Vault } from 'obsidian';
 
 import { LinkerPluginSettings } from 'main';
 import { LinkerMetaInfoFetcher } from './linkerInfo';
+import { stem } from './stemmer';
 
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
@@ -30,6 +31,12 @@ export class PrefixNode {
     charValue: string = '';
     depth: number = 0;
     requiresCaseMatch: boolean = false;
+    // When this node was created from a stemmed keyword, the original
+    // (unstemmed) keyword and its header id are stored here so the link can
+    // still point to the real note/heading while the displayed text is the
+    // matched inflected form found in the document.
+    canonicalKeyword: string | undefined;
+    canonicalHeaderId: string | undefined;
 }
 
 export class VisitedPrefixNode {
@@ -60,6 +67,8 @@ export class MatchNode {
     startsAtWordBoundary: boolean = false;
     requiresCaseMatch: boolean = false;
     headerId?: string;  // Only used for Header type
+    canonicalKeyword?: string;  // Set when the match came from a stemmed keyword
+    canonicalHeaderId?: string;  // Original header id for a stemmed header match
 
     get end(): number {
         return this.start + this.length;
@@ -222,9 +231,15 @@ export class PrefixTree {
             matchNode.value = valueString;
             matchNode.requiresCaseMatch = node.node.requiresCaseMatch;
 
+            // When this node came from a stemmed keyword, resolve the real
+            // keyword/heading so the link points to the correct note.
+            const resolvedKeyword = node.node.canonicalKeyword ?? valueString;
+            matchNode.canonicalKeyword = node.node.canonicalKeyword;
+            matchNode.canonicalHeaderId = node.node.canonicalHeaderId;
+
             // Determine match type
             const fileNames = Array.from(matchNode.files).map((file) => file.basename);
-            const nodeValue = valueString;
+            const nodeValue = resolvedKeyword;
             
             if (fileNames.map((n) => n.toLowerCase()).includes(nodeValue.toLowerCase())) {
                 matchNode.type = MatchType.Note;  // Matches note name
@@ -335,7 +350,7 @@ export class PrefixTree {
         return matchNodes;
     }
 
-    private addFileWithName(name: string, file: TFile, matchCase: boolean, headerId?: string) {
+    private addFileWithName(name: string, file: TFile, matchCase: boolean, headerId?: string, canonicalKeyword?: string, canonicalHeaderId?: string) {
         let node = this.root;
 
         // For each character in the name, add a node to the trie
@@ -359,6 +374,15 @@ export class PrefixTree {
         // The last node is a leaf node, add the file to the node
         node.files.add(file);
         node.requiresCaseMatch = matchCase;
+
+        // Store the original keyword/header id when this node was created from
+        // a stemmed form, so matches resolve to the real note/heading.
+        if (canonicalKeyword) {
+            node.canonicalKeyword = canonicalKeyword;
+        }
+        if (canonicalHeaderId) {
+            node.canonicalHeaderId = canonicalHeaderId;
+        }
 
         // Store headerId if present — used for heading highlight on jump
         if (headerId) {
@@ -576,6 +600,31 @@ export class PrefixTree {
         namesWithCaseMatch.forEach((name) => {
             this.addFileWithName(name, file, true);
         });
+
+        // Stemming: add stemmed variants so inflected forms match the same note
+        // or heading. Stem entries are always case-insensitive (inflection is
+        // about word form, not case) and only added when stemming actually
+        // changes the keyword.
+        if (this.settings.enableStemming) {
+            const lang = this.settings.stemmingLanguage;
+            const addStem = (name: string) => {
+                const stemmed = stem(name, lang);
+                if (!stemmed || stemmed === name.toLowerCase() || stemmed === name) {
+                    return;
+                }
+                const headerEntry = headerEntries.find((e) => e.keyword === name);
+                this.addFileWithName(
+                    stemmed,
+                    file,
+                    false,
+                    headerEntry?.headerId,
+                    name,
+                    headerEntry?.headerId
+                );
+            };
+            namesWithCaseIgnore.forEach(addStem);
+            namesWithCaseMatch.forEach(addStem);
+        }
 
         // After adding, store headerId mappings for this file
         for (const entry of headerEntries) {

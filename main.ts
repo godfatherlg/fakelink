@@ -1,4 +1,4 @@
-import { App, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -7,6 +7,7 @@ import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
+import { BatchConvertModal } from './src/batchConvert';
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -555,6 +556,8 @@ export interface LinkerPluginSettings {
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
+    enableStemming: boolean; // Match inflected word forms (e.g. projectiles -> Projectile)
+    stemmingLanguage: string; // Language for stemming (e.g. 'en')
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -615,6 +618,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
     headerJumpRetryDelay: 500,
+    enableStemming: false,
+    stemmingLanguage: 'en',
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -1011,6 +1016,17 @@ export default class LinkerPlugin extends Plugin {
                     }
                 }
                 return true;
+            }
+        });
+
+        // Convert ALL virtual links in the current note to real links, with a
+        // preview list so the user can uncheck any they want to keep virtual.
+        this.addCommand({
+            id: 'convert-all-virtual-links-preview',
+            name: 'Convert all virtual links in note to real links (preview)',
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                const modal = new BatchConvertModal(this.app, this.settings);
+                modal.open();
             }
         });
 
@@ -1713,6 +1729,28 @@ class LinkerSettingTab extends PluginSettingTab {
                     const delay = Number.isFinite(parsed) && parsed >= 100 ? parsed : 100;
                     await this.plugin.updateSettings({ headerJumpRetryDelay: delay });
                 }));
+
+        // Stemming (inflected-form matching)
+        new Setting(containerEl)
+            .setName(t('Match inflected word forms'))
+            .setDesc(t('When enabled, word forms are reduced to their stem so inflected matches link to the same note or heading (e.g. "projectiles" links to "Projectile"). Currently only English stemming is supported.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableStemming).onChange(async (value) => {
+                    await this.plugin.updateSettings({ enableStemming: value });
+                    this.display();
+                }));
+
+        new Setting(containerEl)
+            .setName(t('Stemming language'))
+            .setDesc(t('Language used for word stemming. Only "en" (English) is supported at the moment.'))
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption('en', 'English')
+                    .setValue(this.plugin.settings.stemmingLanguage)
+                    .onChange(async (value) => {
+                        await this.plugin.updateSettings({ stemmingLanguage: value });
+                    }))
+            .setDisabled(!this.plugin.settings.enableStemming);
 
         // Toggle setting to match only whole words or any part of the word
         new Setting(containerEl)

@@ -39,6 +39,11 @@ const zhCN: Record<string, string> = {
     'When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.': '启用后，虚拟链接将显示在 Markdown 标题中。可以配合 Quick Switcher++ 进行标题的检索使用。',
     'Header jump retry delay (ms)': '标题跳转重试延时（毫秒）',
     'When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.': '点击指向标题的虚拟链接时，插件会在短暂延时后再次跳转，以修正大文件中的定位漂移。这是基础延时（毫秒），共重试 3 次且间隔递增。最小值为 100。',
+    'Match inflected word forms': '匹配单词词形变化',
+    'When enabled, word forms are reduced to their stem so inflected matches link to the same note or heading (e.g. "projectiles" links to "Projectile"). Currently only English stemming is supported.': '启用后，单词会被还原为词根，使词形变化也能链到同一个笔记或标题（例如 "projectiles" 会链到 "Projectile"）。目前仅支持英文词干提取。',
+    'Stemming language': '词干提取语言',
+    'Language used for word stemming. Only "en" (English) is supported at the moment.': '用于词干提取的语言。目前仅支持 "en"（英文）。',
+    'Convert all virtual links in note to real links (preview)': '将笔记中所有虚拟链接转换为真实链接（预览）',
 
     'Match any part of a word': '匹配单词的任意部分',
     'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',
