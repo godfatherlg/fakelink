@@ -1,295 +1,341 @@
-import { App, Editor, MarkdownView, Modal, Setting, TFile } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Setting, TFile } from 'obsidian';
+import { LinkerPluginSettings } from '../main';
+import { LinkerCache, PrefixTree } from '../linker/linkerCache';
+import { VirtualMatch } from '../linker/virtualLinkDom';
 
-import { LinkerPluginSettings } from 'main';
+type LinkerPluginType = import('../main').default;
 
-// Minimal path helpers mirroring the ones used by the existing
-// "convert selected virtual links" command.
 function dirname(filePath: string): string {
-    const i = filePath.lastIndexOf('/');
-    return i === -1 ? '' : filePath.substring(0, i);
+    const normalized = filePath.replace(/\\/g, '/');
+    const lastSlash = normalized.lastIndexOf('/');
+    return lastSlash === -1 ? '' : normalized.slice(0, lastSlash);
 }
 
 function basename(filePath: string): string {
-    const i = filePath.lastIndexOf('/');
-    return i === -1 ? filePath : filePath.substring(i + 1);
+    const normalized = filePath.replace(/\\/g, '/');
+    const lastSlash = normalized.lastIndexOf('/');
+    return lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
 }
 
 function relative(from: string, to: string): string {
-    const fromParts = from.split('/').filter(Boolean);
-    const toParts = to.split('/').filter(Boolean);
+    const fromParts = dirname(from).split('/').filter(Boolean);
+    const toParts = dirname(to).split('/').filter(Boolean);
     let i = 0;
-    while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) {
-        i++;
-    }
+    while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) i++;
     const up = fromParts.length - i;
     const down = toParts.slice(i);
-    const parts: string[] = [];
-    for (let j = 0; j < up; j++) {
-        parts.push('..');
-    }
-    return [...parts, ...down].join('/');
+    return [...Array(up).fill('..'), ...down].join('/') || '.';
 }
+
 
 interface BatchLinkItem {
     from: number;
     to: number;
     displayText: string;
     replacement: string;
-    anchor: HTMLAnchorElement;
     multipleTargets: boolean;
 }
 
-/**
- * Collects all currently rendered virtual links in the active markdown view
- * and lets the user convert them into real links, with a preview list.
- */
 export class BatchConvertModal extends Modal {
     private items: BatchLinkItem[] = [];
-    private enabled: boolean[];
+    private enabled: boolean[] = [];
     private editor: Editor | null = null;
     private readonly settings: LinkerPluginSettings;
+    private readonly plugin: LinkerPluginType | null;
+    private rendered = false;
 
-    constructor(app: App, settings: LinkerPluginSettings) {
+    constructor(app: App, settings: LinkerPluginSettings, plugin?: LinkerPluginType | null) {
         super(app);
         this.settings = settings;
+        this.plugin = plugin ?? null;
     }
 
-    async onOpen() {
+    onOpen() {
         const { contentEl } = this;
-        contentEl.empty();
-
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view) {
-            contentEl.createEl('p', { text: 'No active markdown note found.' });
+        this.editor = view?.editor ?? null;
+
+        if (!this.editor) {
+            contentEl.createEl('p', { text: '请先打开一个 Markdown 笔记，再运行此命令。' });
             return;
         }
-        this.editor = view.editor;
-
-        contentEl.createEl('h3', { text: 'Convert virtual links to real links' });
-        contentEl.createEl('p', { text: 'Collecting virtual links…' });
-
-        // Force CodeMirror to render all link widgets by scrolling through the
-        // whole document, then collect on the next frame so the count is stable
-        // (widgets are lazily rendered only for the visible area otherwise).
-        const ed = this.editor;
-        try {
-            const lastLine = ed.lastLine();
-            ed.setCursor({ line: lastLine, ch: ed.getLine(lastLine).length });
-            ed.setCursor({ line: 0, ch: 0 });
-        } catch {
-            // ignore
+        if (!this.settings.linkerActivated) {
+            contentEl.createEl('p', { text: '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。' });
+            return;
         }
 
-        window.setTimeout(() => {
-            if (!this.editor) {
-                return;
-            }
-            this.renderList(contentEl);
-        }, 120);
+        this.renderList(contentEl);
+    }
+
+    onClose() {
+        this.items = [];
+        this.enabled = [];
+        this.editor = null;
+        this.rendered = false;
+        this.contentEl.empty();
     }
 
     private renderList(contentEl: HTMLElement) {
         contentEl.empty();
-        contentEl.createEl('h3', { text: 'Convert virtual links to real links' });
-
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        const sourcePath = view?.file?.path ?? '';
+        const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
         this.items = this.collectLinks(sourcePath);
+        this.enabled = this.items.map(() => true);
 
+        contentEl.createEl('h2', { text: '批量固化虚拟链接为真实链接' });
         contentEl.createEl('p', {
-            text: `${this.items.length} virtual link(s) found in the current note. Uncheck any you want to keep as virtual links.`,
+            text: `当前笔记共找到 ${this.items.length} 个虚拟链接。勾选需要转换的项，点击"转换"。`,
         });
 
         if (this.items.length === 0) {
-            contentEl.createEl('p', { text: 'Nothing to convert.' });
+            contentEl.createEl('p', { text: '未检测到可转换的虚拟链接。' });
             return;
         }
 
-        const listEl = contentEl.createEl('div', { cls: 'fakelink-batch-list' });
-        this.items.forEach((item, index) => {
-            const row = listEl.createEl('div', { cls: 'fakelink-batch-row' });
-            new Setting(row)
-                .setName(`"${item.displayText}"`)
-                .setDesc(item.multipleTargets
-                    ? `${item.replacement}  (multiple targets — converts the first one)`
-                    : item.replacement)
-                .addToggle((toggle) =>
-                    toggle.setValue(this.enabled[index] ?? true).onChange((value) => {
-                        this.enabled[index] = value;
-                    })
+        const listEl = contentEl.createEl('div');
+        listEl.addClass('batch-convert-list');
+
+        this.items.forEach((item, idx) => {
+            const row = listEl.createEl('div');
+            row.addClass('batch-convert-row');
+
+            const toggle = new Setting(row)
+                .setName(item.displayText)
+                .setDesc(
+                    item.multipleTargets
+                        ? '多个指向 — 将转换为第一个目标'
+                        : item.replacement
                 );
+            const defaultOn = !(item.multipleTargets && this.settings.skipMultipleTargets);
+            toggle.addToggle((tc) =>
+                tc.setValue(defaultOn).onChange((v) => {
+                    this.enabled[idx] = v;
+                })
+            );
+            this.enabled[idx] = defaultOn;
         });
 
-        new Setting(contentEl)
-            .addButton((btn) =>
-                btn.setButtonText('Convert selected').setCta().onClick(() => {
-                    this.applyConversions();
-                    this.close();
-                })
-            )
-            .addButton((btn) =>
-                btn.setButtonText('Cancel').onClick(() => this.close())
-            );
+        const buttonBar = contentEl.createEl('div');
+        buttonBar.addClass('batch-convert-buttons');
+
+        const convertBtn = buttonBar.createEl('button', { text: '转换' });
+        convertBtn.addClass('mod-cta');
+        convertBtn.onclick = () => this.convert();
+
+        const cancelBtn = buttonBar.createEl('button', { text: '取消' });
+        cancelBtn.onclick = () => this.close();
     }
 
-    onClose() {
-        this.contentEl.empty();
-    }
-
+    /**
+     * Scan the WHOLE document through LinkerCache (the same trie logic used by
+     * the live linker) so we get every virtual link regardless of what is
+     * currently rendered in the viewport. This avoids the CodeMirror lazy
+     * widget rendering problem and does not require scrolling.
+     */
     private collectLinks(sourcePath: string): BatchLinkItem[] {
         const editor = this.editor;
-        if (!editor) {
-            return [];
+        if (!editor) return [];
+
+        const cache = LinkerCache.getInstance(this.app, this.settings);
+        const cacheTree = cache.cache;
+
+        const text = editor.getValue();
+        const excludedExtensions = this.settings.excludedExtensions;
+        const ownNote = this.settings.excludeLinksToOwnNote ? this.app.workspace.getActiveFile() : null;
+
+        cache.reset();
+        const matches: VirtualMatch[] = [];
+        let id = 0;
+
+        for (let i = 0; i <= text.length; ) {
+            const codePoint = text.codePointAt(i)!;
+            const char = i < text.length ? String.fromCodePoint(codePoint) : '\n';
+            const isWordBoundary = PrefixTree.checkWordBoundary(char);
+
+            if (
+                this.settings.matchAnyPartsOfWords ||
+                this.settings.matchBeginningOfWords ||
+                isWordBoundary
+            ) {
+                const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote);
+
+                for (const node of currentNodes) {
+                    if (!this.settings.matchAnyPartsOfWords) {
+                        if (
+                            (this.settings.matchBeginningOfWords && !node.startsAtWordBoundary) &&
+                            (this.settings.matchEndOfWords && !isWordBoundary)
+                        ) {
+                            continue;
+                        }
+                    }
+
+                    const nFrom = node.start;
+                    const nTo = node.end;
+                    const name = text.slice(nFrom, nTo);
+
+                    const filteredFiles = Array.from(node.files).filter((file: TFile) => {
+                        return !excludedExtensions.some((ext: string) =>
+                            file.path.toLowerCase().endsWith(ext.toLowerCase())
+                        );
+                    });
+
+                    if (filteredFiles.length === 0) continue;
+
+                    const vm = new VirtualMatch(
+                        id++,
+                        name,
+                        nFrom,
+                        nTo,
+                        filteredFiles,
+                        node.type,
+                        !isWordBoundary,
+                        this.settings,
+                        this.plugin,
+                        node.headerId
+                    );
+
+                    if (filteredFiles.length > 1) {
+                        filteredFiles.forEach((file: TFile, index: number) => {
+                            if (index === 0) return;
+                            const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                vm.setFileHeaderId(file, fileNodes[0].headerId);
+                            }
+                        });
+                    }
+
+                    matches.push(vm);
+                }
+            }
+
+            cacheTree.pushChar(char);
+            i += char.length;
         }
-        // Scope to the active editor's CodeMirror DOM only. Using activeDocument
-        // would also pick up virtual links rendered in a split preview pane, whose
-        // offsets belong to a different document and would corrupt replacements.
-        const cmDom = (editor as unknown as { cm?: { dom?: HTMLElement } }).cm?.dom;
-        const scope: ParentNode = cmDom ?? activeDocument;
-        const anchors = scope.querySelectorAll('.virtual-link-a');
-        const seen = new Set<string>();
-        const items: BatchLinkItem[] = [];
 
-        anchors.forEach((el) => {
-            const anchor = el as HTMLAnchorElement;
-            const fromAttr = anchor.getAttribute('from');
-            const toAttr = anchor.getAttribute('to');
-            const originText = anchor.getAttribute('origin-text');
-            const href = anchor.getAttribute('href') ?? '';
+        let sorted = VirtualMatch.sort(matches);
+        sorted = VirtualMatch.filterOverlapping(sorted, this.settings.onlyLinkOnce);
 
-            if (fromAttr === null || toAttr === null || !originText) {
-                return;
-            }
-            const from = parseInt(fromAttr, 10);
-            const to = parseInt(toAttr, 10);
-            if (!Number.isFinite(from) || !Number.isFinite(to) || from >= to) {
-                return;
-            }
-
-            // Deduplicate identical spans (CodeMirror may render the same link
-            // more than once during measurement passes).
-            const key = `${from}-${to}`;
-            if (seen.has(key)) {
-                return;
-            }
-            seen.add(key);
-
-            // Validate that the document actually contains the expected text at
-            // this offset. Skips stale/wrong offsets that would otherwise insert
-            // junk at the end of the note.
-            const fromPos = editor.offsetToPos(from);
-            const toPos = editor.offsetToPos(to);
-            if (editor.getRange(fromPos, toPos) !== originText) {
-                return;
-            }
-
-            const replacement = this.buildReplacement(anchor, originText, href, sourcePath);
-            if (!replacement) {
-                return;
-            }
-
-            // Detect links pointing to multiple notes: the root .virtual-link span
-            // contains a .multiple-files-references child in that case.
-            const rootLink = anchor.closest('.virtual-link');
-            const multipleTargets = !!rootLink?.querySelector('.multiple-files-references');
-
-            // When configured, skip (exclude entirely) links with multiple targets
-            // so the user can convert those individually.
-            if (multipleTargets && this.settings.skipMultipleTargets) {
-                return;
-            }
-
-            items.push({ from, to, displayText: originText, replacement, anchor, multipleTargets });
+        const items: BatchLinkItem[] = sorted.map((m) => {
+            const multipleTargets = m.files.length > 1;
+            const replacement = this.buildReplacement(m, sourcePath);
+            return {
+                from: m.from,
+                to: m.to,
+                displayText: m.originText,
+                replacement,
+                multipleTargets,
+            };
         });
 
-        // Sort from last to first so earlier offsets stay valid when replacing
+        // Sort descending by position so later replacements don't shift earlier offsets
         items.sort((a, b) => b.from - a.from);
-        // All items default to checked. (When "skip multiple targets" is on,
-        // multi-target links are already excluded above; when off, they are
-        // included and checked so the user doesn't have to tick them one by one.
-        // Converting a multi-target link only uses its first target.)
-        this.enabled = items.map(() => true);
         return items;
     }
 
-    private buildReplacement(
-        anchor: HTMLAnchorElement,
-        text: string,
-        href: string,
-        sourcePath: string
-    ): string {
-        const hrefWithoutAnchor = href.split('#')[0];
-        const targetFile = this.app.vault.getAbstractFileByPath(hrefWithoutAnchor);
-        if (!(targetFile instanceof TFile)) {
-            return '';
-        }
+    private buildReplacement(match: VirtualMatch, sourcePath: string): string {
+        const targetFile = match.files[0];
+        if (!targetFile) return match.originText;
 
-        const activeFilePath = sourcePath;
+        const activeFile = this.app.workspace.getActiveFile();
+        const activeFilePath = activeFile?.path ?? '';
+        const text = match.originText;
+        const headerId = match.getFileHeaderId(targetFile) || match.headerId;
+
+        const useMarkdownLinks = this.settings.useDefaultLinkStyleForConversion
+            ? this.settings.defaultUseMarkdownLinks
+            : this.settings.useMarkdownLinks;
+        const linkFormat = this.settings.useDefaultLinkStyleForConversion
+            ? this.settings.defaultLinkFormat
+            : this.settings.linkFormat;
 
         let absolutePath = targetFile.path;
         let relativePath =
-            relative(dirname(activeFilePath), dirname(absolutePath)) + '/' + basename(absolutePath);
+            dirname(activeFile?.path ?? '') + '/' + basename(targetFile.path);
         relativePath = relativePath.replace(/\\/g, '/');
 
         const replacementPath = this.app.metadataCache.fileToLinktext(targetFile, activeFilePath);
-        const lastPart = replacementPath.split('/').pop();
-        if (!lastPart) {
-            return '';
-        }
+        const lastPart = replacementPath.split('/').pop() ?? '';
         const shortestFile = this.app.metadataCache.getFirstLinkpathDest(lastPart, '');
         let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
 
-        const headerId = anchor.getAttribute('data-heading-id');
         const pathSuffix = headerId ? `#${headerId}` : '';
-
         if (!replacementPath.endsWith('.md')) {
             if (absolutePath.endsWith('.md')) absolutePath = absolutePath.slice(0, -3);
-            if (shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
+            if (shortestPath && shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
             if (relativePath.endsWith('.md')) relativePath = relativePath.slice(0, -3);
-
             absolutePath += pathSuffix;
             shortestPath += pathSuffix;
             relativePath += pathSuffix;
         }
 
-        const useMarkdownLinks = this.settings.useDefaultLinkStyleForConversion
-            ? this.settings.defaultUseMarkdownLinks
-            : this.settings.useMarkdownLinks;
-
-        const linkFormat = this.settings.useDefaultLinkStyleForConversion
-            ? this.settings.defaultLinkFormat
-            : this.settings.linkFormat;
+        const createLink = (replacementTarget: string, linkText: string, markdownStyle: boolean) => {
+            if (markdownStyle) {
+                return `[${linkText}](${replacementTarget})`;
+            }
+            const tableCell = isInTable(this.editor, match.from);
+            if (tableCell) {
+                const escapedText = linkText.replace(/[\\|]/g, '\\$&');
+                return `[[${replacementTarget}\\|${escapedText}]]`;
+            }
+            return `[[${replacementTarget}|${linkText}]]`;
+        };
 
         if (replacementPath === text && linkFormat === 'shortest') {
             return `[[${replacementPath}]]`;
         }
-
-        const path = linkFormat === 'shortest' ? shortestPath
-            : linkFormat === 'relative' ? relativePath
-                : absolutePath;
-
-        if (useMarkdownLinks) {
-            return `[${text}](${path})`;
+        if (linkFormat === 'shortest') {
+            return createLink(shortestPath || absolutePath, text, useMarkdownLinks);
+        } else if (linkFormat === 'relative') {
+            return createLink(relativePath, text, useMarkdownLinks);
+        } else {
+            return createLink(absolutePath, text, useMarkdownLinks);
         }
-
-        // Wiki links: escape pipe characters when inside a table cell
-        const isInTable = !!anchor.closest('td, th');
-        const escapedText = isInTable ? text.replace(/[\\|]/g, '\\$&') : text;
-        return `[[${path}\\|${escapedText}]]`;
     }
 
-    private applyConversions() {
-        if (!this.editor) {
-            return;
+    private convert() {
+        const editor = this.editor;
+        if (!editor) return;
+
+        let applied = 0;
+        for (let idx = 0; idx < this.items.length; idx++) {
+            if (!this.enabled[idx]) continue;
+            const item = this.items[idx];
+            const currentText = editor.getRange(
+                editor.offsetToPos(item.from),
+                editor.offsetToPos(item.to)
+            );
+            if (currentText !== item.displayText) continue;
+
+            editor.replaceRange(
+                item.replacement,
+                editor.offsetToPos(item.from),
+                editor.offsetToPos(item.to)
+            );
+            applied++;
         }
-        for (let i = 0; i < this.items.length; i++) {
-            if (!this.enabled[i]) {
-                continue;
+
+        new Notice(`已固化 ${applied} 个虚拟链接为真实链接。`);
+        this.close();
+    }
+}
+
+function isInTable(editor: Editor | null, offset: number): boolean {
+    try {
+        const cm = (editor as unknown as { cm?: { dom?: HTMLElement } })?.cm?.dom;
+        if (!cm) return false;
+        // Fallback heuristic: check the line text for table pipes
+        if (editor) {
+            const pos = editor.offsetToPos(offset);
+            const line = editor.getLine(pos.line);
+            const pipeCount = (line.match(/\|/g) || []).length;
+            const prevLine = pos.line > 0 ? editor.getLine(pos.line - 1) : '';
+            const nextLine = editor.lineCount() > pos.line + 1 ? editor.getLine(pos.line + 1) : '';
+            const sep = /^\s*\|?[-: |]+\|?\s*$/;
+            if (pipeCount >= 1 && (sep.test(prevLine) || sep.test(nextLine))) {
+                return true;
             }
-            const item = this.items[i];
-            const fromPos = this.editor.offsetToPos(item.from);
-            const toPos = this.editor.offsetToPos(item.to);
-            this.editor.replaceRange(item.replacement, fromPos, toPos);
         }
+        return false;
+    } catch {
+        return false;
     }
 }

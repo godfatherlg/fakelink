@@ -1027,7 +1027,7 @@ export default class LinkerPlugin extends Plugin {
             id: 'convert-all-virtual-links-preview',
             name: 'Convert all virtual links in note to real links (preview)',
             editorCallback: (editor: Editor, view: MarkdownView) => {
-                const modal = new BatchConvertModal(this.app, this.settings);
+                const modal = new BatchConvertModal(this.app, this.settings, this);
                 modal.open();
             }
         });
