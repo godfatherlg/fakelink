@@ -24,3 +24,6 @@ data.json
 # Obsidian releases directories
 obsidian-releases/
 obsidian-releases-new/
+
+# Build logs
+build.log
