@@ -4,6 +4,132 @@ import { LinkerPluginSettings } from 'main';
 import { LinkerMetaInfoFetcher } from './linkerInfo';
 import { stem } from './stemmer';
 
+// Irregular English verbs: map inflected forms to their base/infinitive so that
+// Porter stemming (which cannot handle irregular verbs) still aligns them.
+// e.g. ran -> run, went -> go, was -> be. Used by fuzzy (词义模糊) matching.
+const FUZZY_IRREGULAR_VERBS: Record<string, string> = {
+    // be
+    am: 'be', is: 'be', are: 'be', was: 'be', were: 'be', been: 'be', being: 'be',
+    // have
+    has: 'have', had: 'have', having: 'have',
+    // do
+    does: 'do', did: 'do', done: 'do', doing: 'do',
+    // go
+    goes: 'go', went: 'go', gone: 'go', going: 'go',
+    // run
+    ran: 'run', runs: 'run', running: 'run',
+    // say
+    says: 'say', said: 'say', saying: 'say',
+    // see
+    sees: 'see', saw: 'see', seen: 'see', seeing: 'see',
+    // take
+    takes: 'take', took: 'take', taken: 'take', taking: 'take',
+    // come
+    comes: 'come', came: 'come', coming: 'come',
+    // give
+    gives: 'give', gave: 'give', given: 'give', giving: 'give',
+    // get
+    gets: 'get', got: 'get', gotten: 'get', getting: 'get',
+    // make
+    makes: 'make', made: 'make', making: 'make',
+    // know
+    knows: 'know', knew: 'know', known: 'know', knowing: 'know',
+    // think
+    thinks: 'think', thought: 'think', thinking: 'think',
+    // become
+    becomes: 'become', became: 'become', becoming: 'become',
+    // begin
+    begins: 'begin', began: 'begin', begun: 'begin', beginning: 'begin',
+    // eat
+    eats: 'eat', ate: 'eat', eaten: 'eat', eating: 'eat',
+    // write
+    writes: 'write', wrote: 'write', written: 'write', writing: 'write',
+    // speak
+    speaks: 'speak', spoke: 'speak', spoken: 'speak', speaking: 'speak',
+    // drive
+    drives: 'drive', drove: 'drive', driven: 'drive', driving: 'drive',
+    // ride
+    rides: 'ride', rode: 'ride', ridden: 'ride', riding: 'ride',
+    // fly
+    flies: 'fly', flew: 'fly', flown: 'fly', flying: 'fly',
+    // buy
+    buys: 'buy', bought: 'buy', buying: 'buy',
+    // bring
+    brings: 'bring', brought: 'bring', bringing: 'bring',
+    // teach
+    teaches: 'teach', taught: 'teach', teaching: 'teach',
+    // catch
+    catches: 'catch', caught: 'catch', catching: 'catch',
+    // fight
+    fights: 'fight', fought: 'fight', fighting: 'fight',
+    // find
+    finds: 'find', found: 'find', finding: 'find',
+    // hold
+    holds: 'hold', held: 'hold', holding: 'hold',
+    // keep
+    keeps: 'keep', kept: 'keep', keeping: 'keep',
+    // lead
+    leads: 'lead', led: 'lead', leading: 'lead',
+    // leave
+    leaves: 'leave', left: 'leave', leaving: 'leave',
+    // lose
+    loses: 'lose', lost: 'lose', losing: 'lose',
+    // mean
+    means: 'mean', meant: 'mean', meaning: 'mean',
+    // meet
+    meets: 'meet', met: 'meet', meeting: 'meet',
+    // pay
+    pays: 'pay', paid: 'pay', paying: 'pay',
+    // read
+    reads: 'read', read: 'read', reading: 'read',
+    // send
+    sends: 'send', sent: 'send', sending: 'send',
+    // shoot
+    shoots: 'shoot', shot: 'shoot', shooting: 'shoot',
+    // sit
+    sits: 'sit', sat: 'sit', sitting: 'sit',
+    // spend
+    spends: 'spend', spent: 'spend', spending: 'spend',
+    // stand
+    stands: 'stand', stood: 'stand', standing: 'stand',
+    // tell
+    tells: 'tell', told: 'tell', telling: 'tell',
+    // win
+    wins: 'win', won: 'win', winning: 'win',
+    // build
+    builds: 'build', built: 'build', building: 'build',
+    // feel
+    feels: 'feel', felt: 'feel', feeling: 'feel',
+    // break
+    breaks: 'break', broke: 'break', broken: 'break', breaking: 'break',
+    // choose
+    chooses: 'choose', chose: 'choose', chosen: 'choose', choosing: 'choose',
+    // draw
+    draws: 'draw', drew: 'draw', drawn: 'draw', drawing: 'draw',
+    // fall
+    falls: 'fall', fell: 'fall', fallen: 'fall', falling: 'fall',
+    // grow
+    grows: 'grow', grew: 'grow', grown: 'grow', growing: 'grow',
+    // show
+    shows: 'show', showed: 'show', shown: 'show', showing: 'show',
+    // throw
+    throws: 'throw', threw: 'throw', thrown: 'throw', throwing: 'throw',
+    // wear
+    wears: 'wear', wore: 'wear', worn: 'wear', wearing: 'wear',
+};
+
+// Chinese function words / particles to strip for fuzzy (词义模糊) matching.
+const FUZZY_ZH_STOPWORDS: string[] = [
+    '的', '了', '吗', '呢', '吧', '啊', '呀', '哦', '嘛', '罢',
+    '和', '与', '及', '跟', '同', '或', '而', '但', '却',
+    '在', '于', '从', '向', '往', '对', '为', '给', '被', '把', '让', '由',
+    '我', '你', '他', '她', '它', '我们', '你们', '他们', '它们',
+    '这', '那', '这个', '那个', '这些', '那些',
+    '是', '有', '要', '会', '能', '可以', '不', '没', '没有', '也', '都', '就', '才', '还', '很', '太', '更',
+    '一个', '一些', '这种', '那种', '之', '等', '上', '下', '中', '里', '外', '内',
+    '我们', '你们', '他们', '自己', '什么', '怎么', '怎样', '如何', '为何', '因为', '所以', '如果', '虽然',
+];
+
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
     registeredCallbacks: Set<() => void> = new Set();
@@ -90,6 +216,18 @@ export class PrefixTree {
     mapFilePathToLeaveNodes: Map<string, PrefixNode[]> = new Map();
     mapFileHeaderIds: Map<string, Map<string, string>> = new Map();
 
+    // Fuzzy-match index: normalized keyword (lowercased) -> candidate entries.
+    // Built alongside the prefix tree when fuzzy (词义模糊) matching is enabled.
+    fuzzyKeywordMap: Map<string, { files: Set<TFile>; headerId?: string; canonical?: string }[]> = new Map();
+    // First-char bucket index: bucket key (first char of normalized keyword) -> list
+    // of normalized keywords. Lets findFuzzyMatches only scan the relevant bucket
+    // instead of the entire map (the main source of the earlier performance lag).
+    private fuzzyBuckets: Map<string, string[]> = new Map();
+    // Minimum length (characters) of a normalized keyword to be indexed for fuzzy
+    // matching. Shorter titles/notes are skipped — fuzzy-matching them is useless
+    // and error-prone. Set from settings.fuzzyMinLength at tree build time.
+    public fuzzyMinLength = 0;
+
     private static readonly SUPPORTED_EXTENSIONS = [
         'md', 'png', 'jpg', 'jpeg', 'gif', 'svg',
         'pdf', 'doc', 'docx', 'xls', 'xlsx',
@@ -99,6 +237,7 @@ export class PrefixTree {
 
     constructor(public app: App, public settings: LinkerPluginSettings) {
         this.fetcher = new LinkerMetaInfoFetcher(this.app, this.settings);
+        this.fuzzyMinLength = settings.fuzzyMinLength ?? 4;
         this.updateTree();
     }
 
@@ -108,6 +247,74 @@ export class PrefixTree {
         this.setIndexedFilePaths.clear();
         this.mapIndexedFilePathsToUpdateTime.clear();
         this.mapFilePathToLeaveNodes.clear();
+        this.fuzzyKeywordMap.clear();
+        this.fuzzyBuckets.clear();
+    }
+
+    // Levenshtein edit distance between two strings.
+    private static editDistance(a: string, b: string): number {
+        const m = a.length;
+        const n = b.length;
+        if (m === 0) return n;
+        if (n === 0) return m;
+        let prev = new Array<number>(n + 1);
+        let curr = new Array<number>(n + 1);
+        for (let j = 0; j <= n; j++) prev[j] = j;
+        for (let i = 1; i <= m; i++) {
+            curr[0] = i;
+            for (let j = 1; j <= n; j++) {
+                const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+                curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+            }
+            [prev, curr] = [curr, prev];
+        }
+        return prev[n];
+    }
+
+    // Similarity ratio (0-1) based on edit distance, normalized by the longer
+    // string length. 1 = identical, 0 = completely different.
+    private static similarity(a: string, b: string): number {
+        const maxLen = Math.max(a.length, b.length);
+        if (maxLen === 0) return 1;
+        return 1 - this.editDistance(a, b) / maxLen;
+    }
+
+    // Find fuzzy-match candidates for a normalized word. Returns entries whose
+    // normalized keyword is at least `threshold` (0-100) similar to `word`.
+    // `word` must already be normalized (lowercased) by the caller.
+    // Performance: only the first-char bucket matching `word` is scanned, and a
+    // length-difference > 2 short-circuits (such pairs can never reach >=80%
+    // similarity for our shortest indexed keywords). This replaced the earlier
+    // full-map scan that caused Obsidian to lag on large vaults.
+    findFuzzyMatches(word: string, threshold: number): { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] {
+        const w = word.toLowerCase();
+        if (!w || !this.settings.enableStemming) return [];
+        // Skip short query words: fuzzy-matching a too-short document word
+        // (e.g. a single char like "关" or "骨") against the index is
+        // error-prone and produces false virtual links. The same minimum
+        // length used for indexing is applied to queries so only words longer
+        // than fuzzyMinLength ever reach similarity comparison.
+        const minQueryLen = this.fuzzyMinLength ?? 0;
+        if (w.length <= minQueryLen) return [];
+        const bucketKey = w[0] ?? '';
+        const bucket = this.fuzzyBuckets.get(bucketKey);
+        if (!bucket || bucket.length === 0) return [];
+        const minSim = threshold / 100;
+        // For threshold >= 80%, any pair with length difference > 2 is impossible
+        // to reach the threshold once the shorter string is at least 3 chars.
+        const maxLenDiff = threshold >= 80 ? 2 : Math.max(1, Math.ceil(w.length * (1 - minSim)));
+        const results: { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] = [];
+        for (const key of bucket) {
+            if (Math.abs(key.length - w.length) > maxLenDiff) continue;
+            const sim = PrefixTree.similarity(w, key);
+            if (sim >= minSim) {
+                const entries = this.fuzzyKeywordMap.get(key)!;
+                for (const e of entries) {
+                    results.push({ files: e.files, headerId: e.headerId, canonical: e.canonical, similarity: sim });
+                }
+            }
+        }
+        return results;
     }
 
     private isExcluded(value: string): boolean {
@@ -391,6 +598,34 @@ export class PrefixTree {
             this.mapFileHeaderIds.set(file.path, existingIds);
         }
 
+        // Register fuzzy (词义模糊) normalized keywords so that words with
+        // similarity >= threshold can still link. Only normalized keywords
+        // (those created from fuzzyNormalize, identified by a canonicalKeyword
+        // that differs from the normalized name) are indexed here.
+        // Short keywords are skipped: fuzzy-matching them is both useless and
+        // error-prone (e.g. 的 -> 地). When the index grows past the fuse limit
+        // we also stop indexing to protect performance on large vaults.
+        if (canonicalKeyword && canonicalKeyword !== name) {
+            const key = name.toLowerCase();
+            const minLen = this.fuzzyMinLength ?? 0;
+            // Only index keywords strictly longer than the minimum: short titles
+            // are skipped (fuzzy-matching them is error-prone and useless).
+            if (key.length > minLen) {
+                const entry = { files: node.files, headerId, canonical: canonicalKeyword };
+                const list = this.fuzzyKeywordMap.get(key);
+                if (list) {
+                    list.push(entry);
+                } else {
+                    this.fuzzyKeywordMap.set(key, [entry]);
+                    // Maintain first-char bucket index for cheap lookup at match time.
+                    const bucketKey = key[0] ?? '';
+                    const bucket = this.fuzzyBuckets.get(bucketKey) ?? [];
+                    bucket.push(key);
+                    this.fuzzyBuckets.set(bucketKey, bucket);
+                }
+            }
+        }
+
         // Store the leaf node for the file to be able to remove it later
         const path = file.path;
         this.mapFilePathToLeaveNodes.set(path, [node, ...(this.mapFilePathToLeaveNodes.get(path) ?? [])]);
@@ -608,21 +843,22 @@ export class PrefixTree {
         if (this.settings.enableStemming) {
             const lang = this.settings.stemmingLanguage;
             const addStem = (name: string) => {
-                // Only stem pure-English keywords. Keywords containing non-Latin
-                // characters (e.g. Chinese headings like "1.2 T11/12双侧...") must
-                // be skipped, otherwise the embedded English fragment (e.g. "p",
-                // "ast") would be stemmed and match unrelated text in the document.
-                // Also skip very short words to avoid noisy matches.
-                if (name.length < 3 || !/^[A-Za-z][A-Za-z -]*$/.test(name)) {
-                    return;
-                }
-                const stemmed = stem(name, lang);
-                if (!stemmed || stemmed === name.toLowerCase() || stemmed === name) {
+                // "词义模糊匹配" (fuzzy match): reduce a keyword to a normalized
+                // form so that inflected forms / function words link to the same
+                // note or heading.
+                //   - English: stem each word individually + apply an irregular
+                //     verb table so e.g. "He ran to the store" matches "he runs".
+                //   - Chinese: strip common function words (的, 了, 吗, 在, 和 ...)
+                //     so e.g. "我的项目计划" matches "项目计划".
+                // Only enable fuzzy matching when it actually changes the keyword,
+                // and never when the result becomes empty.
+                const fuzzy = this.fuzzyNormalize(name, lang);
+                if (!fuzzy || fuzzy === name.toLowerCase() || fuzzy === name) {
                     return;
                 }
                 const headerEntry = headerEntries.find((e) => e.keyword === name);
                 this.addFileWithName(
-                    stemmed,
+                    fuzzy,
                     file,
                     false,
                     headerEntry?.headerId,
@@ -642,6 +878,62 @@ export class PrefixTree {
                 this.mapFileHeaderIds.set(file.path, existingIds);
             }
         }
+    }
+
+    // Irregular English verbs: see FUZZY_IRREGULAR_VERBS (module-level) for the
+    // full table. Maps inflected forms to their base so Porter stemming (which
+    // cannot handle irregular verbs) still aligns them.
+    private static IRREGULAR_VERBS = FUZZY_IRREGULAR_VERBS;
+
+    // Chinese function words / particles to strip for fuzzy matching.
+    // See FUZZY_ZH_STOPWORDS (module-level) for the full list.
+    private static ZH_STOPWORDS = FUZZY_ZH_STOPWORDS;
+
+    // Normalize a keyword into its fuzzy-match form.
+    // Returns '' when normalization is not applicable / produces nothing.
+    // Made public so the scan side (batch convert / live linker) can normalize
+    // document words the same way before fuzzy-similarity comparison.
+    fuzzyNormalize(name: string, lang: string): string {
+        if (!name || name.length < 2) return '';
+
+        const hasLatin = /[A-Za-z]/.test(name);
+        const hasCJK = /[一-鿿]/.test(name);
+
+        // Respect the chosen language. "auto" applies English to Latin-only
+        // keywords and Chinese to CJK-only keywords. "en" / "zh" force one side.
+        const wantEn = lang !== 'zh';
+        const wantZh = lang !== 'en';
+
+        // Pure English keyword (possibly a phrase): stem each word, applying the
+        // irregular-verb table first so whole phrases like "He ran to the store"
+        // reduce to "he run to the store" and match "he runs to the store".
+        if (wantEn && hasLatin && !hasCJK) {
+            if (name.length < 3 || !/^[A-Za-z][A-Za-z -]*$/.test(name)) {
+                return '';
+            }
+            const words = name.split(/\s+/);
+            const normWords = words.map((w) => {
+                const lower = w.toLowerCase();
+                const irregular = FUZZY_IRREGULAR_VERBS[lower];
+                const base = irregular ?? lower;
+                return stem(base, lang === 'zh' ? 'en' : lang);
+            });
+            const norm = normWords.join(' ').trim();
+            return norm || '';
+        }
+
+        // Pure Chinese keyword: strip common function words / particles.
+        if (wantZh && hasCJK && !hasLatin) {
+            let s = name;
+            for (const sw of FUZZY_ZH_STOPWORDS) {
+                s = s.split(sw).join('');
+            }
+            s = s.trim();
+            return s || '';
+        }
+
+        // Mixed scripts or language mismatch: not supported for fuzzy matching.
+        return '';
     }
 
     private removeFileFromTree(file: TFile | string) {

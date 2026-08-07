@@ -1,6 +1,6 @@
 import { App, MarkdownView, Modal, Notice, Setting, TFile, FuzzySuggestModal } from 'obsidian';
 import { LinkerPluginSettings } from '../main';
-import { LinkerCache, PrefixTree } from '../linker/linkerCache';
+import { LinkerCache, PrefixTree, MatchType } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
 
 type LinkerPluginType = import('../main').default;
@@ -55,11 +55,14 @@ export function scanVirtualLinks(
     const cacheTree = cache.cache;
 
     const excludedExtensions = settings.excludedExtensions;
-    const ownNote = settings.excludeLinksToOwnNote ? app.vault.getAbstractFileByPath(sourcePath) : null;
+    const ownNote = settings.excludeLinksToOwnNote
+        ? (app.vault.getAbstractFileByPath(sourcePath) as TFile | null)
+        : null;
 
     cache.reset();
     const matches: VirtualMatch[] = [];
     let id = 0;
+    let wordStart = 0; // start offset of the current document word
 
     // Iterate over UTF-16 code units so the resulting `from`/`to` offsets match
     // Obsidian's editor offsets (editor.offsetToPos / getRange use code units).
@@ -82,9 +85,37 @@ export function scanVirtualLinks(
                     }
                 }
 
-                const nFrom = node.start;
-                const nTo = node.end;
-                const name = text.slice(nFrom, nTo);
+                let nFrom = node.start;
+                let nTo = node.end;
+                let name = text.slice(nFrom, nTo);
+
+                // When the match came from a stemmed keyword (e.g. the note
+                // "Project" matched the inflected word "projected"), the trie
+                // only captured the stem fragment. Expand the range to cover the
+                // whole document word so the entire token becomes the link
+                // ([[Project]] instead of [[Project]]ed).
+                if (node.canonicalKeyword) {
+                    let s = nFrom;
+                    let e = nTo;
+                    while (s > 0 && /[A-Za-z]/.test(text[s - 1])) s--;
+                    while (e < text.length && /[A-Za-z]/.test(text[e])) e++;
+                    if (e > s) {
+                        name = text.slice(s, e);
+                        nFrom = s;
+                        nTo = e;
+                    }
+                }
+
+                // Skip a match that is already inside an existing wikilink
+                // (e.g. the text produced by a previous conversion: [[name]]).
+                // Otherwise a second run would re-convert the inner word and
+                // produce nested/duplicated links.
+                if (isInsideExistingLink(text, nFrom)) continue;
+
+                // Skip anything that lives inside a table row — converting
+                // virtual links in tables is unreliable and often mis-positions
+                // the result, so batch conversion leaves tables untouched.
+                if (isInTableRow(text, nFrom)) continue;
 
                 if (rangeFrom !== undefined && rangeTo !== undefined) {
                     if (nTo <= rangeFrom || nFrom >= rangeTo) continue;
@@ -107,7 +138,7 @@ export function scanVirtualLinks(
                     node.type,
                     !isWordBoundary,
                     settings,
-                    plugin,
+                    plugin!,
                     node.headerId
                 );
 
@@ -126,8 +157,63 @@ export function scanVirtualLinks(
 
                 matches.push(vm);
             }
+
+            // Fuzzy (词义模糊) fallback: if no exact match was found and fuzzy
+            // matching is enabled, normalize the current document word and link
+            // it when its similarity to a normalized keyword is above the
+            // configured threshold.
+            if (currentNodes.length === 0 && settings.enableStemming) {
+                const rawWord = text.slice(wordStart, i).trim();
+                if (rawWord.length > 0) {
+                    const normWord = cacheTree.fuzzyNormalize(rawWord, settings.stemmingLanguage);
+                    if (normWord) {
+                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold);
+                        for (const fr of fuzzyResults) {
+                            let fFrom = wordStart;
+                            let fTo = i;
+                            const fName = text.slice(fFrom, fTo);
+
+                            if (isInsideExistingLink(text, fFrom)) continue;
+                            if (isInTableRow(text, fFrom)) continue;
+                            if (rangeFrom !== undefined && rangeTo !== undefined) {
+                                if (fTo <= rangeFrom || fFrom >= rangeTo) continue;
+                            }
+
+                            const filteredFiles = Array.from(fr.files).filter((file: TFile) => {
+                                return !excludedExtensions.some((ext: string) =>
+                                    file.path.toLowerCase().endsWith(ext.toLowerCase())
+                                );
+                            });
+                            if (filteredFiles.length === 0) continue;
+
+                            const vm = new VirtualMatch(
+                                id++,
+                                fName,
+                                fFrom,
+                                fTo,
+                                filteredFiles,
+                                MatchType.Note,
+                                false,
+                                settings,
+                                plugin!,
+                                fr.headerId
+                            );
+                            filteredFiles.forEach((file: TFile) => {
+                                const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                                if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                    vm.setFileHeaderId(file, fileNodes[0].headerId);
+                                } else {
+                                    vm.setFileHeaderId(file, '');
+                                }
+                            });
+                            matches.push(vm);
+                        }
+                    }
+                }
+            }
         }
 
+        if (isWordBoundary) wordStart = i;
         cacheTree.pushChar(char);
     }
 
@@ -218,6 +304,36 @@ function buildReplacement(
 /** Heuristic: a link text containing an unescaped pipe likely lives in a table. */
 function isInTableText(linkText: string): boolean {
     return /(?<!\\)\|/.test(linkText);
+}
+
+function getLineRange(text: string, index: number): [number, number] {
+    const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+    let lineEnd = text.indexOf('\n', index);
+    if (lineEnd === -1) lineEnd = text.length;
+    return [lineStart, lineEnd];
+}
+
+/** True when the matched word sits inside an existing wikilink or embed
+ *  (e.g. [[word]], ![[image.jpg]] or ![[folder/[[nested]]]]), so we must not
+ *  convert it again. We look for the nearest unclosed "[[" before the word and
+ *  check that its matching "]]" comes after the word. */
+function isInsideExistingLink(text: string, from: number): boolean {
+    const open = text.lastIndexOf('[[', from - 1);
+    if (open === -1) return false;
+    // The closing "]]" must appear after the word start and belong to this "[[".
+    const close = text.indexOf(']]', open + 2);
+    return close !== -1 && close >= from;
+}
+
+/** True when the matched word lies on a Markdown table row. Tables are prone
+ *  to mis-positioned conversions, so batch conversion skips them entirely. */
+function isInTableRow(text: string, index: number): boolean {
+    const [lineStart, lineEnd] = getLineRange(text, index);
+    const line = text.slice(lineStart, lineEnd);
+    // Inside a fenced code block? leave it alone.
+    if (/^\s*(```|~~~)/.test(line)) return false;
+    // A table row is a line that contains an unescaped pipe.
+    return /(?<!\\)\|/.test(line);
 }
 
 /** Apply replacements to a plain string (used for files not currently open in an editor). */
@@ -394,7 +510,7 @@ export class BatchConvertFilesModal extends Modal {
         contentEl.empty();
         contentEl.createEl('h2', { text: '批量固化多个笔记中的虚拟链接' });
         contentEl.createEl('p', {
-            text: '选择要处理的笔记，然后点击"扫描"预览每个笔记可转换的链接数量。',
+            text: '使用步骤：1) 点击「选择笔记…」；2) 在弹出的搜索框中逐个点击要处理的笔记（可多次点选，已选笔记会列在下方）；3) 选好后点击「扫描并转换」，插件会一次性把每个笔记里的虚拟链接固化为真实链接（表格内的虚拟链接不会被处理）。',
         });
 
         const pickerBar = contentEl.createEl('div');

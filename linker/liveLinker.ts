@@ -5,7 +5,7 @@ import { App, MarkdownView, TFile, Vault } from 'obsidian';
 
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { ExternalUpdateManager, LinkerCache, PrefixTree } from './linkerCache';
+import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType } from './linkerCache';
 import { VirtualMatch } from './virtualLinkDom';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -309,6 +309,7 @@ class AutoLinkerPlugin implements PluginValue {
             // const additions: { id: number; files: TFile[]; from: number; to: number; widget: WidgetType }[] = [];
             let matches: VirtualMatch[] = [];
             let id = 0;
+            let wordStartRel = 0; // start offset (relative to `text`) of the current document word
             // Iterate over every char in the text
             for (let i = 0; i <= text.length; i) {
                 // Do this to get unicode characters as whole chars and not only half of them
@@ -317,8 +318,16 @@ class AutoLinkerPlugin implements PluginValue {
 
                 // If we are at a word boundary, get the current fitting files
                 const isWordBoundary = PrefixTree.checkWordBoundary(char); // , this.settings.wordBoundaryRegex
-                if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary) {
-                    const currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
+                // Skip single-character (too-short) document words entirely so they
+                // are never linked as virtual links — neither by exact sub-word
+                // matching nor by the fuzzy fallback below. This stops spurious
+                // links like a lone "关" or "骨" being matched to a note/heading
+                // that merely contains that character.
+                const rawDocWord = text.slice(wordStartRel, i).trim();
+                const docWordTooShort = rawDocWord.length < 2;
+                let currentNodes: ReturnType<typeof this.linkerCache.cache.getCurrentMatchNodes> = [];
+                if (!docWordTooShort && (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary)) {
+                    currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
                         i,
                         this.settings.excludeLinksToOwnNote ? mappedFile : null
                     );
@@ -387,7 +396,61 @@ class AutoLinkerPlugin implements PluginValue {
                             }
                         }
                     }
+
+                    // Fuzzy (词义模糊) fallback: if no exact match was found and
+                    // fuzzy matching is enabled, normalize the current document
+                    // word and link it when similarity >= the configured threshold.
+                    if (!docWordTooShort && currentNodes.length === 0 && this.settings.enableStemming) {
+                        const rawWord = text.slice(wordStartRel, i).trim();
+                        if (rawWord.length > 0) {
+                            const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
+                            if (normWord) {
+                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold);
+                                for (const fr of fuzzyResults) {
+                                    const fFromRel = wordStartRel;
+                                    const fToRel = i;
+                                    const fName = text.slice(fFromRel, fToRel);
+                                    const aFrom = from + fFromRel;
+                                    const aTo = from + fToRel;
+
+                                    const filteredFiles = Array.from(fr.files).filter(file => {
+                                        return !this.settings.excludedExtensions.some(ext =>
+                                            file.path.toLowerCase().endsWith(ext.toLowerCase())
+                                        );
+                                    });
+                                    if (filteredFiles.length === 0) continue;
+
+                                    const virtualMatch = new VirtualMatch(
+                                        id++,
+                                        fName,
+                                        aFrom,
+                                        aTo,
+                                        filteredFiles,
+                                        MatchType.Note,
+                                        false,
+                                        this.settings,
+                                        this.plugin,
+                                        fr.headerId
+                                    );
+
+                                    if (filteredFiles.length > 1) {
+                                        filteredFiles.forEach((file, index) => {
+                                            if (index === 0) return;
+                                            const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                                virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
+                                            }
+                                        });
+                                    }
+
+                                    matches.push(virtualMatch);
+                                }
+                            }
+                        }
+                    }
                 }
+
+                if (isWordBoundary) wordStartRel = i;
 
                 // Push the char to get the next nodes in the prefix tree
                 this.linkerCache.cache.pushChar(char);

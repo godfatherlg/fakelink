@@ -556,8 +556,10 @@ export interface LinkerPluginSettings {
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
-    enableStemming: boolean; // Match inflected word forms (e.g. projectiles -> Projectile)
-    stemmingLanguage: string; // Language for stemming (e.g. 'en')
+    enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
+    stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
+    fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
+    fuzzyMinLength: number; // Minimum normalized length of a title/note name to be considered for fuzzy matching (shorter ones are skipped)
     skipMultipleTargets: boolean; // In batch conversion, skip virtual links pointing to multiple notes
     // wordBoundaryRegex: string;
     // conversionFormat
@@ -621,6 +623,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerJumpRetryDelay: 500,
     enableStemming: false,
     stemmingLanguage: 'en',
+    fuzzyMatchThreshold: 80,
+    fuzzyMinLength: 6,
     skipMultipleTargets: true,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
@@ -864,8 +868,8 @@ export default class LinkerPlugin extends Plugin {
                 }
                 const fromPos = editor.getCursor('from');
                 const toPos = editor.getCursor('to');
-                const rangeFrom = editor.offsetAt(fromPos);
-                const rangeTo = editor.offsetAt(toPos);
+                const rangeFrom = editor.posToOffset(fromPos);
+                const rangeTo = editor.posToOffset(toPos);
                 const modal = new BatchConvertModal(
                     this.app,
                     this.settings,
@@ -1598,10 +1602,10 @@ class LinkerSettingTab extends PluginSettingTab {
                     await this.plugin.updateSettings({ headerJumpRetryDelay: delay });
                 }));
 
-        // Stemming (inflected-form matching)
+        // 词义模糊匹配 (fuzzy match)
         new Setting(containerEl)
-            .setName(t('Match inflected word forms'))
-            .setDesc(t('When enabled, word forms are reduced to their stem so inflected matches link to the same note or heading (e.g. "projectiles" links to "Projectile"). Currently only English stemming is supported.'))
+            .setName(t('Fuzzy meaning matching'))
+            .setDesc(t('When enabled, keywords are normalized before matching so related forms link to the same note or heading. English: each word is reduced to its stem and irregular verbs are aligned (e.g. "He ran to the store" matches "he runs to the store"). Chinese: common function words are stripped (e.g. "我的项目计划" matches "项目计划"). Off by default.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableStemming).onChange(async (value) => {
                     await this.plugin.updateSettings({ enableStemming: value });
@@ -1609,14 +1613,42 @@ class LinkerSettingTab extends PluginSettingTab {
                 }));
 
         new Setting(containerEl)
-            .setName(t('Stemming language'))
-            .setDesc(t('Language used for word stemming. Only "en" (English) is supported at the moment.'))
+            .setName(t('Fuzzy matching language'))
+            .setDesc(t('Language used for fuzzy matching. "en" = English stemming + irregular verbs; "zh" = Chinese function-word stripping. Choose "auto" to apply both based on each keyword\'s script.'))
             .addDropdown((dropdown) =>
                 dropdown
+                    .addOption('auto', 'Auto (by script)')
                     .addOption('en', 'English')
+                    .addOption('zh', 'Chinese')
                     .setValue(this.plugin.settings.stemmingLanguage)
                     .onChange(async (value) => {
                         await this.plugin.updateSettings({ stemmingLanguage: value });
+                    }))
+            .setDisabled(!this.plugin.settings.enableStemming);
+
+        new Setting(containerEl)
+            .setName(t('Fuzzy match similarity threshold'))
+            .setDesc(t('When fuzzy matching is on, a word is linked only if its similarity to a normalized keyword is above this percentage. Range 80%-100%. Higher = stricter (fewer but more accurate links).'))
+            .addSlider((slider) =>
+                slider
+                    .setLimits(80, 100, 1)
+                    .setValue(this.plugin.settings.fuzzyMatchThreshold)
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        await this.plugin.updateSettings({ fuzzyMatchThreshold: value });
+                    }))
+            .setDisabled(!this.plugin.settings.enableStemming);
+
+        new Setting(containerEl)
+            .setName(t('Minimum keyword length for fuzzy matching'))
+            .setDesc(t('Titles or note names whose normalized length is shorter than this are skipped by fuzzy matching (exact matching still works). Short words are prone to false links (e.g. 的 → 地), so a small minimum like 4 is recommended. Range 1-10.'))
+            .addSlider((slider) =>
+                slider
+                    .setLimits(1, 20, 1)
+                    .setValue(this.plugin.settings.fuzzyMinLength)
+                    .setDynamicTooltip()
+                    .onChange(async (value) => {
+                        await this.plugin.updateSettings({ fuzzyMinLength: value });
                     }))
             .setDisabled(!this.plugin.settings.enableStemming);
 
