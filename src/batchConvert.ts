@@ -65,9 +65,37 @@ export class BatchConvertModal extends Modal {
         }
         this.editor = view.editor;
 
-        this.items = this.collectLinks(view);
-
         contentEl.createEl('h3', { text: 'Convert virtual links to real links' });
+        contentEl.createEl('p', { text: 'Collecting virtual links…' });
+
+        // Force CodeMirror to render all link widgets by scrolling through the
+        // whole document, then collect on the next frame so the count is stable
+        // (widgets are lazily rendered only for the visible area otherwise).
+        const ed = this.editor;
+        try {
+            const lastLine = ed.lastLine();
+            ed.setCursor({ line: lastLine, ch: ed.getLine(lastLine).length });
+            ed.setCursor({ line: 0, ch: 0 });
+        } catch {
+            // ignore
+        }
+
+        window.setTimeout(() => {
+            if (!this.editor) {
+                return;
+            }
+            this.renderList(contentEl);
+        }, 120);
+    }
+
+    private renderList(contentEl: HTMLElement) {
+        contentEl.empty();
+        contentEl.createEl('h3', { text: 'Convert virtual links to real links' });
+
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const sourcePath = view?.file?.path ?? '';
+        this.items = this.collectLinks(sourcePath);
+
         contentEl.createEl('p', {
             text: `${this.items.length} virtual link(s) found in the current note. Uncheck any you want to keep as virtual links.`,
         });
@@ -108,8 +136,18 @@ export class BatchConvertModal extends Modal {
         this.contentEl.empty();
     }
 
-    private collectLinks(view: MarkdownView): BatchLinkItem[] {
-        const anchors = activeDocument.querySelectorAll('.virtual-link-a');
+    private collectLinks(sourcePath: string): BatchLinkItem[] {
+        const editor = this.editor;
+        if (!editor) {
+            return [];
+        }
+        // Scope to the active editor's CodeMirror DOM only. Using activeDocument
+        // would also pick up virtual links rendered in a split preview pane, whose
+        // offsets belong to a different document and would corrupt replacements.
+        const cmDom = (editor as unknown as { cm?: { dom?: HTMLElement } }).cm?.dom;
+        const scope: ParentNode = cmDom ?? activeDocument;
+        const anchors = scope.querySelectorAll('.virtual-link-a');
+        const seen = new Set<string>();
         const items: BatchLinkItem[] = [];
 
         anchors.forEach((el) => {
@@ -128,7 +166,24 @@ export class BatchConvertModal extends Modal {
                 return;
             }
 
-            const replacement = this.buildReplacement(anchor, originText, href, view);
+            // Deduplicate identical spans (CodeMirror may render the same link
+            // more than once during measurement passes).
+            const key = `${from}-${to}`;
+            if (seen.has(key)) {
+                return;
+            }
+            seen.add(key);
+
+            // Validate that the document actually contains the expected text at
+            // this offset. Skips stale/wrong offsets that would otherwise insert
+            // junk at the end of the note.
+            const fromPos = editor.offsetToPos(from);
+            const toPos = editor.offsetToPos(to);
+            if (editor.getRange(fromPos, toPos) !== originText) {
+                return;
+            }
+
+            const replacement = this.buildReplacement(anchor, originText, href, sourcePath);
             if (!replacement) {
                 return;
             }
@@ -161,7 +216,7 @@ export class BatchConvertModal extends Modal {
         anchor: HTMLAnchorElement,
         text: string,
         href: string,
-        view: MarkdownView
+        sourcePath: string
     ): string {
         const hrefWithoutAnchor = href.split('#')[0];
         const targetFile = this.app.vault.getAbstractFileByPath(hrefWithoutAnchor);
@@ -169,7 +224,7 @@ export class BatchConvertModal extends Modal {
             return '';
         }
 
-        const activeFilePath = view.file?.path ?? '';
+        const activeFilePath = sourcePath;
 
         let absolutePath = targetFile.path;
         let relativePath =
