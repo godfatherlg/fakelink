@@ -17,16 +17,6 @@ function basename(filePath: string): string {
     return lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
 }
 
-function relative(from: string, to: string): string {
-    const fromParts = dirname(from).split('/').filter(Boolean);
-    const toParts = dirname(to).split('/').filter(Boolean);
-    let i = 0;
-    while (i < fromParts.length && i < toParts.length && fromParts[i] === toParts[i]) i++;
-    const up = fromParts.length - i;
-    const down = toParts.slice(i);
-    return [...Array(up).fill('..'), ...down].join('/') || '.';
-}
-
 export interface BatchLinkItem {
     from: number;
     to: number;
@@ -555,7 +545,6 @@ export class BatchConvertFilesModal extends Modal {
         }
 
         let totalApplied = 0;
-        let totalLinks = 0;
         const errors: string[] = [];
 
         for (const file of this.selectedFiles) {
@@ -572,7 +561,6 @@ export class BatchConvertFilesModal extends Modal {
                 const activeItems = items.filter(
                     (it) => !(it.multipleTargets && this.settings.skipMultipleTargets)
                 );
-                totalLinks += activeItems.length;
 
                 if (activeItems.length === 0) continue;
 
@@ -581,7 +569,7 @@ export class BatchConvertFilesModal extends Modal {
                 // If the file is currently open in an editor, update it live
                 const openView = this.app.workspace.getLeavesOfType('markdown')
                     .map((l) => l.view)
-                    .find((v): v is MarkdownView => v instanceof MarkdownView && (v as MarkdownView).file?.path === file.path);
+                    .find((v): v is MarkdownView => v instanceof MarkdownView && v.file?.path === file.path);
 
                 if (openView && openView.editor) {
                     const editor = openView.editor;
