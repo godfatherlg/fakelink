@@ -61,9 +61,12 @@ export function scanVirtualLinks(
     const matches: VirtualMatch[] = [];
     let id = 0;
 
-    for (let i = 0; i <= text.length; ) {
-        const codePoint = text.codePointAt(i)!;
-        const char = i < text.length ? String.fromCodePoint(codePoint) : '\n';
+    // Iterate over UTF-16 code units so the resulting `from`/`to` offsets match
+    // Obsidian's editor offsets (editor.offsetToPos / getRange use code units).
+    // Mixing code-point counting with editor code-unit offsets was the root
+    // cause of partial conversions and "links not found on second run".
+    for (let i = 0; i <= text.length; i++) {
+        const char = i < text.length ? text[i] : '\n';
         const isWordBoundary = PrefixTree.checkWordBoundary(char);
 
         if (settings.matchAnyPartsOfWords || settings.matchBeginningOfWords || isWordBoundary) {
@@ -108,22 +111,24 @@ export function scanVirtualLinks(
                     node.headerId
                 );
 
-                if (filteredFiles.length > 1) {
-                    filteredFiles.forEach((file: TFile, index: number) => {
-                        if (index === 0) return;
-                        const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
-                        if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
-                            vm.setFileHeaderId(file, fileNodes[0].headerId);
-                        }
-                    });
-                }
+                // Resolve the correct headerId for EACH target file individually.
+                // Passing `node.headerId` to the constructor would wrongly tag every
+                // file with the first match's header; instead we look up each file's
+                // own header so the generated link points to the right place.
+                filteredFiles.forEach((file: TFile) => {
+                    const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                    if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                        vm.setFileHeaderId(file, fileNodes[0].headerId);
+                    } else {
+                        vm.setFileHeaderId(file, '');
+                    }
+                });
 
                 matches.push(vm);
             }
         }
 
         cacheTree.pushChar(char);
-        i += char.length;
     }
 
     let sorted = VirtualMatch.sort(matches);
@@ -155,7 +160,10 @@ function buildReplacement(
     if (!targetFile) return match.originText;
 
     const text = match.originText;
-    const headerId = match.getFileHeaderId(targetFile) || match.headerId;
+    // Only use the headerId resolved for THIS specific target file. Falling back
+    // to match.headerId (the first match's header) produced wrong links for
+    // multi-target virtual links.
+    const headerId = match.getFileHeaderId(targetFile) ?? '';
 
     const useMarkdownLinks = settings.useDefaultLinkStyleForConversion
         ? settings.defaultUseMarkdownLinks
@@ -226,13 +234,21 @@ export class BatchConvertModal extends Modal {
     private enabled: boolean[] = [];
     private text = '';
     private sourcePath = '';
+    /** Optional [from, to] character range (code units) to restrict the scan to. */
+    private range: [number, number] | null = null;
     private readonly settings: LinkerPluginSettings;
     private readonly plugin: LinkerPluginType | null;
 
-    constructor(app: App, settings: LinkerPluginSettings, plugin?: LinkerPluginType | null) {
+    constructor(
+        app: App,
+        settings: LinkerPluginSettings,
+        plugin?: LinkerPluginType | null,
+        range?: [number, number] | null
+    ) {
         super(app);
         this.settings = settings;
         this.plugin = plugin ?? null;
+        this.range = range ?? null;
     }
 
     onOpen() {
@@ -251,6 +267,15 @@ export class BatchConvertModal extends Modal {
 
         this.text = editor.getValue();
         this.sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
+
+        if (this.range) {
+            const [from, to] = this.range;
+            if (from >= to) {
+                contentEl.createEl('p', { text: '请先选择一段文本，再运行此命令。' });
+                return;
+            }
+        }
+
         this.renderList(contentEl);
     }
 
@@ -264,12 +289,22 @@ export class BatchConvertModal extends Modal {
 
     private renderList(contentEl: HTMLElement) {
         contentEl.empty();
-        this.items = scanVirtualLinks(this.app, this.settings, this.plugin, this.text, this.sourcePath);
+        const [rangeFrom, rangeTo] = this.range ?? [undefined, undefined];
+        this.items = scanVirtualLinks(
+            this.app,
+            this.settings,
+            this.plugin,
+            this.text,
+            this.sourcePath,
+            rangeFrom,
+            rangeTo
+        );
         this.enabled = this.items.map(() => true);
 
+        const scopeLabel = this.range ? '选中内容中' : '当前笔记中';
         contentEl.createEl('h2', { text: '批量固化虚拟链接为真实链接' });
         contentEl.createEl('p', {
-            text: `当前笔记共找到 ${this.items.length} 个虚拟链接。勾选需要转换的项，点击"转换"。`,
+            text: `${scopeLabel}共找到 ${this.items.length} 个虚拟链接。勾选需要转换的项，点击"转换"。`,
         });
 
         if (this.items.length === 0) {

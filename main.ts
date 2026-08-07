@@ -7,7 +7,7 @@ import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
-import { BatchConvertModal, BatchConvertFilesModal, scanVirtualLinks } from './src/batchConvert';
+import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -853,60 +853,26 @@ export default class LinkerPlugin extends Plugin {
         this.addCommand({
             id: 'convert-selected-virtual-links',
             name: 'Convert all virtual links in selection to real links',
-            checkCallback: (checking: boolean) => {
-                const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-                const editor = view?.editor;
-
-                if (!editor || !editor.somethingSelected()) {
-                    return false;
+            editorCallback: (editor: Editor, view: MarkdownView) => {
+                if (!editor.somethingSelected()) {
+                    new Notice('请先选择一段文本，再运行此命令。');
+                    return;
                 }
-
-                if (checking) return true;
-
-                // Use the same LinkerCache-based scan as the full-note converter,
-                // restricted to the selected character range (no DOM dependency).
+                if (!this.settings.linkerActivated) {
+                    new Notice('虚拟链接功能当前已关闭，请先在设置中启用。');
+                    return;
+                }
                 const fromPos = editor.getCursor('from');
                 const toPos = editor.getCursor('to');
                 const rangeFrom = editor.offsetAt(fromPos);
                 const rangeTo = editor.offsetAt(toPos);
-                const selText = editor.getValue();
-                const sourcePath = view?.file?.path ?? '';
-
-                const items = scanVirtualLinks(
+                const modal = new BatchConvertModal(
                     this.app,
                     this.settings,
                     this,
-                    selText,
-                    sourcePath,
-                    rangeFrom,
-                    rangeTo
+                    [rangeFrom, rangeTo]
                 );
-                const activeItems = items.filter(
-                    (it) => !(it.multipleTargets && this.settings.skipMultipleTargets)
-                );
-
-                if (activeItems.length === 0) {
-                    new Notice('选区中未检测到可转换的虚拟链接。');
-                    return false;
-                }
-
-                let applied = 0;
-                for (const item of activeItems) {
-                    const cur = editor.getRange(
-                        editor.offsetToPos(item.from),
-                        editor.offsetToPos(item.to)
-                    );
-                    if (cur !== item.displayText) continue;
-                    editor.replaceRange(
-                        item.replacement,
-                        editor.offsetToPos(item.from),
-                        editor.offsetToPos(item.to)
-                    );
-                    applied++;
-                }
-
-                new Notice(`选区中已固化 ${applied} 个虚拟链接。`);
-                return true;
+                modal.open();
             }
         });
 
