@@ -7,7 +7,7 @@ import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
-import { BatchConvertModal } from './src/batchConvert';
+import { BatchConvertModal, BatchConvertFilesModal, scanVirtualLinks } from './src/batchConvert';
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -863,163 +863,53 @@ export default class LinkerPlugin extends Plugin {
 
                 if (checking) return true;
 
-                // Get the selected text range
-                const from = editor.getCursor('from');
-                const to = editor.getCursor('to');
+                // Use the same LinkerCache-based scan as the full-note converter,
+                // restricted to the selected character range (no DOM dependency).
+                const fromPos = editor.getCursor('from');
+                const toPos = editor.getCursor('to');
+                const rangeFrom = editor.offsetAt(fromPos);
+                const rangeTo = editor.offsetAt(toPos);
+                const selText = editor.getValue();
+                const sourcePath = view?.file?.path ?? '';
 
-                // Get the DOM element containing the selection
-                const cmEditor = (editor as unknown as { cm: { dom: { querySelector: (selector: string) => Element | null } } }).cm;
-                if (!cmEditor) return false;
+                const items = scanVirtualLinks(
+                    this.app,
+                    this.settings,
+                    this,
+                    selText,
+                    sourcePath,
+                    rangeFrom,
+                    rangeTo
+                );
+                const activeItems = items.filter(
+                    (it) => !(it.multipleTargets && this.settings.skipMultipleTargets)
+                );
 
-                const selectionRange = cmEditor.dom.querySelector('.cm-content');
-                if (!selectionRange) return false;
-
-                // Find all virtual links in the selection
-                // Find all virtual link elements in the selection
-                const virtualLinkElements = Array.from(selectionRange.querySelectorAll('a'));
-
-                const virtualLinks = virtualLinkElements
-                    .filter((link): link is HTMLAnchorElement => {
-                        if (!(link.instanceOf(HTMLAnchorElement))) return false;
-                        return link.classList.contains('virtual-linker-link') ||
-                               link.classList.contains('virtual-link-a');
-                    })
-                    .map(link => ({
-                        element: link,
-                        from: parseInt(link.getAttribute('from') || '-1'),
-                        to: parseInt(link.getAttribute('to') || '-1'),
-                        text: link.getAttribute('origin-text') || '',
-                        href: link.getAttribute('href') || '',
-                        headerId: link.getAttribute('data-heading-id') || ''
-                    }))
-                    .filter(link => {
-                        const linkFrom = editor.offsetToPos(link.from);
-                        const linkTo = editor.offsetToPos(link.to);
-                        return this.isPosWithinRange(linkFrom, linkTo, from, to);
-                    })
-                    .sort((a, b) => a.from - b.from);
-
-                if (virtualLinks.length === 0) return false;
-
-                // Process all links in a single operation
-                const replacements: {from: number, to: number, text: string}[] = [];
-
-                for (const link of virtualLinks) {
-                    // Extract path without anchor
-                    const hrefWithoutAnchor = link.href.split('#')[0];
-                    const targetFile = this.app.vault.getAbstractFileByPath(hrefWithoutAnchor);
-                    if (!(targetFile instanceof TFile)) {
-                        continue;
-                    }
-
-                    const activeFile = this.app.workspace.getActiveFile();
-                    const activeFilePath = activeFile?.path ?? '';
-
-                    let absolutePath = targetFile.path;
-                    let relativePath = relative(
-                        dirname(activeFilePath),
-                        dirname(absolutePath)
-                    ) + '/' + basename(absolutePath);
-                    relativePath = relativePath.replace(/\\/g, '/');
-
-                    const replacementPath = this.app.metadataCache.fileToLinktext(targetFile, activeFilePath);
-                    const lastPart = replacementPath.split('/').pop();
-                    if (!lastPart) {
-                        continue;
-                    }
-                    const shortestFile = this.app.metadataCache.getFirstLinkpathDest(lastPart, '');
-                    let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
-
-                    // Get headerId from virtual link element
-                    const headerId = link.element.getAttribute('data-heading-id');
-                    const pathSuffix = headerId ? `#${headerId}` : '';
-
-                    // Remove .md extension if needed and add headerId
-                    if (!replacementPath.endsWith('.md')) {
-                        if (absolutePath.endsWith('.md')) absolutePath = absolutePath.slice(0, -3);
-                        if (shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
-                        if (relativePath.endsWith('.md')) relativePath = relativePath.slice(0, -3);
-                        
-                        // Add headerId to all paths
-                        absolutePath += pathSuffix;
-                        shortestPath += pathSuffix;
-                        relativePath += pathSuffix;
-                    }
-
-                    const useMarkdownLinks = this.settings.useDefaultLinkStyleForConversion
-                        ? this.settings.defaultUseMarkdownLinks
-                        : this.settings.useMarkdownLinks;
-
-                    const linkFormat = this.settings.useDefaultLinkStyleForConversion
-                        ? this.settings.defaultLinkFormat
-                        : this.settings.linkFormat;
-
-                    let replacement = '';
-                    if (replacementPath === link.text && linkFormat === 'shortest') {
-                        replacement = `[[${replacementPath}]]`;
-                    } else {
-                        const path = linkFormat === 'shortest' ? shortestPath :
-                                   linkFormat === 'relative' ? relativePath :
-                                   absolutePath;
-
-                        if (useMarkdownLinks) {
-                            replacement = `[${link.text}](${path})`;
-                        } else {
-                            // For wiki links in tables, escape pipe characters and use appropriate format
-                            const isInTable = this.isInTableEnvironment(editor, link.from, link.to);
-                            
-                            if (isInTable) {
-                                // Escape pipe character in text when in table environment
-                                const escapedText = link.text.replace(/[\\|]/g, '\\$&');
-                                // In table cells, escape the wiki link separator pipe to prevent table parsing issues
-                                replacement = `[[${path}\\|${escapedText}]]`;
-                            } else {
-                                replacement = `[[${path}|${link.text}]]`;
-                            }
-                        }
-                    }
-                    replacements.push({
-                        from: link.from,
-                        to: link.to,
-                        text: replacement
-                    });
+                if (activeItems.length === 0) {
+                    new Notice('选区中未检测到可转换的虚拟链接。');
+                    return false;
                 }
 
-                // Apply all replacements in reverse order to maintain correct positions
-                for (const replacement of replacements.reverse()) {
-                    const fromPos = editor.offsetToPos(replacement.from);
-                    const toPos = editor.offsetToPos(replacement.to);
-                    // Try different approaches for table-safe replacement
-                    try {
-                        // Method 1: Direct replacement
-                        editor.replaceRange(replacement.text, fromPos, toPos);
-                        
-                        // Wait a bit and check again (to catch async issues)
-                        window.setTimeout(() => {
-                        }, 100);
-                        
-                        // If we're in table and verification fails, try alternative approach
-                        if (this.isInTableEnvironment(editor, replacement.from, replacement.to)) {
-                            const afterReplacement = editor.getRange(fromPos, editor.offsetToPos(replacement.from + replacement.text.length));
-                            if (replacement.text !== afterReplacement) {
-                                // Delete original content first
-                                editor.replaceRange('', fromPos, toPos);
-                                
-                                // Insert character by character for better table compatibility
-                                for (let i = 0; i < replacement.text.length; i++) {
-                                    const insertPos = editor.offsetToPos(replacement.from + i);
-                                    editor.replaceRange(replacement.text[i], insertPos, insertPos);
-                                }
-                            }
-                        }
-
-                    } catch {
-                        // Error during replacement, silently continue
-                    }
+                let applied = 0;
+                for (const item of activeItems) {
+                    const cur = editor.getRange(
+                        editor.offsetToPos(item.from),
+                        editor.offsetToPos(item.to)
+                    );
+                    if (cur !== item.displayText) continue;
+                    editor.replaceRange(
+                        item.replacement,
+                        editor.offsetToPos(item.from),
+                        editor.offsetToPos(item.to)
+                    );
+                    applied++;
                 }
+
+                new Notice(`选区中已固化 ${applied} 个虚拟链接。`);
                 return true;
             }
         });
+
 
         // Convert ALL virtual links in the current note to real links, with a
         // preview list so the user can uncheck any they want to keep virtual.
@@ -1028,6 +918,16 @@ export default class LinkerPlugin extends Plugin {
             name: 'Convert all virtual links in note to real links (preview)',
             editorCallback: (editor: Editor, view: MarkdownView) => {
                 const modal = new BatchConvertModal(this.app, this.settings, this);
+                modal.open();
+            }
+        });
+
+        // Convert virtual links across MULTIPLE notes, chosen by the user.
+        this.addCommand({
+            id: 'convert-multiple-files-virtual-links',
+            name: 'Convert all virtual links in multiple notes to real links',
+            callback: () => {
+                const modal = new BatchConvertFilesModal(this.app, this.settings, this);
                 modal.open();
             }
         });

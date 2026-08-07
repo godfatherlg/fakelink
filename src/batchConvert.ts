@@ -1,4 +1,4 @@
-import { App, Editor, MarkdownView, Modal, Notice, Setting, TFile } from 'obsidian';
+import { App, MarkdownView, Modal, Notice, Setting, TFile, FuzzySuggestModal } from 'obsidian';
 import { LinkerPluginSettings } from '../main';
 import { LinkerCache, PrefixTree } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
@@ -27,8 +27,7 @@ function relative(from: string, to: string): string {
     return [...Array(up).fill('..'), ...down].join('/') || '.';
 }
 
-
-interface BatchLinkItem {
+export interface BatchLinkItem {
     from: number;
     to: number;
     displayText: string;
@@ -36,13 +35,199 @@ interface BatchLinkItem {
     multipleTargets: boolean;
 }
 
+/**
+ * Scan text (the full content of a note) through LinkerCache — the same trie
+ * logic the live linker uses — so we get every virtual link regardless of what
+ * is currently rendered in the viewport. This avoids the CodeMirror lazy widget
+ * rendering problem. An optional [rangeFrom, rangeTo] restricts results to a
+ * selection. Returns items already sorted descending by position.
+ */
+export function scanVirtualLinks(
+    app: App,
+    settings: LinkerPluginSettings,
+    plugin: LinkerPluginType | null,
+    text: string,
+    sourcePath: string,
+    rangeFrom?: number,
+    rangeTo?: number
+): BatchLinkItem[] {
+    const cache = LinkerCache.getInstance(app, settings);
+    const cacheTree = cache.cache;
+
+    const excludedExtensions = settings.excludedExtensions;
+    const ownNote = settings.excludeLinksToOwnNote ? app.vault.getAbstractFileByPath(sourcePath) : null;
+
+    cache.reset();
+    const matches: VirtualMatch[] = [];
+    let id = 0;
+
+    for (let i = 0; i <= text.length; ) {
+        const codePoint = text.codePointAt(i)!;
+        const char = i < text.length ? String.fromCodePoint(codePoint) : '\n';
+        const isWordBoundary = PrefixTree.checkWordBoundary(char);
+
+        if (settings.matchAnyPartsOfWords || settings.matchBeginningOfWords || isWordBoundary) {
+            const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote);
+
+            for (const node of currentNodes) {
+                if (!settings.matchAnyPartsOfWords) {
+                    if (
+                        (settings.matchBeginningOfWords && !node.startsAtWordBoundary) &&
+                        (settings.matchEndOfWords && !isWordBoundary)
+                    ) {
+                        continue;
+                    }
+                }
+
+                const nFrom = node.start;
+                const nTo = node.end;
+                const name = text.slice(nFrom, nTo);
+
+                if (rangeFrom !== undefined && rangeTo !== undefined) {
+                    if (nTo <= rangeFrom || nFrom >= rangeTo) continue;
+                }
+
+                const filteredFiles = Array.from(node.files).filter((file: TFile) => {
+                    return !excludedExtensions.some((ext: string) =>
+                        file.path.toLowerCase().endsWith(ext.toLowerCase())
+                    );
+                });
+
+                if (filteredFiles.length === 0) continue;
+
+                const vm = new VirtualMatch(
+                    id++,
+                    name,
+                    nFrom,
+                    nTo,
+                    filteredFiles,
+                    node.type,
+                    !isWordBoundary,
+                    settings,
+                    plugin,
+                    node.headerId
+                );
+
+                if (filteredFiles.length > 1) {
+                    filteredFiles.forEach((file: TFile, index: number) => {
+                        if (index === 0) return;
+                        const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                        if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                            vm.setFileHeaderId(file, fileNodes[0].headerId);
+                        }
+                    });
+                }
+
+                matches.push(vm);
+            }
+        }
+
+        cacheTree.pushChar(char);
+        i += char.length;
+    }
+
+    let sorted = VirtualMatch.sort(matches);
+    sorted = VirtualMatch.filterOverlapping(sorted, settings.onlyLinkOnce);
+
+    const items: BatchLinkItem[] = sorted.map((m) => {
+        const multipleTargets = m.files.length > 1;
+        const replacement = buildReplacement(app, settings, m, sourcePath);
+        return {
+            from: m.from,
+            to: m.to,
+            displayText: m.originText,
+            replacement,
+            multipleTargets,
+        };
+    });
+
+    items.sort((a, b) => b.from - a.from);
+    return items;
+}
+
+function buildReplacement(
+    app: App,
+    settings: LinkerPluginSettings,
+    match: VirtualMatch,
+    sourcePath: string
+): string {
+    const targetFile = match.files[0];
+    if (!targetFile) return match.originText;
+
+    const text = match.originText;
+    const headerId = match.getFileHeaderId(targetFile) || match.headerId;
+
+    const useMarkdownLinks = settings.useDefaultLinkStyleForConversion
+        ? settings.defaultUseMarkdownLinks
+        : settings.useMarkdownLinks;
+    const linkFormat = settings.useDefaultLinkStyleForConversion
+        ? settings.defaultLinkFormat
+        : settings.linkFormat;
+
+    let absolutePath = targetFile.path;
+    let relativePath = dirname(sourcePath) + '/' + basename(targetFile.path);
+    relativePath = relativePath.replace(/\\/g, '/');
+
+    const replacementPath = app.metadataCache.fileToLinktext(targetFile, sourcePath);
+    const lastPart = replacementPath.split('/').pop() ?? '';
+    const shortestFile = app.metadataCache.getFirstLinkpathDest(lastPart, '');
+    let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
+
+    const pathSuffix = headerId ? `#${headerId}` : '';
+    if (!replacementPath.endsWith('.md')) {
+        if (absolutePath.endsWith('.md')) absolutePath = absolutePath.slice(0, -3);
+        if (shortestPath && shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
+        if (relativePath.endsWith('.md')) relativePath = relativePath.slice(0, -3);
+        absolutePath += pathSuffix;
+        shortestPath += pathSuffix;
+        relativePath += pathSuffix;
+    }
+
+    const createLink = (replacementTarget: string, linkText: string, markdownStyle: boolean) => {
+        if (markdownStyle) {
+            return `[${linkText}](${replacementTarget})`;
+        }
+        const tableCell = isInTableText(text);
+        if (tableCell) {
+            const escapedText = linkText.replace(/[\\|]/g, '\\$&');
+            return `[[${replacementTarget}\\|${escapedText}]]`;
+        }
+        return `[[${replacementTarget}|${linkText}]]`;
+    };
+
+    if (replacementPath === text && linkFormat === 'shortest') {
+        return `[[${replacementPath}]]`;
+    }
+    if (linkFormat === 'shortest') {
+        return createLink(shortestPath || absolutePath, text, useMarkdownLinks);
+    } else if (linkFormat === 'relative') {
+        return createLink(relativePath, text, useMarkdownLinks);
+    } else {
+        return createLink(absolutePath, text, useMarkdownLinks);
+    }
+}
+
+/** Heuristic: a link text containing an unescaped pipe likely lives in a table. */
+function isInTableText(linkText: string): boolean {
+    return /(?<!\\)\|/.test(linkText);
+}
+
+/** Apply replacements to a plain string (used for files not currently open in an editor). */
+export function applyReplacementsToString(text: string, items: BatchLinkItem[]): string {
+    let result = text;
+    for (const item of items) {
+        result = result.slice(0, item.from) + item.replacement + result.slice(item.to);
+    }
+    return result;
+}
+
 export class BatchConvertModal extends Modal {
     private items: BatchLinkItem[] = [];
     private enabled: boolean[] = [];
-    private editor: Editor | null = null;
+    private text = '';
+    private sourcePath = '';
     private readonly settings: LinkerPluginSettings;
     private readonly plugin: LinkerPluginType | null;
-    private rendered = false;
 
     constructor(app: App, settings: LinkerPluginSettings, plugin?: LinkerPluginType | null) {
         super(app);
@@ -53,9 +238,9 @@ export class BatchConvertModal extends Modal {
     onOpen() {
         const { contentEl } = this;
         const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        this.editor = view?.editor ?? null;
+        const editor = view?.editor ?? null;
 
-        if (!this.editor) {
+        if (!editor) {
             contentEl.createEl('p', { text: '请先打开一个 Markdown 笔记，再运行此命令。' });
             return;
         }
@@ -64,21 +249,22 @@ export class BatchConvertModal extends Modal {
             return;
         }
 
+        this.text = editor.getValue();
+        this.sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
         this.renderList(contentEl);
     }
 
     onClose() {
         this.items = [];
         this.enabled = [];
-        this.editor = null;
-        this.rendered = false;
+        this.text = '';
+        this.sourcePath = '';
         this.contentEl.empty();
     }
 
     private renderList(contentEl: HTMLElement) {
         contentEl.empty();
-        const sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
-        this.items = this.collectLinks(sourcePath);
+        this.items = scanVirtualLinks(this.app, this.settings, this.plugin, this.text, this.sourcePath);
         this.enabled = this.items.map(() => true);
 
         contentEl.createEl('h2', { text: '批量固化虚拟链接为真实链接' });
@@ -125,174 +311,9 @@ export class BatchConvertModal extends Modal {
         cancelBtn.onclick = () => this.close();
     }
 
-    /**
-     * Scan the WHOLE document through LinkerCache (the same trie logic used by
-     * the live linker) so we get every virtual link regardless of what is
-     * currently rendered in the viewport. This avoids the CodeMirror lazy
-     * widget rendering problem and does not require scrolling.
-     */
-    private collectLinks(sourcePath: string): BatchLinkItem[] {
-        const editor = this.editor;
-        if (!editor) return [];
-
-        const cache = LinkerCache.getInstance(this.app, this.settings);
-        const cacheTree = cache.cache;
-
-        const text = editor.getValue();
-        const excludedExtensions = this.settings.excludedExtensions;
-        const ownNote = this.settings.excludeLinksToOwnNote ? this.app.workspace.getActiveFile() : null;
-
-        cache.reset();
-        const matches: VirtualMatch[] = [];
-        let id = 0;
-
-        for (let i = 0; i <= text.length; ) {
-            const codePoint = text.codePointAt(i)!;
-            const char = i < text.length ? String.fromCodePoint(codePoint) : '\n';
-            const isWordBoundary = PrefixTree.checkWordBoundary(char);
-
-            if (
-                this.settings.matchAnyPartsOfWords ||
-                this.settings.matchBeginningOfWords ||
-                isWordBoundary
-            ) {
-                const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote);
-
-                for (const node of currentNodes) {
-                    if (!this.settings.matchAnyPartsOfWords) {
-                        if (
-                            (this.settings.matchBeginningOfWords && !node.startsAtWordBoundary) &&
-                            (this.settings.matchEndOfWords && !isWordBoundary)
-                        ) {
-                            continue;
-                        }
-                    }
-
-                    const nFrom = node.start;
-                    const nTo = node.end;
-                    const name = text.slice(nFrom, nTo);
-
-                    const filteredFiles = Array.from(node.files).filter((file: TFile) => {
-                        return !excludedExtensions.some((ext: string) =>
-                            file.path.toLowerCase().endsWith(ext.toLowerCase())
-                        );
-                    });
-
-                    if (filteredFiles.length === 0) continue;
-
-                    const vm = new VirtualMatch(
-                        id++,
-                        name,
-                        nFrom,
-                        nTo,
-                        filteredFiles,
-                        node.type,
-                        !isWordBoundary,
-                        this.settings,
-                        this.plugin,
-                        node.headerId
-                    );
-
-                    if (filteredFiles.length > 1) {
-                        filteredFiles.forEach((file: TFile, index: number) => {
-                            if (index === 0) return;
-                            const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
-                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
-                                vm.setFileHeaderId(file, fileNodes[0].headerId);
-                            }
-                        });
-                    }
-
-                    matches.push(vm);
-                }
-            }
-
-            cacheTree.pushChar(char);
-            i += char.length;
-        }
-
-        let sorted = VirtualMatch.sort(matches);
-        sorted = VirtualMatch.filterOverlapping(sorted, this.settings.onlyLinkOnce);
-
-        const items: BatchLinkItem[] = sorted.map((m) => {
-            const multipleTargets = m.files.length > 1;
-            const replacement = this.buildReplacement(m, sourcePath);
-            return {
-                from: m.from,
-                to: m.to,
-                displayText: m.originText,
-                replacement,
-                multipleTargets,
-            };
-        });
-
-        // Sort descending by position so later replacements don't shift earlier offsets
-        items.sort((a, b) => b.from - a.from);
-        return items;
-    }
-
-    private buildReplacement(match: VirtualMatch, sourcePath: string): string {
-        const targetFile = match.files[0];
-        if (!targetFile) return match.originText;
-
-        const activeFile = this.app.workspace.getActiveFile();
-        const activeFilePath = activeFile?.path ?? '';
-        const text = match.originText;
-        const headerId = match.getFileHeaderId(targetFile) || match.headerId;
-
-        const useMarkdownLinks = this.settings.useDefaultLinkStyleForConversion
-            ? this.settings.defaultUseMarkdownLinks
-            : this.settings.useMarkdownLinks;
-        const linkFormat = this.settings.useDefaultLinkStyleForConversion
-            ? this.settings.defaultLinkFormat
-            : this.settings.linkFormat;
-
-        let absolutePath = targetFile.path;
-        let relativePath =
-            dirname(activeFile?.path ?? '') + '/' + basename(targetFile.path);
-        relativePath = relativePath.replace(/\\/g, '/');
-
-        const replacementPath = this.app.metadataCache.fileToLinktext(targetFile, activeFilePath);
-        const lastPart = replacementPath.split('/').pop() ?? '';
-        const shortestFile = this.app.metadataCache.getFirstLinkpathDest(lastPart, '');
-        let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
-
-        const pathSuffix = headerId ? `#${headerId}` : '';
-        if (!replacementPath.endsWith('.md')) {
-            if (absolutePath.endsWith('.md')) absolutePath = absolutePath.slice(0, -3);
-            if (shortestPath && shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
-            if (relativePath.endsWith('.md')) relativePath = relativePath.slice(0, -3);
-            absolutePath += pathSuffix;
-            shortestPath += pathSuffix;
-            relativePath += pathSuffix;
-        }
-
-        const createLink = (replacementTarget: string, linkText: string, markdownStyle: boolean) => {
-            if (markdownStyle) {
-                return `[${linkText}](${replacementTarget})`;
-            }
-            const tableCell = isInTable(this.editor, match.from);
-            if (tableCell) {
-                const escapedText = linkText.replace(/[\\|]/g, '\\$&');
-                return `[[${replacementTarget}\\|${escapedText}]]`;
-            }
-            return `[[${replacementTarget}|${linkText}]]`;
-        };
-
-        if (replacementPath === text && linkFormat === 'shortest') {
-            return `[[${replacementPath}]]`;
-        }
-        if (linkFormat === 'shortest') {
-            return createLink(shortestPath || absolutePath, text, useMarkdownLinks);
-        } else if (linkFormat === 'relative') {
-            return createLink(relativePath, text, useMarkdownLinks);
-        } else {
-            return createLink(absolutePath, text, useMarkdownLinks);
-        }
-    }
-
     private convert() {
-        const editor = this.editor;
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const editor = view?.editor ?? null;
         if (!editor) return;
 
         let applied = 0;
@@ -318,24 +339,153 @@ export class BatchConvertModal extends Modal {
     }
 }
 
-function isInTable(editor: Editor | null, offset: number): boolean {
-    try {
-        const cm = (editor as unknown as { cm?: { dom?: HTMLElement } })?.cm?.dom;
-        if (!cm) return false;
-        // Fallback heuristic: check the line text for table pipes
-        if (editor) {
-            const pos = editor.offsetToPos(offset);
-            const line = editor.getLine(pos.line);
-            const pipeCount = (line.match(/\|/g) || []).length;
-            const prevLine = pos.line > 0 ? editor.getLine(pos.line - 1) : '';
-            const nextLine = editor.lineCount() > pos.line + 1 ? editor.getLine(pos.line + 1) : '';
-            const sep = /^\s*\|?[-: |]+\|?\s*$/;
-            if (pipeCount >= 1 && (sep.test(prevLine) || sep.test(nextLine))) {
-                return true;
+/**
+ * Modal that lets the user pick multiple notes from the vault, then converts
+ * every virtual link in each of them to a real link (with a preview count).
+ */
+export class BatchConvertFilesModal extends Modal {
+    private selectedFiles: TFile[] = [];
+    private readonly settings: LinkerPluginSettings;
+    private readonly plugin: LinkerPluginType | null;
+
+    constructor(app: App, settings: LinkerPluginSettings, plugin?: LinkerPluginType | null) {
+        super(app);
+        this.settings = settings;
+        this.plugin = plugin ?? null;
+    }
+
+    onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl('h2', { text: '批量固化多个笔记中的虚拟链接' });
+        contentEl.createEl('p', {
+            text: '选择要处理的笔记，然后点击"扫描"预览每个笔记可转换的链接数量。',
+        });
+
+        const pickerBar = contentEl.createEl('div');
+        pickerBar.addClass('batch-convert-buttons');
+
+        const pickBtn = pickerBar.createEl('button', { text: '选择笔记…' });
+        pickBtn.addClass('mod-cta');
+        pickBtn.onclick = () => {
+            const picker = new FileMultiSuggestModal(this.app);
+            picker.onChoose((files) => {
+                this.selectedFiles = files;
+                this.renderSelected(contentEl);
+            });
+            picker.open();
+        };
+
+        const scanBtn = pickerBar.createEl('button', { text: '扫描并转换' });
+        scanBtn.onclick = () => this.scanAndConvert();
+    }
+
+    private renderSelected(contentEl: HTMLElement) {
+        const existing = contentEl.querySelector('.batch-selected-files');
+        if (existing) existing.remove();
+
+        const box = contentEl.createEl('div');
+        box.addClass('batch-selected-files');
+        box.createEl('p', { text: `已选择 ${this.selectedFiles.length} 个笔记：` });
+        const list = box.createEl('ul');
+        for (const f of this.selectedFiles) {
+            list.createEl('li', { text: f.path });
+        }
+    }
+
+    private async scanAndConvert() {
+        if (this.selectedFiles.length === 0) {
+            new Notice('请先选择至少一个笔记。');
+            return;
+        }
+        if (!this.settings.linkerActivated) {
+            new Notice('虚拟链接功能当前已关闭，请先在设置中启用。');
+            return;
+        }
+
+        let totalApplied = 0;
+        let totalLinks = 0;
+        const errors: string[] = [];
+
+        for (const file of this.selectedFiles) {
+            try {
+                const content = await this.app.vault.read(file);
+                const items = scanVirtualLinks(
+                    this.app,
+                    this.settings,
+                    this.plugin,
+                    content,
+                    file.path
+                );
+                // Apply "skip multiple targets" default: drop them
+                const activeItems = items.filter(
+                    (it) => !(it.multipleTargets && this.settings.skipMultipleTargets)
+                );
+                totalLinks += activeItems.length;
+
+                if (activeItems.length === 0) continue;
+
+                const newContent = applyReplacementsToString(content, activeItems);
+
+                // If the file is currently open in an editor, update it live
+                const openView = this.app.workspace.getLeavesOfType('markdown')
+                    .map((l) => l.view)
+                    .find((v): v is MarkdownView => v instanceof MarkdownView && (v as MarkdownView).file?.path === file.path);
+
+                if (openView && openView.editor) {
+                    const editor = openView.editor;
+                    // Re-apply through editor in reverse order to keep offsets valid
+                    for (const item of activeItems) {
+                        const cur = editor.getRange(editor.offsetToPos(item.from), editor.offsetToPos(item.to));
+                        if (cur === item.displayText) {
+                            editor.replaceRange(item.replacement, editor.offsetToPos(item.from), editor.offsetToPos(item.to));
+                            totalApplied++;
+                        }
+                    }
+                } else {
+                    await this.app.vault.modify(file, newContent);
+                    totalApplied += activeItems.length;
+                }
+            } catch (e) {
+                errors.push(`${file.path}: ${e instanceof Error ? e.message : String(e)}`);
             }
         }
-        return false;
-    } catch {
-        return false;
+
+        if (errors.length > 0) {
+            new Notice(`完成。${totalApplied} 个链接已固化（${errors.length} 个文件出错，详见控制台）。`);
+            console.error('Batch convert files errors:', errors);
+        } else {
+            new Notice(`已完成。在 ${this.selectedFiles.length} 个笔记中固化了 ${totalApplied} 个虚拟链接。`);
+        }
+        this.close();
+    }
+
+    onClose() {
+        this.selectedFiles = [];
+        this.contentEl.empty();
+    }
+}
+
+/** Multi-select file picker using Obsidian's fuzzy suggest. */
+class FileMultiSuggestModal extends FuzzySuggestModal<TFile> {
+    private chosen: TFile[] = [];
+    private cb: (files: TFile[]) => void = () => {};
+
+    getItems(): TFile[] {
+        return this.app.vault.getMarkdownFiles();
+    }
+
+    getItemText(file: TFile): string {
+        return file.path;
+    }
+
+    onChoose(cb: (files: TFile[]) => void) {
+        this.cb = cb;
+    }
+
+    onChooseItem(file: TFile): void {
+        if (!this.chosen.includes(file)) this.chosen.push(file);
+        new Notice(`已添加：${file.path}（共 ${this.chosen.length} 个）`);
+        this.cb([...this.chosen]);
     }
 }
