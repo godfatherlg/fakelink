@@ -44,6 +44,8 @@ const zhCN: Record<string, string> = {
     'Stemming language': '词干提取语言',
     'Language used for word stemming. Only "en" (English) is supported at the moment.': '用于词干提取的语言。目前仅支持 "en"（英文）。',
     'Convert all virtual links in note to real links (preview)': '将笔记中所有虚拟链接转换为真实链接（预览）',
+    'Skip links with multiple targets (batch convert)': '批量转换时跳过多指向的链接',
+    'When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.': '使用「将笔记中所有虚拟链接转换为真实链接（预览）」时，指向多个笔记的虚拟链接会被跳过，方便你手动逐一转换。关闭后它们会包含在列表中，但默认不勾选，且仅转换第一个目标。',
 
     'Match any part of a word': '匹配单词的任意部分',
     'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',

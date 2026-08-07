@@ -558,6 +558,7 @@ export interface LinkerPluginSettings {
     headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
     enableStemming: boolean; // Match inflected word forms (e.g. projectiles -> Projectile)
     stemmingLanguage: string; // Language for stemming (e.g. 'en')
+    skipMultipleTargets: boolean; // In batch conversion, skip virtual links pointing to multiple notes
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -620,6 +621,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headerJumpRetryDelay: 500,
     enableStemming: false,
     stemmingLanguage: 'en',
+    skipMultipleTargets: true,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -1751,6 +1753,14 @@ class LinkerSettingTab extends PluginSettingTab {
                         await this.plugin.updateSettings({ stemmingLanguage: value });
                     }))
             .setDisabled(!this.plugin.settings.enableStemming);
+
+        new Setting(containerEl)
+            .setName(t('Skip links with multiple targets (batch convert)'))
+            .setDesc(t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.skipMultipleTargets).onChange(async (value) => {
+                    await this.plugin.updateSettings({ skipMultipleTargets: value });
+                }));
 
         // Toggle setting to match only whole words or any part of the word
         new Setting(containerEl)

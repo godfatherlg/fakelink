@@ -608,6 +608,14 @@ export class PrefixTree {
         if (this.settings.enableStemming) {
             const lang = this.settings.stemmingLanguage;
             const addStem = (name: string) => {
+                // Only stem pure-English keywords. Keywords containing non-Latin
+                // characters (e.g. Chinese headings like "1.2 T11/12双侧...") must
+                // be skipped, otherwise the embedded English fragment (e.g. "p",
+                // "ast") would be stemmed and match unrelated text in the document.
+                // Also skip very short words to avoid noisy matches.
+                if (name.length < 3 || !/^[A-Za-z][A-Za-z -]*$/.test(name)) {
+                    return;
+                }
                 const stemmed = stem(name, lang);
                 if (!stemmed || stemmed === name.toLowerCase() || stemmed === name) {
                     return;

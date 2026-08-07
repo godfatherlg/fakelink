@@ -36,6 +36,7 @@ interface BatchLinkItem {
     displayText: string;
     replacement: string;
     anchor: HTMLAnchorElement;
+    multipleTargets: boolean;
 }
 
 /**
@@ -65,7 +66,6 @@ export class BatchConvertModal extends Modal {
         this.editor = view.editor;
 
         this.items = this.collectLinks(view);
-        this.enabled = this.items.map(() => true);
 
         contentEl.createEl('h3', { text: 'Convert virtual links to real links' });
         contentEl.createEl('p', {
@@ -82,9 +82,11 @@ export class BatchConvertModal extends Modal {
             const row = listEl.createEl('div', { cls: 'fakelink-batch-row' });
             new Setting(row)
                 .setName(`"${item.displayText}"`)
-                .setDesc(item.replacement)
+                .setDesc(item.multipleTargets
+                    ? `${item.replacement}  (multiple targets — converts the first one)`
+                    : item.replacement)
                 .addToggle((toggle) =>
-                    toggle.setValue(true).onChange((value) => {
+                    toggle.setValue(this.enabled[index] ?? true).onChange((value) => {
                         this.enabled[index] = value;
                     })
                 );
@@ -131,11 +133,25 @@ export class BatchConvertModal extends Modal {
                 return;
             }
 
-            items.push({ from, to, displayText: originText, replacement, anchor });
+            // Detect links pointing to multiple notes: the root .virtual-link span
+            // contains a .multiple-files-references child in that case.
+            const rootLink = anchor.closest('.virtual-link');
+            const multipleTargets = !!rootLink?.querySelector('.multiple-files-references');
+
+            // When configured, skip (exclude entirely) links with multiple targets
+            // so the user can convert those individually.
+            if (multipleTargets && this.settings.skipMultipleTargets) {
+                return;
+            }
+
+            items.push({ from, to, displayText: originText, replacement, anchor, multipleTargets });
         });
 
         // Sort from last to first so earlier offsets stay valid when replacing
         items.sort((a, b) => b.from - a.from);
+        // Default-enabled: links with multiple targets are unchecked (they
+        // convert only the first target when enabled).
+        this.enabled = items.map((item) => !item.multipleTargets);
         return items;
     }
 
