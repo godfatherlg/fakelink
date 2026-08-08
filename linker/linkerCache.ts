@@ -558,6 +558,11 @@ export class PrefixTree {
     }
 
     private addFileWithName(name: string, file: TFile, matchCase: boolean, headerId?: string, canonicalKeyword?: string, canonicalHeaderId?: string) {
+        // Skip single-character keywords: they produce spurious virtual links
+        // (e.g. "关" matching "下关" or "带" matching "带下") and are never
+        // intended by the user as glossary entries.
+        if (name.length < 2) return;
+
         let node = this.root;
 
         // For each character in the name, add a node to the trie
