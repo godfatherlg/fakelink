@@ -859,7 +859,11 @@ export class PrefixTree {
                 // Only enable fuzzy matching when it actually changes the keyword,
                 // and never when the result becomes empty.
                 const fuzzy = this.fuzzyNormalize(name, lang);
-                if (!fuzzy || fuzzy === name.toLowerCase() || fuzzy === name) {
+                // Skip single-character remnants: stripping stopwords can
+                // leave a 1-char residue (e.g. '下关' → '关', '带下' → '带')
+                // that would enter the exact-match prefix tree and cause
+                // spurious links everywhere that single char appears.
+                if (!fuzzy || fuzzy.length < 2 || fuzzy === name.toLowerCase() || fuzzy === name) {
                     return;
                 }
                 const headerEntry = headerEntries.find((e) => e.keyword === name);
