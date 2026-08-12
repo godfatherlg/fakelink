@@ -619,7 +619,7 @@ class AutoLinkerPlugin implements PluginValue {
                 const slice = view.state.sliceDoc(addition.from, addition.to);
                 if (slice.includes('\n')) return false;
                 const line = view.state.doc.lineAt(addition.from);
-                if (/^#{1,6}\s/.test(line.text)) return false;
+                if (!this.settings.allowLinksInHeaders && /^#{1,6}\s/.test(line.text)) return false;
                 return true;
             });
             // RangeSetBuilder requires decorations to be added in ascending order.
