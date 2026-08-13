@@ -619,7 +619,17 @@ class AutoLinkerPlugin implements PluginValue {
                 const slice = view.state.sliceDoc(addition.from, addition.to);
                 if (slice.includes('\n')) return false;
                 const line = view.state.doc.lineAt(addition.from);
-                if (!this.settings.allowLinksInHeaders && /^#{1,6}\s/.test(line.text)) return false;
+                const isHeaderLine = /^#{1,6}\s/.test(line.text);
+                if (isHeaderLine) {
+                    if (!this.settings.allowLinksInHeaders) return false;
+                    // A heading must never link to the note it belongs to (self-link):
+                    // the decoration widget would replace the heading text and, when the
+                    // cursor is elsewhere, the heading disappears entirely.
+                    const currentFile = mappedFile ?? this.app.workspace.getActiveFile();
+                    if (currentFile && addition.files.some((f) => f.path === currentFile.path)) {
+                        return false;
+                    }
+                }
                 return true;
             });
             // RangeSetBuilder requires decorations to be added in ascending order.
