@@ -140,6 +140,10 @@ class AutoLinkerPlugin implements PluginValue {
     private lastActiveFile: string = '';
     private lastViewUpdate: ViewUpdate | null = null;
 
+    // Cache the active Markdown view so we don't call getActiveViewOfType()
+    // on every cursor move. Invalidated on active-leaf-change.
+    private cachedActiveView: MarkdownView | null | undefined = undefined;
+
     viewUpdateDomToFileMap: Map<HTMLElement, TFile | undefined | null> = new Map();
 
     constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
@@ -152,6 +156,16 @@ class AutoLinkerPlugin implements PluginValue {
 
         this.linkerCache = LinkerCache.getInstance(app, this.settings);
 
+        // Invalidate the cached active view whenever the active leaf changes
+        // (switching panes/files). This avoids calling getActiveViewOfType()
+        // on every cursor move, which other plugins may wrap and which adds
+        // measurable overhead during plain navigation.
+        this.plugin.registerEvent(
+            this.app.workspace.on('active-leaf-change', () => {
+                this.cachedActiveView = undefined;
+            })
+        );
+
         this.decorations = this.buildDecorations(view);
 
         updateManager.registerCallback(() => {
@@ -162,7 +176,10 @@ class AutoLinkerPlugin implements PluginValue {
     }
 
     update(update: ViewUpdate, force: boolean = false) {
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (this.cachedActiveView === undefined) {
+            this.cachedActiveView = this.app.workspace.getActiveViewOfType(MarkdownView) ?? null;
+        }
+        const activeView = this.cachedActiveView;
 
         // Pre-detect table environment for active view checking
         const cmTableWidget = update.view.dom.closest('.cm-table-widget');
