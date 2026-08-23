@@ -330,9 +330,10 @@ class AutoLinkerPlugin implements PluginValue {
             let score = 0;
             const names = [file.basename];
             const cache = this.app.metadataCache.getFileCache(file);
-            const aliases = cache?.frontmatter?.aliases;
-            if (Array.isArray(aliases)) {
-                names.push(...aliases.filter((a) => typeof a === 'string'));
+            const rawAliases: unknown = cache?.frontmatter?.aliases;
+            const aliases: unknown[] = Array.isArray(rawAliases) ? rawAliases : [];
+            for (const alias of aliases) {
+                if (typeof alias === 'string') names.push(alias);
             }
             for (const name of names) {
                 const lower = name.toLowerCase();
@@ -372,7 +373,7 @@ class AutoLinkerPlugin implements PluginValue {
         // Match a non-whitespace, non-bracket token containing at least one '#'
         // but exclude tokens already wrapped in [[...]] (those are real links and
         // are handled/excluded elsewhere).
-        const regex = /(?:^|(?<![\[\w]))((?:(?!\[\[)[^\s\[\]#])+)(#(?:[^\s\[\]]+)?)+/g;
+        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]#])+)(#(?:[^\s[\]]+)?)+/g;
         let m: RegExpExecArray | null;
         let id = 0;
         while ((m = regex.exec(text)) !== null) {
