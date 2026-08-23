@@ -63,10 +63,15 @@ export class VirtualMatch {
             return typeA - typeB;
         });
 
-        // Limit visible files
-        const visibleFiles = this.settings.maxReferenceCount > 0
-            ? sortedFiles.slice(0, this.settings.maxReferenceCount)
-            : sortedFiles;
+        // Limit visible files, and show a "..." indicator when there are more
+        // references than the configured display limit (instead of silently
+        // truncating, which made users think only N references existed).
+        let visibleFiles = sortedFiles;
+        let hasMore = false;
+        if (this.settings.maxReferenceCount > 0 && sortedFiles.length > this.settings.maxReferenceCount) {
+            visibleFiles = sortedFiles.slice(0, this.settings.maxReferenceCount);
+            hasMore = true;
+        }
 
         const span = this.getLinkRootSpan(inTableCellEditor);
         const firstFile = visibleFiles.length > 0 ? visibleFiles[0] : undefined;
@@ -77,6 +82,9 @@ export class VirtualMatch {
                 span.appendChild(this.getMultipleReferencesIndicatorSpan());
             }
             span.appendChild(this.getMultipleReferencesSpan(visibleFiles));
+        }
+        if (hasMore) {
+            span.appendChild(this.getOverflowIndicatorSpan(sortedFiles.length - visibleFiles.length));
         }
 
         if (!this.isSubWord || !this.settings.suppressSuffixForSubWords) {
@@ -259,6 +267,14 @@ export class VirtualMatch {
         const spanIndicator = activeDocument.createElement('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
+        return spanIndicator;
+    }
+
+    getOverflowIndicatorSpan(hiddenCount: number) {
+        const spanIndicator = activeDocument.createElement('span');
+        spanIndicator.textContent = ' ...';
+        spanIndicator.classList.add('multiple-files-indicator');
+        spanIndicator.setAttribute('title', `${hiddenCount} more reference(s)`);
         return spanIndicator;
     }
 
