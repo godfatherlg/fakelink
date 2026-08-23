@@ -1,7 +1,7 @@
 import { syntaxTree } from '@codemirror/language';
 import { RangeSetBuilder } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, PluginSpec, PluginValue, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { App, MarkdownView, TFile, Vault } from 'obsidian';
+import { App, MarkdownView, TFile, Vault, getLinkpath } from 'obsidian';
 
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
@@ -295,6 +295,151 @@ class AutoLinkerPlugin implements PluginValue {
         }
     }
 
+    /**
+     * Context-aware disambiguation: when a heading name exists in multiple notes,
+     * narrow the candidate files to the one whose file name (or an alias) appears
+     * earlier in the current paragraph. Only used when enableContextDisambiguation
+     * is on and the match is a Header type with more than one candidate.
+     */
+    disambiguateFilesByContext(files: TFile[], docPos: number, view: EditorView): TFile[] {
+        if (files.length <= 1) return files;
+
+        const doc = view.state.doc;
+        // Find the start of the current paragraph (preceded by a blank line).
+        let paraStart = 0;
+        const line = doc.lineAt(docPos);
+        paraStart = line.from;
+        let prevLine = line;
+        // Walk backwards over consecutive non-blank lines to the paragraph start.
+        for (let l = line.number - 1; l >= 1; l--) {
+            const candidate = doc.line(l);
+            if (candidate.text.trim().length === 0) {
+                paraStart = prevLine.from;
+                break;
+            }
+            paraStart = candidate.from;
+            prevLine = candidate;
+        }
+
+        // Only the text before the current match position counts as "context".
+        const context = doc.sliceString(paraStart, docPos).toLowerCase();
+        if (context.trim().length === 0) return files;
+
+        // Score each candidate file by whether its name/alias appears in the context.
+        const scored = files.map((file) => {
+            let score = 0;
+            const names = [file.basename];
+            const cache = this.app.metadataCache.getFileCache(file);
+            const aliases = cache?.frontmatter?.aliases;
+            if (Array.isArray(aliases)) {
+                names.push(...aliases.filter((a) => typeof a === 'string'));
+            }
+            for (const name of names) {
+                const lower = name.toLowerCase();
+                if (lower.length < 2) continue; // ignore single-char names (too noisy)
+                if (context.includes(lower)) {
+                    // Longer names that appear are a stronger signal.
+                    score += lower.length;
+                }
+            }
+            return { file, score };
+        });
+
+        const best = scored.reduce((a, b) => (b.score > a.score ? b : a), { file: files[0], score: 0 });
+        // Only narrow down if exactly one file clearly scored above the rest.
+        if (best.score > 0) {
+            const topScore = best.score;
+            const winners = scored.filter((s) => s.score === topScore);
+            if (winners.length === 1) {
+                return [winners[0].file];
+            }
+        }
+        return files;
+    }
+
+    /**
+     * Recognize bare internal-link syntax as virtual links, e.g.:
+     *   a#b            -> heading "b" in note "a"
+     *   a#b#c          -> sub-heading "c" under "b" in note "a"
+     *   a#b#c^h6d8e3   -> block "h6d8e3" under heading "c" in note "a"
+     *   a#^h6d8e3      -> block "h6d8e3" in note "a"
+     *
+     * Returns VirtualMatch objects covering the whole "a#b..." token. The leading
+     * part "a" is resolved against the note path (like Obsidian's internal links).
+     */
+    findInternalLinkSyntaxMatches(text: string, rangeFrom: number, currentFile: TFile): VirtualMatch[] {
+        const matches: VirtualMatch[] = [];
+        // Match a non-whitespace, non-bracket token containing at least one '#'
+        // but exclude tokens already wrapped in [[...]] (those are real links and
+        // are handled/excluded elsewhere).
+        const regex = /(?:^|(?<![\[\w]))((?:(?!\[\[)[^\s\[\]#])+)(#(?:[^\s\[\]]+)?)+/g;
+        let m: RegExpExecArray | null;
+        let id = 0;
+        while ((m = regex.exec(text)) !== null) {
+            const full = m[0];
+            // Skip if it starts with "[[" — a real internal link.
+            if (full.startsWith('[[')) continue;
+
+            const hashIdx = full.indexOf('#');
+            if (hashIdx <= 0) continue;
+            const notePart = full.slice(0, hashIdx);
+            const anchorPart = full.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
+
+            // Resolve the note part to a file.
+            const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            if (!dest) continue;
+
+            // The anchor can be a heading path and/or a block id.
+            const blockIdx = anchorPart.indexOf('^');
+            const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
+            const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
+
+            // Determine the final heading id to jump to.
+            let headerId: string | undefined;
+            const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
+
+            if (headingPath && headings.length > 0) {
+                // headingPath may be "b" or "b#c". Match the LAST segment.
+                const segments = headingPath.split('#');
+                const lastSegment = segments[segments.length - 1].trim();
+                const heading = headings.find(
+                    (h) => h.heading.trim().toLowerCase() === lastSegment.toLowerCase()
+                );
+                if (heading) {
+                    headerId = heading.heading.trim();
+                } else if (blockId) {
+                    // Heading not found but a block was given — still linkable via block.
+                    headerId = blockId;
+                } else {
+                    continue;
+                }
+            } else if (blockId) {
+                // Pure block reference: a#^blockid
+                headerId = blockId;
+            } else {
+                continue;
+            }
+
+            const aFrom = rangeFrom + m.index;
+            const aTo = rangeFrom + m.index + full.length;
+            matches.push(
+                new VirtualMatch(
+                    id++,
+                    full,
+                    aFrom,
+                    aTo,
+                    [dest],
+                    MatchType.Header,
+                    false,
+                    this.settings,
+                    this.plugin,
+                    headerId
+                )
+            );
+        }
+        return matches;
+    }
+
     buildDecorations(view: EditorView, viewIsActive: boolean = true): DecorationSet {
         const builder = new RangeSetBuilder<Decoration>();
 
@@ -375,11 +520,23 @@ class AutoLinkerPlugin implements PluginValue {
                             // console.log("MATCH", name, aFrom, aTo, node.caseIsMatched, node.requiresCaseMatch)
 
                             // Filter out files with excluded extensions
-                            const filteredFiles = Array.from(node.files).filter(file => {
+                            let filteredFiles = Array.from(node.files).filter(file => {
                                 return !this.settings.excludedExtensions.some(ext => 
                                     file.path.toLowerCase().endsWith(ext.toLowerCase())
                                 );
                             });
+
+                            // Context-aware disambiguation: when a heading exists in
+                            // multiple notes, prefer the note whose file name (or alias)
+                            // appears earlier in the current paragraph. This keeps the
+                            // link pointing at the most relevant note.
+                            if (
+                                this.settings.enableContextDisambiguation &&
+                                node.type === MatchType.Header &&
+                                filteredFiles.length > 1
+                            ) {
+                                filteredFiles = this.disambiguateFilesByContext(filteredFiles, from + actualFrom, view);
+                            }
                             
                             // getCurrentMatchNodes already handles excluded keywords (including per-note)
                             if (filteredFiles.length > 0) {
@@ -494,6 +651,16 @@ class AutoLinkerPlugin implements PluginValue {
                 i += char.length;
             }
 
+            // Recognize bare internal-link syntax like "a#b", "a#b#c",
+            // "a#b#c^h6d8e3" or "a#^h6d8e3" as virtual links, so users can write
+            // plain-text references (e.g. in footnotes) without polluting the graph
+            // with real links. Only active when enableInternalLinkSyntax is on.
+            if (this.settings.enableInternalLinkSyntax && mappedFile) {
+                const internalMatches = this.findInternalLinkSyntaxMatches(text, from, mappedFile);
+                matches.push(...internalMatches);
+                id += internalMatches.length;
+            }
+
             // Sort additions by position and files length
             matches = VirtualMatch.sort(matches);
 
@@ -539,6 +706,29 @@ class AutoLinkerPlugin implements PluginValue {
                     }
                 },
             });
+
+            // Exclude text between custom start/end symbols (e.g. { ... }) from
+            // virtual linking. We insert the ranges into the same interval tree
+            // used for syntax nodes, so filterOverlapping drops any match inside.
+            if (
+                this.settings.enableSymbolExclusion &&
+                this.settings.excludeSymbolStart &&
+                this.settings.excludeSymbolEnd &&
+                this.settings.excludeSymbolStart !== this.settings.excludeSymbolEnd
+            ) {
+                const startSym = this.settings.excludeSymbolStart;
+                const endSym = this.settings.excludeSymbolEnd;
+                let searchFrom = 0;
+                while (true) {
+                    const startIdx = text.indexOf(startSym, searchFrom);
+                    if (startIdx === -1) break;
+                    const endIdx = text.indexOf(endSym, startIdx + startSym.length);
+                    // Unclosed start symbol excludes the rest of the visible range.
+                    const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
+                    excludedIntervalTree.insert([from + startIdx, from + rangeEnd]);
+                    searchFrom = startIdx + startSym.length;
+                }
+            }
 
             // Delete additions that links to already linked files
             if (this.settings.excludeLinksToRealLinkedFiles) {

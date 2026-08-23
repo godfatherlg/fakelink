@@ -561,6 +561,11 @@ export interface LinkerPluginSettings {
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
     fuzzyMinLength: number; // Minimum normalized length of a title/note name to be considered for fuzzy matching (shorter ones are skipped)
     skipMultipleTargets: boolean; // In batch conversion, skip virtual links pointing to multiple notes
+    enableSymbolExclusion: boolean; // Exclude text between custom start/end symbols from virtual linking
+    excludeSymbolStart: string; // Start symbol marking text to exclude from linking
+    excludeSymbolEnd: string; // End symbol marking text to exclude from linking
+    enableInternalLinkSyntax: boolean; // Recognize bare internal-link syntax like "a#b", "a#^block" as virtual links
+    enableContextDisambiguation: boolean; // Limit a multi-file header match to the file named in the current paragraph
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -626,6 +631,11 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     fuzzyMatchThreshold: 80,
     fuzzyMinLength: 6,
     skipMultipleTargets: true,
+    enableSymbolExclusion: false,
+    excludeSymbolStart: '{',
+    excludeSymbolEnd: '}',
+    enableInternalLinkSyntax: false,
+    enableContextDisambiguation: false,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -1773,6 +1783,57 @@ class LinkerSettingTab extends PluginSettingTab {
                 text.inputEl.min = '1';
                 text.inputEl.max = '50';
             });
+
+        // Exclude text between custom symbols from linking
+        new Setting(containerEl)
+            .setName(t('Exclude text between symbols'))
+            .setDesc(t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Useful for pandoc citations or other special syntax.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableSymbolExclusion).onChange(async (value) => {
+                    await this.plugin.updateSettings({ enableSymbolExclusion: value });
+                    this.display();
+                })
+            );
+
+        if (this.plugin.settings.enableSymbolExclusion) {
+            new Setting(containerEl)
+                .setName(t('Start symbol'))
+                .setDesc(t('Symbol marking the start of the excluded text. Must differ from the end symbol.'))
+                .addText((text) =>
+                    text.setValue(this.plugin.settings.excludeSymbolStart).onChange(async (value) => {
+                        await this.plugin.updateSettings({ excludeSymbolStart: value });
+                    })
+                );
+
+            new Setting(containerEl)
+                .setName(t('End symbol'))
+                .setDesc(t('Symbol marking the end of the excluded text. Must differ from the start symbol.'))
+                .addText((text) =>
+                    text.setValue(this.plugin.settings.excludeSymbolEnd).onChange(async (value) => {
+                        await this.plugin.updateSettings({ excludeSymbolEnd: value });
+                    })
+                );
+        }
+
+        // Recognize bare internal-link syntax like "a#b" or "a#^block"
+        new Setting(containerEl)
+            .setName(t('Bare internal link syntax'))
+            .setDesc(t('When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableInternalLinkSyntax).onChange(async (value) => {
+                    await this.plugin.updateSettings({ enableInternalLinkSyntax: value });
+                })
+            );
+
+        // Disambiguate multi-file header matches using the current paragraph
+        new Setting(containerEl)
+            .setName(t('Context-aware header disambiguation'))
+            .setDesc(t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears earlier in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'))
+            .addToggle((toggle) =>
+                toggle.setValue(this.plugin.settings.enableContextDisambiguation).onChange(async (value) => {
+                    await this.plugin.updateSettings({ enableContextDisambiguation: value });
+                })
+            );
 
         new Setting(containerEl).setName(t('Case sensitivity')).setHeading();
 
