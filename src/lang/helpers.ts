@@ -138,6 +138,17 @@ const zhCN: Record<string, string> = {
     'If toggled, the virtual links will be created as wikilinks instead of Markdown links.': '启用后，虚拟链接将使用双链格式而非 Markdown 链接格式。',
     'Link format': '链接格式',
     'The format of the generated links.': '生成链接的格式。',
+
+    'Exclude text between symbols': '排除符号之间的文本',
+    'When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Useful for pandoc citations or other special syntax.': '启用后，配置的起始和结束符号（如 { ... }）之间的文本将不会生成虚拟链接。适用于 pandoc 引用或其他特殊语法。',
+    'Symbol marking the start of the excluded text. Must differ from the end symbol.': '标记要排除文本起始位置的符号。必须与结束符号不同。',
+    'Symbol marking the end of the excluded text. Must differ from the start symbol.': '标记要排除文本结束位置的符号。必须与起始符号不同。',
+
+    'Bare internal link syntax': '内部链接语法',
+    'When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).': '启用后，纯文本如 "note#heading" 或 "note#^block-id" 将被视为指向该标题/块的虚拟链接，无需用 [[ ]] 包裹（包裹会创建真实链接）。',
+
+    'Context-aware header disambiguation': '上下文感知的标题消歧',
+    'When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears earlier in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.': '当标题名存在于多个笔记中时，优先指向当前段落中较早出现其文件名（或别名）的笔记，使链接指向最相关的笔记，而不是列出所有匹配项。',
 };
 
 export function t(text: string): string {
