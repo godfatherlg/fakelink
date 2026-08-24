@@ -1787,7 +1787,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Exclude text between custom symbols from linking
         new Setting(containerEl)
             .setName(t('Exclude text between symbols'))
-            .setDesc(t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Useful for pandoc citations or other special syntax.'))
+            .setDesc(t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Separate multiple symbol pairs with commas (e.g. start "{,（" end "},）"). Useful for pandoc citations or other special syntax.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableSymbolExclusion).onChange(async (value) => {
                     await this.plugin.updateSettings({ enableSymbolExclusion: value });
@@ -1798,7 +1798,7 @@ class LinkerSettingTab extends PluginSettingTab {
         if (this.plugin.settings.enableSymbolExclusion) {
             new Setting(containerEl)
                 .setName(t('Start symbol'))
-                .setDesc(t('Symbol marking the start of the excluded text. Must differ from the end symbol.'))
+                .setDesc(t('Symbol marking the start of the excluded text. Separate multiple symbols with commas (matched positionally with the end symbols). Each must differ from its corresponding end symbol.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.excludeSymbolStart).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeSymbolStart: value });
@@ -1807,7 +1807,7 @@ class LinkerSettingTab extends PluginSettingTab {
 
             new Setting(containerEl)
                 .setName(t('End symbol'))
-                .setDesc(t('Symbol marking the end of the excluded text. Must differ from the start symbol.'))
+                .setDesc(t('Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.'))
                 .addText((text) =>
                     text.setValue(this.plugin.settings.excludeSymbolEnd).onChange(async (value) => {
                         await this.plugin.updateSettings({ excludeSymbolEnd: value });
@@ -1828,7 +1828,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Disambiguate multi-file header matches using the current paragraph
         new Setting(containerEl)
             .setName(t('Context-aware header disambiguation'))
-            .setDesc(t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears earlier in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'))
+            .setDesc(t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'))
             .addToggle((toggle) =>
                 toggle.setValue(this.plugin.settings.enableContextDisambiguation).onChange(async (value) => {
                     await this.plugin.updateSettings({ enableContextDisambiguation: value });
