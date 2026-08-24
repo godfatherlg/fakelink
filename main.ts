@@ -1,7 +1,8 @@
-import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
+import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 
 import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
@@ -1415,32 +1416,169 @@ export default class LinkerPlugin extends Plugin {
         });
     }
 }
+// ---------- Declarative settings panel (Obsidian 1.13.0+) ----------
+// Shared option bag for the definition builders below.
+interface DefOpts {
+    desc?: string;
+    visible?: () => boolean;
+    disabled?: () => boolean;
+    aliases?: string[];
+}
+
+function toggleDef(name: string, key: string, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'toggle', key, disabled: opts.disabled } };
+}
+function textDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'text', key, placeholder: opts.placeholder, disabled: opts.disabled } };
+}
+function textAreaDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'textarea', key, placeholder: opts.placeholder, disabled: opts.disabled } };
+}
+function dropdownDef(name: string, key: string, options: Record<string, string>, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'dropdown', key, options, disabled: opts.disabled } };
+}
+function sliderDef(name: string, key: string, min: number, max: number, step: number, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'slider', key, min, max, step, disabled: opts.disabled } };
+}
+function numberDef(name: string, key: string, opts: DefOpts & { min?: number; max?: number; step?: number; placeholder?: string } = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'number', key, min: opts.min, max: opts.max, step: opts.step, placeholder: opts.placeholder, disabled: opts.disabled } };
+}
+function colorDef(name: string, key: string, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'color', key, disabled: opts.disabled } };
+}
+function actionDef(name: string, action: () => void, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, action: () => action() };
+}
+function groupDef(heading: string, items: SettingGroupItem[], visible?: () => boolean): SettingDefinitionGroup {
+    return { type: 'group', heading, items, visible };
+}
 
 class LinkerSettingTab extends PluginSettingTab {
     constructor(app: App, public plugin: LinkerPlugin) {
         super(app, plugin);
     }
 
-    display(): void {
-        const { containerEl } = this;
-        containerEl.empty();
+    private get s(): LinkerPluginSettings {
+        return this.plugin.settings;
+    }
 
-        // Add auto mode toggle setting item
-        new Setting(containerEl)
-            .setName(t('Auto-toggle activation status by mode'))
-            .setDesc(t('When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active'))
-            .addToggle(toggle => 
-                toggle
-                    .setValue(this.plugin.settings.autoToggleByMode)
-                    .onChange(async value => {
-                        await this.plugin.updateSettings({ autoToggleByMode: value });
-                        // Immediately apply settings changes
-                        void this.plugin.handleLayoutChange();
-                    })
-            );
+    // The declarative API reads/writes settings through these two methods.
+    // We override them to (a) bridge fields that need a representation
+    // different from their stored form, and (b) run the same side effects
+    // the old imperative UI had (body classes, CSS vars, auto-toggles, etc).
+    getControlValue(key: string): unknown {
+        const s = this.s;
+        switch (key) {
+            case 'useWikilinks':
+                return !s.useMarkdownLinks;
+            case 'capitalLetterProportionForAutomaticMatchCase':
+                return Math.round(s.capitalLetterProportionForAutomaticMatchCase * 1000) / 10;
+            case 'linkerDirectories':
+                return s.linkerDirectories.join('\n');
+            case 'excludedDirectories':
+                return s.excludedDirectories.join('\n');
+            case 'excludedDirectoriesForLinking':
+                return s.excludedDirectoriesForLinking.join('\n');
+            case 'excludedKeywords':
+                return s.excludedKeywords.join(',');
+            case 'excludedExtensions':
+                return s.excludedExtensions.join('\n');
+            default:
+                return (s as unknown as Record<string, unknown>)[key];
+        }
+    }
 
+    async setControlValue(key: string, value: unknown): Promise<void> {
+        let needsFullUpdate = false;
+        switch (key) {
+            case 'useWikilinks':
+                await this.plugin.updateSettings({ useMarkdownLinks: !(value as boolean) });
+                break;
+            case 'capitalLetterProportionForAutomaticMatchCase':
+                await this.plugin.updateSettings({ capitalLetterProportionForAutomaticMatchCase: (value as number) / 100 });
+                break;
+            case 'linkerDirectories':
+                await this.plugin.updateSettings({ linkerDirectories: this.splitLines(value as string) });
+                break;
+            case 'excludedDirectories':
+                await this.plugin.updateSettings({ excludedDirectories: this.splitLines(value as string) });
+                break;
+            case 'excludedDirectoriesForLinking':
+                await this.plugin.updateSettings({ excludedDirectoriesForLinking: this.splitLines(value as string) });
+                break;
+            case 'excludedKeywords':
+                await this.plugin.updateSettings({
+                    excludedKeywords: (value as string).split(',').map((x) => x.trim()).filter((x) => x.length > 0),
+                });
+                break;
+            case 'excludedExtensions':
+                await this.plugin.updateSettings({
+                    excludedExtensions: (value as string)
+                        .split(/[\n,]/)
+                        .map((x) => x.trim())
+                        .filter((x) => x.length > 0)
+                        .map((x) => (x.startsWith('.') ? x : `.${x}`)),
+                });
+                break;
+            case 'allowLinksInHeaders':
+                // Enabling header links auto-enables excluding self-links.
+                await this.plugin.updateSettings({
+                    allowLinksInHeaders: value as boolean,
+                    ...(value ? { excludeLinksToOwnNote: true } : {}),
+                });
+                // excludeLinksToOwnNote's value changed too, so fully re-render.
+                needsFullUpdate = true;
+                break;
+            case 'autoToggleByMode':
+                await this.plugin.updateSettings({ autoToggleByMode: value as boolean });
+                void this.plugin.handleLayoutChange();
+                break;
+            case 'colorOnlyDisplay':
+                await this.plugin.updateSettings({ colorOnlyDisplay: value as boolean });
+                this.applyBodyClass('virtual-link-color-only', value as boolean);
+                break;
+            case 'alternativeDisplayStyle':
+                await this.plugin.updateSettings({ alternativeDisplayStyle: value as boolean });
+                this.applyBodyClass('virtual-linker-alt-style', value as boolean);
+                break;
+            case 'headerVirtualLinkColor':
+                await this.plugin.updateSettings({ headerVirtualLinkColor: value as string });
+                this.applyCssVar('--virtual-link-header-color', value as string);
+                break;
+            case 'noteVirtualLinkColor':
+                await this.plugin.updateSettings({ noteVirtualLinkColor: value as string });
+                this.applyCssVar('--virtual-link-note-color', value as string);
+                break;
+            default:
+                await this.plugin.updateSettings({ [key]: value } as Partial<LinkerPluginSettings>);
+        }
 
-        // Toggle to activate or deactivate the linker
+        if (needsFullUpdate) {
+            this.update();
+        } else {
+            // Re-evaluate visible/disabled predicates that depend on other settings.
+            this.refreshDomState();
+        }
+    }
+
+    private splitLines(value: string): string[] {
+        return value.split('\n').map((x) => x.trim()).filter((x) => x.length > 0);
+    }
+
+    private applyBodyClass(cls: string, on: boolean): void {
+        const doc = this.containerEl.ownerDocument;
+        if (on) doc.body.classList.add(cls);
+        else doc.body.classList.remove(cls);
+    }
+
+    private applyCssVar(name: string, value: string): void {
+        this.containerEl.ownerDocument.body.style.setProperty(name, value);
+    }
+
+    getSettingDefinitions(): SettingDefinitionItem[] {
+        const s = this.s;
+        const adv = () => s.advancedSettings;
+
         const quickAddCode = `module.exports = async (params) => {
     const id = 'fakelink';
     const pm = app.plugins;
@@ -1472,831 +1610,294 @@ class LinkerSettingTab extends PluginSettingTab {
     }
 };`;
 
-        new Setting(containerEl)
-            .setName(t('Activate virtual linker'))
-            .setDesc(t('To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).'))
-            .addToggle((toggle) =>
-            toggle.setValue(this.plugin.settings.linkerActivated).onChange(async (value) => {
-                await this.plugin.updateSettings({ linkerActivated: value });
-            })
-            )
-            .addExtraButton((button) => 
-                button.setTooltip(t('Copy Quick Add script'))
-                    .setIcon('clipboard-copy')
-                    .onClick(async () => {
-                        await navigator.clipboard.writeText(quickAddCode);
-                        new Notice(t('Quick Add script copied to clipboard!'));
-                    })
-            );
-
-
-
-        new Setting(containerEl).setName(t('Matching behavior')).setHeading();
-
-        // Toggle to include aliases
-        new Setting(containerEl)
-            .setName(t('Include aliases'))
-            .setDesc(t('If enabled, the virtual linker will also match file aliases.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.includeAliases).onChange(async (value) => {
-                    await this.plugin.updateSettings({ includeAliases: value });
-                })
-            );
-
-        if (this.plugin.settings.advancedSettings) {
-            // Toggle to only link once
-            new Setting(containerEl)
-                .setName(t('Only link once'))
-                .setDesc(t('When enabled, identical terms in the same note will only be linked once.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.onlyLinkOnce).onChange(async (value) => {
-                        await this.plugin.updateSettings({ onlyLinkOnce: value });
-                    })
-                );
-
-            // Toggle to exclude links to real linked files
-            new Setting(containerEl)
-                .setName(t('Exclude links to real linked files'))
-                .setDesc(t('When enabled, terms that are already manually linked in the note will not be auto-linked.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.excludeLinksToRealLinkedFiles).onChange(async (value) => {
-                        await this.plugin.updateSettings({ excludeLinksToRealLinkedFiles: value });
-                    })
-                );
-        }
-
-        // If headers should be matched or not
-        new Setting(containerEl)
-            .setName(t('Include headers'))
-            .setDesc(t('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.includeHeaders).onChange(async (value) => {
-                    await this.plugin.updateSettings({ includeHeaders: value });
-                })
-            );
-
-        // Enable header symbol keywords
-        new Setting(containerEl)
-            .setName(t('Enable header symbol keywords'))
-            .setDesc(t('When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.headerMatchSymbols).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerMatchSymbols: value });
-                })
-            )
-            .addExtraButton((button) =>
-                button.setTooltip(t('Copy EasyTyping template'))
-                    .setIcon('clipboard-copy')
-                    .onClick(async () => {
-                        await navigator.clipboard.writeText('⟦${0:${SEL}}⟧');
-                        new Notice(t('EasyTyping template copied to clipboard!'));
-                    })
-            );
-
-        if (this.plugin.settings.headerMatchSymbols) {
-            new Setting(containerEl)
-                .setName(t('Start symbol'))
-                .setDesc(t('Symbol marking the start of the keyword in headers. Must be different from end symbol.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.headerMatchStartSymbol).onChange(async (value) => {
-                        await this.plugin.updateSettings({ headerMatchStartSymbol: value });
-                    })
-                );
-
-            new Setting(containerEl)
-                .setName(t('End symbol'))
-                .setDesc(t('Symbol marking the end of the keyword in headers. Must be different from start symbol.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.headerMatchEndSymbol).onChange(async (value) => {
-                        await this.plugin.updateSettings({ headerMatchEndSymbol: value });
-                    })
-                );
-
-            // Only match headers between symbols
-            new Setting(containerEl)
-                .setName(t('Only match headers between symbols'))
-                .setDesc(t('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.headerMatchOnlyBetweenSymbols).onChange(async (value) => {
-                        await this.plugin.updateSettings({ headerMatchOnlyBetweenSymbols: value });
-                    })
-                );
-        }
-
-        // Toggle to allow virtual links in headers
-        new Setting(containerEl)
-            .setName(t('Allow virtual links in headers'))
-            .setDesc(t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.allowLinksInHeaders).onChange(async (value) => {
-                    const update: Partial<LinkerPluginSettings> = { allowLinksInHeaders: value };
-                    // Enabling header links auto-enables excluding self-links,
-                    // so a heading that matches the current note's own name does not link to itself.
-                    if (value && !this.plugin.settings.excludeLinksToOwnNote) {
-                        update.excludeLinksToOwnNote = true;
-                    }
-                    await this.plugin.updateSettings(update);
-                    this.display();
-                })
-            );
-
-        // Setting for the base delay (ms) of repeated header-jump retries
-        new Setting(containerEl)
-            .setName(t('Header jump retry delay (ms)'))
-            .setDesc(t('When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.'))
-            .addText(text => text
-                .setValue(this.plugin.settings.headerJumpRetryDelay.toString())
-                .onChange(async (value) => {
-                    const parsed = parseInt(value, 10);
-                    const delay = Number.isFinite(parsed) && parsed >= 100 ? parsed : 100;
-                    await this.plugin.updateSettings({ headerJumpRetryDelay: delay });
-                }));
-
-        // 词义模糊匹配 (fuzzy match)
-        new Setting(containerEl)
-            .setName(t('Fuzzy meaning matching'))
-            .setDesc(t('When enabled, keywords are normalized before matching so related forms link to the same note or heading. English: each word is reduced to its stem and irregular verbs are aligned (e.g. "He ran to the store" matches "he runs to the store"). Chinese: common function words are stripped (e.g. "我的项目计划" matches "项目计划"). Off by default.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableStemming).onChange(async (value) => {
-                    await this.plugin.updateSettings({ enableStemming: value });
-                    this.display();
-                }));
-
-        new Setting(containerEl)
-            .setName(t('Fuzzy matching language'))
-            .setDesc(t('Language used for fuzzy matching. "en" = English stemming + irregular verbs; "zh" = Chinese function-word stripping. Choose "auto" to apply both based on each keyword\'s script.'))
-            .addDropdown((dropdown) =>
-                dropdown
-                    .addOption('auto', 'Auto (by script)')
-                    .addOption('en', 'English')
-                    .addOption('zh', 'Chinese')
-                    .setValue(this.plugin.settings.stemmingLanguage)
-                    .onChange(async (value) => {
-                        await this.plugin.updateSettings({ stemmingLanguage: value });
-                    }))
-            .setDisabled(!this.plugin.settings.enableStemming);
-
-        new Setting(containerEl)
-            .setName(t('Fuzzy match similarity threshold'))
-            .setDesc(t('When fuzzy matching is on, a word is linked only if its similarity to a normalized keyword is above this percentage. Range 80%-100%. Higher = stricter (fewer but more accurate links).'))
-            .addSlider((slider) =>
-                slider
-                    .setLimits(80, 100, 1)
-                    .setValue(this.plugin.settings.fuzzyMatchThreshold)
-                    .setDynamicTooltip()
-                    .onChange(async (value) => {
-                        await this.plugin.updateSettings({ fuzzyMatchThreshold: value });
-                    }))
-            .setDisabled(!this.plugin.settings.enableStemming);
-
-        new Setting(containerEl)
-            .setName(t('Minimum keyword length for fuzzy matching'))
-            .setDesc(t('Titles or note names whose normalized length is shorter than this are skipped by fuzzy matching (exact matching still works). Short words are prone to false links (e.g. 的 → 地), so a small minimum like 4 is recommended. Range 1-10.'))
-            .addSlider((slider) =>
-                slider
-                    .setLimits(1, 20, 1)
-                    .setValue(this.plugin.settings.fuzzyMinLength)
-                    .setDynamicTooltip()
-                    .onChange(async (value) => {
-                        await this.plugin.updateSettings({ fuzzyMinLength: value });
-                    }))
-            .setDisabled(!this.plugin.settings.enableStemming);
-
-        new Setting(containerEl)
-            .setName(t('Skip links with multiple targets (batch convert)'))
-            .setDesc(t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.skipMultipleTargets).onChange(async (value) => {
-                    await this.plugin.updateSettings({ skipMultipleTargets: value });
-                }));
-
-        // Toggle setting to match only whole words or any part of the word
-        new Setting(containerEl)
-            .setName(t('Match any part of a word'))
-            .setDesc(t('When disabled, only complete word matches are linked. When enabled, any substring match will be linked.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.matchAnyPartsOfWords).onChange(async (value) => {
-                    await this.plugin.updateSettings({ matchAnyPartsOfWords: value });
-                })
-            );
-
-        if (!this.plugin.settings.matchAnyPartsOfWords) {
-            // Toggle setting to match only beginning of words
-            new Setting(containerEl)
-                .setName(t('Match the beginning of words'))
-                .setDesc(t('When enabled, word prefixes will be linked even without complete word matches.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.matchBeginningOfWords).onChange(async (value) => {
-                        await this.plugin.updateSettings({ matchBeginningOfWords: value });
-                    })
-                );
-
-            // Toggle setting to match only end of words
-            new Setting(containerEl)
-                .setName(t('Match the end of words'))
-                .setDesc(t('When enabled, word suffixes will be linked even without complete word matches.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.matchEndOfWords).onChange(async (value) => {
-                        await this.plugin.updateSettings({ matchEndOfWords: value });
-                    })
-                );
-        }
-
-        // Toggle setting to suppress suffix for sub words
-        if (this.plugin.settings.matchAnyPartsOfWords || this.plugin.settings.matchBeginningOfWords) {
-            new Setting(containerEl)
-                .setName(t('Suppress suffix for sub words'))
-                .setDesc(t('When enabled, the link suffix will only be shown for complete word matches, not partial matches.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.suppressSuffixForSubWords).onChange(async (value) => {
-                        await this.plugin.updateSettings({ suppressSuffixForSubWords: value });
-                    })
-                );
-        }
-
-        if (this.plugin.settings.advancedSettings) {
-            // Toggle setting to exclude links in the current line start for fixing IME
-            new Setting(containerEl)
-                .setName(t('Fix ime typing issues'))
-                .setDesc(
-                t('This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.')
-                )
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.fixIMEProblem).onChange(async (value) => {
-                        await this.plugin.updateSettings({ fixIMEProblem: value });
-                    })
-                );
-        }
-
-        if (this.plugin.settings.advancedSettings) {
-            // Toggle setting to exclude links in the current line
-            new Setting(containerEl)
-                .setName(t('Avoid linking in current line'))
-                .setDesc(t('If activated, there will be no links in the current line.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.excludeLinksInCurrentLine).onChange(async (value) => {
-                        await this.plugin.updateSettings({ excludeLinksInCurrentLine: value });
-                    })
-                );
-
-            // Input for setting the word boundary regex
-            // new Setting(containerEl)
-            // 	.setName(t('Word boundary regex'))
-            // 	.setDesc(t('The regex for the word boundary. This regex is used to find the beginning and end of a word. It is used to find the boundaries of the words to match. Defaults to /[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u to catch most word boundaries.'))
-            // 	.addText((text) =>
-            // 		text
-            // 			.setValue(this.plugin.settings.wordBoundaryRegex)
-            // 			.onChange(async (value) => {
-            // 				try {
-            // 					await this.plugin.updateSettings({ wordBoundaryRegex: value });
-            // 				} catch (e) {
-            // 					// Invalid regex
-            // 				}
-            // 			})
-            // 	);
-        }
-
-        // Max references to show in virtual link suffix
-        new Setting(containerEl)
-            .setName(t('Maximum references to show'))
-            .setDesc(t('The maximum number of reference markers [1][2]... shown after a virtual link. When a link has more references, a "..." indicator is shown.'))
-            .addText((text) => {
-                text.setValue(String(this.plugin.settings.maxReferenceCount)).onChange(async (value) => {
-                    const n = parseInt(value);
-                    if (n > 0) await this.plugin.updateSettings({ maxReferenceCount: n });
-                });
-                text.inputEl.type = 'number';
-                text.inputEl.min = '1';
-                text.inputEl.max = '20';
-            });
-
-        // Hide link when references exceed threshold
-        new Setting(containerEl)
-            .setName(t('Hide link when references exceed'))
-            .setDesc(t('When the total number of matching files (names + aliases + headers) exceeds this threshold, the virtual link will not be displayed.'))
-            .addText((text) => {
-                text.setValue(String(this.plugin.settings.maxReferencesToHideLink)).onChange(async (value) => {
-                    const n = parseInt(value);
-                    if (n > 0) await this.plugin.updateSettings({ maxReferencesToHideLink: n });
-                });
-                text.inputEl.type = 'number';
-                text.inputEl.min = '1';
-                text.inputEl.max = '50';
-            });
-
-        // Exclude text between custom symbols from linking
-        new Setting(containerEl)
-            .setName(t('Exclude text between symbols'))
-            .setDesc(t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Separate multiple symbol pairs with commas (e.g. start "{,（" end "},）"). Useful for pandoc citations or other special syntax.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableSymbolExclusion).onChange(async (value) => {
-                    await this.plugin.updateSettings({ enableSymbolExclusion: value });
-                    this.display();
-                })
-            );
-
-        if (this.plugin.settings.enableSymbolExclusion) {
-            new Setting(containerEl)
-                .setName(t('Start symbol'))
-                .setDesc(t('Symbol marking the start of the excluded text. Separate multiple symbols with commas (matched positionally with the end symbols). Each must differ from its corresponding end symbol.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.excludeSymbolStart).onChange(async (value) => {
-                        await this.plugin.updateSettings({ excludeSymbolStart: value });
-                    })
-                );
-
-            new Setting(containerEl)
-                .setName(t('End symbol'))
-                .setDesc(t('Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.excludeSymbolEnd).onChange(async (value) => {
-                        await this.plugin.updateSettings({ excludeSymbolEnd: value });
-                    })
-                );
-        }
-
-        // Recognize bare internal-link syntax like "a#b" or "a#^block"
-        new Setting(containerEl)
-            .setName(t('Bare internal link syntax'))
-            .setDesc(t('When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableInternalLinkSyntax).onChange(async (value) => {
-                    await this.plugin.updateSettings({ enableInternalLinkSyntax: value });
-                })
-            );
-
-        // Disambiguate multi-file header matches using the current paragraph
-        new Setting(containerEl)
-            .setName(t('Context-aware header disambiguation'))
-            .setDesc(t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.enableContextDisambiguation).onChange(async (value) => {
-                    await this.plugin.updateSettings({ enableContextDisambiguation: value });
-                })
-            );
-
-        new Setting(containerEl).setName(t('Case sensitivity')).setHeading();
-
-        // Toggle setting for case sensitivity
-        new Setting(containerEl)
-            .setName(t('Case sensitive'))
-            .setDesc(t('If activated, the matching is case sensitive.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.matchCaseSensitive).onChange(async (value) => {
-                    await this.plugin.updateSettings({ matchCaseSensitive: value });
-                })
-            );
-
-        if (this.plugin.settings.advancedSettings) {
-            // Number input setting for capital letter proportion for automatic match case
-            new Setting(containerEl)
-                .setName(t('Capital letter percentage for automatic match case'))
-                .setDesc(
-                t('The percentage (0 - 100) of capital letters in a file name or alias to be automatically considered as case sensitive.')
-                )
-                .addText((text) =>
-                    text
-                        .setValue((this.plugin.settings.capitalLetterProportionForAutomaticMatchCase * 100).toFixed(1))
-                        .onChange(async (value) => {
-                            let newValue = parseFloat(value);
-                            if (isNaN(newValue)) {
-                                newValue = 75;
-                            } else if (newValue < 0) {
-                                newValue = 0;
-                            } else if (newValue > 100) {
-                                newValue = 100;
-                            }
-                            newValue /= 100;
-                            await this.plugin.updateSettings({ capitalLetterProportionForAutomaticMatchCase: newValue });
-                        })
-                );
-
-            if (this.plugin.settings.matchCaseSensitive) {
-                // Text setting for tag to ignore case
-                new Setting(containerEl)
-                    .setName(t('Tag to ignore case'))
-                    .setDesc(t('By adding this tag to a file, the linker will ignore the case for the file.'))
-                    .addText((text) =>
-                        text.setValue(this.plugin.settings.tagToIgnoreCase).onChange(async (value) => {
-                            await this.plugin.updateSettings({ tagToIgnoreCase: value });
-                        })
-                    );
-            } else {
-                // Text setting for tag to match case
-                new Setting(containerEl)
-                    .setName(t('Tag to match case'))
-                    .setDesc(t('By adding this tag to a file, the linker will match the case for the file.'))
-                    .addText((text) =>
-                        text.setValue(this.plugin.settings.tagToMatchCase).onChange(async (value) => {
-                            await this.plugin.updateSettings({ tagToMatchCase: value });
-                        })
-                    );
-            }
-
-            // Text setting for property name to ignore case
-            new Setting(containerEl)
-                .setName(t('Property name to ignore case'))
-                .setDesc(
-                t('By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases. This way you can decide, which alias should be insensitive.')
-                )
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.propertyNameToIgnoreCase).onChange(async (value) => {
-                        await this.plugin.updateSettings({ propertyNameToIgnoreCase: value });
-                    })
-                );
-
-            // Text setting for property name to match case
-            new Setting(containerEl)
-                .setName(t('Property name to match case'))
-                .setDesc(
-                t('By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases. This way you can decide, which alias should be case sensitive.')
-                )
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.propertyNameToMatchCase).onChange(async (value) => {
-                        await this.plugin.updateSettings({ propertyNameToMatchCase: value });
-                    })
-                );
-        }
-
-        new Setting(containerEl).setName(t('Matched files')).setHeading();
-
-        new Setting(containerEl)
-            .setName(t('Include all files'))
-            .setDesc(t('Include all files for the virtual linker.'))
-            .addToggle((toggle) =>
-                toggle
-                    // .setValue(true)
-                    .setValue(this.plugin.settings.includeAllFiles)
-                    .onChange(async (value) => {
-                        await this.plugin.updateSettings({ includeAllFiles: value });
-                    })
-            );
-
-        if (!this.plugin.settings.includeAllFiles) {
-            new Setting(containerEl)
-                .setName(t('Glossary linker directories'))
-                .setDesc(t('Directories to include for the virtual linker (separated by new lines).'))
-                    .addTextArea((text) => {
-                        let setValue = '';
-                        try {
-                            setValue = this.plugin.settings.linkerDirectories.join('\n');
-                        } catch {
-                            // Handle join error
-                        }
-
-                    text.setPlaceholder('List of directory names (separated by new line)')
-                        .setValue(setValue)
-                        .onChange(async (value) => {
-                            this.plugin.settings.linkerDirectories = value
-                                .split('\n')
-                                .map((x) => x.trim())
-                                .filter((x) => x.length > 0);
-                            await this.plugin.updateSettings();
-                        });
-
-                    // Set default size
-                    text.inputEl.addClass('linker-settings-text-box');
-                });
-
-            // Per-note excluded keywords via frontmatter
-            new Setting(containerEl)
-                .setName(t('Per-note excluded keywords'))
-                .setDesc(t('When enabled, the global excluded keywords only apply to notes that opt in via a frontmatter property. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to opt in for that note.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
-                        await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
-                        this.display();
-                    })
-                );
-
-            if (this.plugin.settings.perNoteExcludeKeywords) {
-                new Setting(containerEl)
-                    .setName(t('Frontmatter exclusion property'))
-                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have the global excluded keywords applied. Default: fakelink-exclude.'))
-                    .addText((text) =>
-                        text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
-                            await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
-                        })
-                    );
-            }
-        } else {
-            if (this.plugin.settings.advancedSettings) {
-                new Setting(containerEl)
-                    .setName(t('Excluded directories'))
-                    .setDesc(
-                t('Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.')
-                    )
-                    .addTextArea((text) => {
-                        let setValue = '';
-                        try {
-                            setValue = this.plugin.settings.excludedDirectories.join('\n');
-                        } catch {
-                            // Handle join error
-                        }
-
-                        text.setPlaceholder('List of directory names (separated by new line)')
-                            .setValue(setValue)
-                            .onChange(async (value) => {
-                                this.plugin.settings.excludedDirectories = value
-                                    .split('\n')
-                                    .map((x) => x.trim())
-                                    .filter((x) => x.length > 0);
-                                await this.plugin.updateSettings();
-                            });
-
-                        // Set default size
-                        text.inputEl.addClass('linker-settings-text-box');
-                    });
-            }
-        }
-
-        if (this.plugin.settings.advancedSettings) {
-            // Text setting for tag to include file
-            new Setting(containerEl)
-                .setName(t('Tag to include file'))
-                .setDesc(t('Tag to explicitly include the file for the linker.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.tagToIncludeFile).onChange(async (value) => {
-                        await this.plugin.updateSettings({ tagToIncludeFile: value });
-                    })
-                );
-
-            // Text setting for tag to ignore file
-            new Setting(containerEl)
-                .setName(t('Tag to ignore file'))
-                .setDesc(t('Tag to ignore the file for the linker.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.tagToExcludeFile).onChange(async (value) => {
-                        await this.plugin.updateSettings({ tagToExcludeFile: value });
-                    })
-                );
-
-        // Toggle setting to exclude links to the active file
-        new Setting(containerEl)
-            .setName(t('Exclude self-links to the current note'))
-            .setDesc(t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.excludeLinksToOwnNote).onChange(async (value) => {
-                        await this.plugin.updateSettings({ excludeLinksToOwnNote: value });
-                    })
-                );
-
-            // Setting to exclude directories from the linker to be executed
-            new Setting(containerEl)
-                .setName(t('Excluded directories for generating virtual links'))
-                .setDesc(t('Directories in which the plugin will not create virtual links (separated by new lines).'))
-                .addTextArea((text) => {
-                    let setValue = '';
-                    try {
-                        setValue = this.plugin.settings.excludedDirectoriesForLinking.join('\n');
-                    } catch {
-                        // Ignore error
-                    }
-
-                    text.setPlaceholder('List of directory names (separated by new line)')
-                        .setValue(setValue)
-                        .onChange(async (value) => {
-                            this.plugin.settings.excludedDirectoriesForLinking = value
-                                .split('\n')
-                                .map((x) => x.trim())
-                                .filter((x) => x.length > 0);
-                            await this.plugin.updateSettings();
-                        });
-
-                    // Set default size
-                    text.inputEl.addClass('linker-settings-text-box');
-                });
-
-            // Add setting for excluded keywords
-            new Setting(containerEl)
-                .setName(t('Excluded keywords'))
-                .setDesc(t('Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.'))
-                .addTextArea(text => {
-                    text.setValue(this.plugin.settings.excludedKeywords.join(','))
-                        .onChange(async value => {
-                            const keywords = value.split(',')
-                                .map(x => x.trim())
-                                .filter(x => x.length > 0);
-                            await this.plugin.updateSettings({ excludedKeywords: keywords });
-                        });
-                    text.inputEl.addClass('linker-settings-text-box');
-                });
-
-            // Add setting for excluded file extensions
-            new Setting(containerEl)
-                .setName(t('Excluded file extensions'))
-                .setDesc(t('File extensions to exclude from virtual linking (one per line or comma separated)'))
-                .addTextArea(text => {
-                    text.setValue(this.plugin.settings.excludedExtensions.join('\n'))
-                        .onChange(async value => {
-                            const extensions = value.split(/[\n,]/)
-                                .map(x => x.trim())
-                                .filter(x => x.length > 0)
-                                .map(x => x.startsWith('.') ? x : `.${x}`);
-                            await this.plugin.updateSettings({ excludedExtensions: extensions });
-                        });
-                    text.inputEl.addClass('linker-settings-text-box');
-                });
-
-            // Per-note excluded keywords via frontmatter
-            new Setting(containerEl)
-                .setName(t('Per-note excluded keywords'))
-                .setDesc(t('When enabled, the global excluded keywords only apply to notes that opt in via a frontmatter property. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to opt in for that note.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.perNoteExcludeKeywords).onChange(async (value) => {
-                        await this.plugin.updateSettings({ perNoteExcludeKeywords: value });
-                        this.display();
-                    })
-                );
-
-            if (this.plugin.settings.perNoteExcludeKeywords) {
-                new Setting(containerEl)
-                    .setName(t('Frontmatter exclusion property'))
-                    .setDesc(t('The frontmatter property name to check. Only notes with this property set to true will have the global excluded keywords applied. Default: fakelink-exclude.'))
-                    .addText((text) =>
-                        text.setValue(this.plugin.settings.frontmatterExcludeProperty).onChange(async (value) => {
-                            await this.plugin.updateSettings({ frontmatterExcludeProperty: value || 'fakelink-exclude' });
-                        })
-                    );
-            }
-
-            // Extra per-note excluded keywords via frontmatter list
-            new Setting(containerEl)
-                .setName(t('Enable frontmatter exclude list'))
-                .setDesc(t('When enabled, each note can define excluded keywords in its frontmatter. These keywords will not be linked anywhere (added on top of the global excluded keywords). Usage: add "fakelink-exclude-keywords: [keyword1, keyword2]" or "fakelink-exclude-keywords: keyword1, keyword2" to a note\'s frontmatter.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(this.plugin.settings.enableFrontmatterExcludeList).onChange(async (value) => {
-                        await this.plugin.updateSettings({ enableFrontmatterExcludeList: value });
-                        this.display();
-                    })
-                );
-
-            if (this.plugin.settings.enableFrontmatterExcludeList) {
-                new Setting(containerEl)
-                    .setName(t('Frontmatter exclude list property'))
-                    .setDesc(t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'))
-                    .addText((text) =>
-                        text.setValue(this.plugin.settings.frontmatterExcludeListProperty).onChange(async (value) => {
-                            await this.plugin.updateSettings({ frontmatterExcludeListProperty: value || 'fakelink-exclude-keywords' });
-                        })
-                    );
-            }
-        }
-
-        // Header auto-append suffix
-        new Setting(containerEl)
-            .setName(t('Auto-insert symbol into headers'))
-            .setDesc(t('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.headerAutoAppendSuffix).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerAutoAppendSuffix: value });
-                    this.display();
-                })
-            );
-
-        if (this.plugin.settings.headerAutoAppendSuffix) {
-            new Setting(containerEl)
-                .setName(t('Header marker symbol'))
-                .setDesc(t('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.'))
-                .addText((text) =>
-                    text.setValue(this.plugin.settings.headerAutoAppendSymbol).onChange(async (value) => {
-                        await this.plugin.updateSettings({ headerAutoAppendSymbol: value });
-                    })
-                );
-        }
-
-        new Setting(containerEl).setName(t('Link style')).setHeading();
-
-        // Color-only display mode for virtual links
-        new Setting(containerEl)
-            .setName(t('Color-only display'))
-            .setDesc(t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.colorOnlyDisplay).onChange(async (value) => {
-                    await this.plugin.updateSettings({ colorOnlyDisplay: value });
-                    const doc = this.containerEl.ownerDocument;
-                    if (value) {
-                        doc.body.classList.add('virtual-link-color-only');
-                    } else {
-                        doc.body.classList.remove('virtual-link-color-only');
-                    }
-                })
-            );
-
-        // Header link color
-        new Setting(containerEl)
-            .setName(t('Header link color'))
-            .setDesc(t('Color for header virtual links (e.g., #517ea0).'))
-            .addText((text) => {
-                text.setValue(this.plugin.settings.headerVirtualLinkColor).onChange(async (value) => {
-                    await this.plugin.updateSettings({ headerVirtualLinkColor: value });
-                    this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-header-color', value);
-                });
-                text.inputEl.placeholder = '#517ea0';
-            });
-
-        // Note link color
-        new Setting(containerEl)
-            .setName(t('Note link color'))
-            .setDesc(t('Color for note and alias virtual links (e.g., #c0392b).'))
-            .addText((text) => {
-                text.setValue(this.plugin.settings.noteVirtualLinkColor).onChange(async (value) => {
-                    await this.plugin.updateSettings({ noteVirtualLinkColor: value });
-                    this.containerEl.ownerDocument.body.style.setProperty('--virtual-link-note-color', value);
-                });
-                text.inputEl.placeholder = '#c0392b';
-            });
-
-        // Toggle setting for alternative display style (underline + comment folding)
-        new Setting(containerEl)
-            .setName(t('Alternative display style'))
-            .setDesc(t('When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.alternativeDisplayStyle).onChange(async (value) => {
-                    await this.plugin.updateSettings({ alternativeDisplayStyle: value });
-                    const doc = this.containerEl.ownerDocument;
-                    if (value) {
-                        doc.body.classList.add('virtual-linker-alt-style');
-                    } else {
-                        doc.body.classList.remove('virtual-linker-alt-style');
-                    }
-                })
-            );
-
-        new Setting(containerEl)
-            .setName(t('Always show multiple references'))
-            .setDesc(t('If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.alwaysShowMultipleReferences).onChange(async (value) => {
-                    await this.plugin.updateSettings({ alwaysShowMultipleReferences: value });
-                })
-            );
-
-        new Setting(containerEl)
-            .setName(t('Virtual link suffix'))
-            .setDesc(t('The suffix to add to auto generated virtual links.'))
-            .addText((text) =>
-                text.setValue(this.plugin.settings.virtualLinkSuffix).onChange(async (value) => {
-                    await this.plugin.updateSettings({ virtualLinkSuffix: value });
-                })
-            );
-        new Setting(containerEl)
-            .setName(t('Virtual link suffix for aliases'))
-            .setDesc(t('The suffix to add to auto generated virtual links for aliases.'))
-            .addText((text) =>
-                text.setValue(this.plugin.settings.virtualLinkAliasSuffix).onChange(async (value) => {
-                    await this.plugin.updateSettings({ virtualLinkAliasSuffix: value });
-                })
-            );
-
-        // Toggle setting to apply default link styling
-        new Setting(containerEl)
-            .setName(t('Apply default link styling'))
-            .setDesc(
-                t('If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)')
-            )
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.applyDefaultLinkStyling).onChange(async (value) => {
-                    await this.plugin.updateSettings({ applyDefaultLinkStyling: value });
-                })
-            );
-
-
-        // Toggle setting to use default link style for conversion
-        new Setting(containerEl)
-            .setName(t('Use default link style for conversion'))
-            .setDesc(t('If toggled, the default link style will be used for the conversion of virtual links to real links.'))
-            .addToggle((toggle) =>
-                toggle.setValue(this.plugin.settings.useDefaultLinkStyleForConversion).onChange(async (value) => {
-                    await this.plugin.updateSettings({ useDefaultLinkStyleForConversion: value });
-                })
-            );
-
-        if (!this.plugin.settings.useDefaultLinkStyleForConversion) {
-            // Toggle setting to use markdown links
-            new Setting(containerEl)
-                .setName(t('Use [[wikilinks]]'))
-                .setDesc(t('If toggled, the virtual links will be created as wikilinks instead of Markdown links.'))
-                .addToggle((toggle) =>
-                    toggle.setValue(!this.plugin.settings.useMarkdownLinks).onChange(async (value) => {
-                        await this.plugin.updateSettings({ useMarkdownLinks: !value });
-                    })
-                );
-
-            // Dropdown setting for link format
-            new Setting(containerEl)
-                .setName(t('Link format'))
-                .setDesc(t('The format of the generated links.'))
-                .addDropdown((dropdown) =>
-                    dropdown
-                        .addOption('shortest', 'Shortest')
-                        .addOption('relative', 'Relative')
-                        .addOption('absolute', 'Absolute')
-                        .setValue(this.plugin.settings.linkFormat)
-                        .onChange(async (value) => {
-                            await this.plugin.updateSettings({ linkFormat: value as 'shortest' | 'relative' | 'absolute' });
-                        })
-                );
-        }
+        return [
+            // ---------- General ----------
+            groupDef(t('General'), [
+                toggleDef(t('Activate virtual linker'), 'linkerActivated', {
+                    desc: t('To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).'),
+                }),
+                actionDef(t('Copy Quick Add script'), async () => {
+                    await navigator.clipboard.writeText(quickAddCode);
+                    new Notice(t('Quick Add script copied to clipboard!'));
+                }),
+                toggleDef(t('Auto-toggle activation status by mode'), 'autoToggleByMode', {
+                    desc: t('When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active'),
+                }),
+            ]),
+
+            // ---------- Matching ----------
+            groupDef(t('Matching behavior'), [
+                toggleDef(t('Include aliases'), 'includeAliases', {
+                    desc: t('If enabled, the virtual linker will also match file aliases.'),
+                }),
+                toggleDef(t('Match any part of a word'), 'matchAnyPartsOfWords', {
+                    desc: t('When disabled, only complete word matches are linked. When enabled, any substring match will be linked.'),
+                }),
+                toggleDef(t('Match the beginning of words'), 'matchBeginningOfWords', {
+                    desc: t('When enabled, word prefixes will be linked even without complete word matches.'),
+                    visible: () => !s.matchAnyPartsOfWords,
+                }),
+                toggleDef(t('Match the end of words'), 'matchEndOfWords', {
+                    desc: t('When enabled, word suffixes will be linked even without complete word matches.'),
+                    visible: () => !s.matchAnyPartsOfWords,
+                }),
+                toggleDef(t('Suppress suffix for sub words'), 'suppressSuffixForSubWords', {
+                    desc: t('When enabled, the link suffix will only be shown for complete word matches, not partial matches.'),
+                    visible: () => s.matchAnyPartsOfWords || s.matchBeginningOfWords,
+                }),
+                toggleDef(t('Only link once'), 'onlyLinkOnce', {
+                    desc: t('When enabled, identical terms in the same note will only be linked once.'),
+                    visible: adv,
+                }),
+                toggleDef(t('Exclude links to real linked files'), 'excludeLinksToRealLinkedFiles', {
+                    desc: t('When enabled, terms that are already manually linked in the note will not be auto-linked.'),
+                    visible: adv,
+                }),
+                toggleDef(t('Exclude self-links to the current note'), 'excludeLinksToOwnNote', {
+                    desc: t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically.'),
+                    visible: adv,
+                }),
+                toggleDef(t('Fix ime typing issues'), 'fixIMEProblem', {
+                    desc: t('This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.'),
+                    visible: adv,
+                }),
+                toggleDef(t('Avoid linking in current line'), 'excludeLinksInCurrentLine', {
+                    desc: t('If activated, there will be no links in the current line.'),
+                    visible: adv,
+                }),
+            ]),
+
+            // ---------- Headers ----------
+            groupDef(t('Headers'), [
+                toggleDef(t('Include headers'), 'includeHeaders', {
+                    desc: t('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.'),
+                }),
+                toggleDef(t('Allow virtual links in headers'), 'allowLinksInHeaders', {
+                    desc: t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'),
+                }),
+                toggleDef(t('Enable header symbol keywords'), 'headerMatchSymbols', {
+                    desc: t('When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.'),
+                }),
+                actionDef(t('Copy EasyTyping template'), async () => {
+                    await navigator.clipboard.writeText('⟦${0:${SEL}}⟧');
+                    new Notice(t('EasyTyping template copied to clipboard!'));
+                }, { visible: () => s.headerMatchSymbols }),
+                textDef(t('Start symbol'), 'headerMatchStartSymbol', {
+                    desc: t('Symbol marking the start of the keyword in headers. Must be different from end symbol.'),
+                    visible: () => s.headerMatchSymbols,
+                }),
+                textDef(t('End symbol'), 'headerMatchEndSymbol', {
+                    desc: t('Symbol marking the end of the keyword in headers. Must be different from start symbol.'),
+                    visible: () => s.headerMatchSymbols,
+                }),
+                toggleDef(t('Only match headers between symbols'), 'headerMatchOnlyBetweenSymbols', {
+                    desc: t('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.'),
+                    visible: () => s.headerMatchSymbols,
+                }),
+                toggleDef(t('Auto-insert symbol into headers'), 'headerAutoAppendSuffix', {
+                    desc: t('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.'),
+                }),
+                textDef(t('Header marker symbol'), 'headerAutoAppendSymbol', {
+                    desc: t('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.'),
+                    visible: () => s.headerAutoAppendSuffix,
+                }),
+                numberDef(t('Header jump retry delay (ms)'), 'headerJumpRetryDelay', {
+                    desc: t('When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.'),
+                    min: 100,
+                }),
+            ]),
+
+            // ---------- Fuzzy matching ----------
+            groupDef(t('Fuzzy matching'), [
+                toggleDef(t('Fuzzy meaning matching'), 'enableStemming', {
+                    desc: t('When enabled, keywords are normalized before matching so related forms link to the same note or heading. English: each word is reduced to its stem and irregular verbs are aligned (e.g. "He ran to the store" matches "he runs to the store"). Chinese: common function words are stripped (e.g. "我的项目计划" matches "项目计划"). Off by default.'),
+                }),
+                dropdownDef(t('Fuzzy matching language'), 'stemmingLanguage', {
+                    'auto': 'Auto (by script)',
+                    'en': 'English',
+                    'zh': 'Chinese',
+                }, {
+                    desc: t('Language used for fuzzy matching. "en" = English stemming + irregular verbs; "zh" = Chinese function-word stripping. Choose "auto" to apply both based on each keyword\'s script.'),
+                    disabled: () => !s.enableStemming,
+                }),
+                sliderDef(t('Fuzzy match similarity threshold'), 'fuzzyMatchThreshold', 80, 100, 1, {
+                    desc: t('When fuzzy matching is on, a word is linked only if its similarity to a normalized keyword is above this percentage. Range 80%-100%. Higher = stricter (fewer but more accurate links).'),
+                    disabled: () => !s.enableStemming,
+                }),
+                sliderDef(t('Minimum keyword length for fuzzy matching'), 'fuzzyMinLength', 1, 20, 1, {
+                    desc: t('Titles or note names whose normalized length is longer than this are processed by fuzzy matching; those of this length or shorter are skipped (exact matching still works). This keeps fuzzy matching focused on long titles/notes, where inflected or fuzzy variants are common, and avoids false links on short words. Default 6 (Chinese: only titles longer than 6 characters). Range 1-20.'),
+                    disabled: () => !s.enableStemming,
+                }),
+            ]),
+
+            // ---------- Case sensitivity ----------
+            groupDef(t('Case sensitivity'), [
+                toggleDef(t('Case sensitive'), 'matchCaseSensitive', {
+                    desc: t('If activated, the matching is case sensitive.'),
+                }),
+                numberDef(t('Capital letter percentage for automatic match case'), 'capitalLetterProportionForAutomaticMatchCase', {
+                    desc: t('The percentage (0 - 100) of capital letters in a file name or alias to be automatically considered as case sensitive.'),
+                    min: 0,
+                    max: 100,
+                    step: 0.1,
+                    visible: adv,
+                }),
+                textDef(t('Tag to ignore case'), 'tagToIgnoreCase', {
+                    desc: t('By adding this tag to a file, the linker will ignore the case for the file.'),
+                    visible: () => s.advancedSettings && s.matchCaseSensitive,
+                }),
+                textDef(t('Tag to match case'), 'tagToMatchCase', {
+                    desc: t('By adding this tag to a file, the linker will match the case for the file.'),
+                    visible: () => s.advancedSettings && !s.matchCaseSensitive,
+                }),
+                textDef(t('Property name to ignore case'), 'propertyNameToIgnoreCase', {
+                    desc: t('By adding this property to a note, containing a list of names, the linker will ignore the case for the specified names / aliases. This way you can decide, which alias should be insensitive.'),
+                    visible: adv,
+                }),
+                textDef(t('Property name to match case'), 'propertyNameToMatchCase', {
+                    desc: t('By adding this property to a note, containing a list of names, the linker will match the case for the specified names / aliases. This way you can decide, which alias should be case sensitive.'),
+                    visible: adv,
+                }),
+            ]),
+
+            // ---------- Files ----------
+            groupDef(t('Files'), [
+                toggleDef(t('Include all files'), 'includeAllFiles', {
+                    desc: t('Include all files for the virtual linker.'),
+                }),
+                textAreaDef(t('Glossary linker directories'), 'linkerDirectories', {
+                    desc: t('Directories to include for the virtual linker (separated by new lines).'),
+                    placeholder: 'List of directory names (separated by new line)',
+                    visible: () => !s.includeAllFiles,
+                }),
+                textAreaDef(t('Excluded directories'), 'excludedDirectories', {
+                    desc: t('Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.'),
+                    placeholder: 'List of directory names (separated by new line)',
+                    visible: () => s.advancedSettings && s.includeAllFiles,
+                }),
+                textAreaDef(t('Excluded directories for generating virtual links'), 'excludedDirectoriesForLinking', {
+                    desc: t('Directories in which the plugin will not create virtual links (separated by new lines).'),
+                    placeholder: 'List of directory names (separated by new line)',
+                    visible: adv,
+                }),
+                textDef(t('Tag to include file'), 'tagToIncludeFile', {
+                    desc: t('Tag to explicitly include the file for the linker.'),
+                    visible: adv,
+                }),
+                textDef(t('Tag to ignore file'), 'tagToExcludeFile', {
+                    desc: t('Tag to ignore the file for the linker.'),
+                    visible: adv,
+                }),
+                textAreaDef(t('Excluded file extensions'), 'excludedExtensions', {
+                    desc: t('File extensions to exclude from virtual linking (one per line or comma separated)'),
+                    visible: adv,
+                }),
+            ]),
+
+            // ---------- Exclusions ----------
+            groupDef(t('Exclusions'), [
+                textAreaDef(t('Excluded keywords'), 'excludedKeywords', {
+                    desc: t('Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.'),
+                    visible: adv,
+                }),
+                toggleDef(t('Per-note excluded keywords'), 'perNoteExcludeKeywords', {
+                    desc: t('When enabled, the global excluded keywords only apply to notes that opt in via a frontmatter property. When disabled, excluded keywords apply to all notes. Usage: add "fakelink-exclude: true" to a note\'s frontmatter to opt in for that note.'),
+                    visible: () => !s.includeAllFiles || s.advancedSettings,
+                }),
+                textDef(t('Frontmatter exclusion property'), 'frontmatterExcludeProperty', {
+                    desc: t('The frontmatter property name to check. Only notes with this property set to true will have the global excluded keywords applied. Default: fakelink-exclude.'),
+                    visible: () => s.perNoteExcludeKeywords,
+                }),
+                toggleDef(t('Enable frontmatter exclude list'), 'enableFrontmatterExcludeList', {
+                    desc: t('When enabled, each note can define excluded keywords in its frontmatter. These keywords will not be linked anywhere (added on top of the global excluded keywords). Usage: add "fakelink-exclude-keywords: [keyword1, keyword2]" or "fakelink-exclude-keywords: keyword1, keyword2" to a note\'s frontmatter.'),
+                    visible: adv,
+                }),
+                textDef(t('Frontmatter exclude list property'), 'frontmatterExcludeListProperty', {
+                    desc: t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'),
+                    visible: () => s.enableFrontmatterExcludeList,
+                }),
+                toggleDef(t('Exclude text between symbols'), 'enableSymbolExclusion', {
+                    desc: t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Separate multiple symbol pairs with commas (e.g. start "{,（" end "},）"). Useful for pandoc citations or other special syntax.'),
+                }),
+                textDef(t('Start symbol'), 'excludeSymbolStart', {
+                    desc: t('Symbol marking the start of the excluded text. Separate multiple symbols with commas (matched positionally with the end symbols). Each must differ from its corresponding end symbol.'),
+                    visible: () => s.enableSymbolExclusion,
+                }),
+                textDef(t('End symbol'), 'excludeSymbolEnd', {
+                    desc: t('Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.'),
+                    visible: () => s.enableSymbolExclusion,
+                }),
+            ]),
+
+            // ---------- Special syntax ----------
+            groupDef(t('Special syntax'), [
+                toggleDef(t('Bare internal link syntax'), 'enableInternalLinkSyntax', {
+                    desc: t('When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).'),
+                }),
+                toggleDef(t('Context-aware header disambiguation'), 'enableContextDisambiguation', {
+                    desc: t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'),
+                }),
+                toggleDef(t('Skip links with multiple targets (batch convert)'), 'skipMultipleTargets', {
+                    desc: t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'),
+                }),
+            ]),
+
+            // ---------- References ----------
+            groupDef(t('References'), [
+                numberDef(t('Maximum references to show'), 'maxReferenceCount', {
+                    desc: t('The maximum number of reference markers [1][2]... shown after a virtual link. When a link has more references, a "..." indicator is shown.'),
+                    min: 1,
+                    max: 20,
+                }),
+                numberDef(t('Hide link when references exceed'), 'maxReferencesToHideLink', {
+                    desc: t('When the total number of matching files (names + aliases + headers) exceeds this threshold, the virtual link will not be displayed.'),
+                    min: 1,
+                    max: 50,
+                }),
+                toggleDef(t('Always show multiple references'), 'alwaysShowMultipleReferences', {
+                    desc: t('If toggled, if there are multiple matching notes, all references are shown behind the match. If not toggled, the references are only shown if hovering over the match.'),
+                }),
+            ]),
+
+            // ---------- Appearance ----------
+            groupDef(t('Appearance'), [
+                toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
+                    desc: t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'),
+                }),
+                colorDef(t('Header link color'), 'headerVirtualLinkColor', {
+                    desc: t('Color for header virtual links (e.g., #517ea0).'),
+                }),
+                colorDef(t('Note link color'), 'noteVirtualLinkColor', {
+                    desc: t('Color for note and alias virtual links (e.g., #c0392b).'),
+                }),
+                toggleDef(t('Alternative display style'), 'alternativeDisplayStyle', {
+                    desc: t('When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.'),
+                }),
+                toggleDef(t('Apply default link styling'), 'applyDefaultLinkStyling', {
+                    desc: t('If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)'),
+                }),
+                textDef(t('Virtual link suffix'), 'virtualLinkSuffix', {
+                    desc: t('The suffix to add to auto generated virtual links.'),
+                }),
+                textDef(t('Virtual link suffix for aliases'), 'virtualLinkAliasSuffix', {
+                    desc: t('The suffix to add to auto generated virtual links for aliases.'),
+                }),
+                toggleDef(t('Use default link style for conversion'), 'useDefaultLinkStyleForConversion', {
+                    desc: t('If toggled, the default link style will be used for the conversion of virtual links to real links.'),
+                }),
+                toggleDef(t('Use [[wikilinks]]'), 'useWikilinks', {
+                    desc: t('If toggled, the virtual links will be created as wikilinks instead of Markdown links.'),
+                    visible: () => !s.useDefaultLinkStyleForConversion,
+                }),
+                dropdownDef(t('Link format'), 'linkFormat', {
+                    'shortest': 'Shortest',
+                    'relative': 'Relative',
+                    'absolute': 'Absolute',
+                }, {
+                    desc: t('The format of the generated links.'),
+                    visible: () => !s.useDefaultLinkStyleForConversion,
+                }),
+            ]),
+        ];
     }
 }

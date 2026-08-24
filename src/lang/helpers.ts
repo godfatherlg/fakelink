@@ -3,10 +3,16 @@ const lang = (window as { moment?: { locale?: () => string } }).moment?.locale?.
 
 // Simplified Chinese locale - mapping English text to Chinese
 const zhCN: Record<string, string> = {
+    'General': '常规',
     'Matching behavior': '匹配行为',
+    'Headers': '标题',
+    'Fuzzy matching': '模糊匹配',
     'Case sensitivity': '大小写',
-    'Matched files': '匹配文件',
-    'Link style': '链接样式',
+    'Files': '文件范围',
+    'Exclusions': '排除',
+    'Special syntax': '特殊语法',
+    'References': '引用显示',
+    'Appearance': '外观',
 
     'Auto-toggle activation status by mode': '按模式自动切换激活状态',
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
