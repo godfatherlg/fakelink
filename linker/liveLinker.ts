@@ -399,21 +399,20 @@ class AutoLinkerPlugin implements PluginValue {
             const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
 
             // Determine the final anchor to jump to. Obsidian link format:
-            //   heading -> "#heading"
-            //   block   -> "#^blockid"  (note the caret; a bare id would be
-            //              interpreted as a heading and fail to resolve)
+            //   heading        -> "#heading"
+            //   block          -> "#^blockid"
+            //   heading^block  -> "#^blockid"  (block wins)
+            //
+            // A block reference (^blockid) always takes precedence over a
+            // heading, so both "a#heading^blockid" and "a#^blockid" resolve
+            // to the block anchor. We link the whole token as-is instead of
+            // degrading to a file-name or heading-only link.
             let headerId: string | undefined;
             const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
 
-            // Verify a block id actually exists in the target file (if given).
-            // If it doesn't, we must NOT create a match — otherwise it would
-            // replace a valid file-name link with a dead link.
-            const sections = this.app.metadataCache.getFileCache(dest)?.sections ?? [];
-            const blockExists = blockId
-                ? sections.length === 0 || sections.some((s) => s.id === blockId)
-                : false;
-
-            if (headingPath && headings.length > 0) {
+            if (blockId) {
+                headerId = '^' + blockId;
+            } else if (headingPath && headings.length > 0) {
                 // headingPath may be "b" or "b#c". Match the LAST segment.
                 const segments = headingPath.split('#');
                 const lastSegment = segments[segments.length - 1].trim();
@@ -422,15 +421,9 @@ class AutoLinkerPlugin implements PluginValue {
                 );
                 if (heading) {
                     headerId = heading.heading.trim();
-                } else if (blockId && blockExists) {
-                    // Heading not found but a valid block was given.
-                    headerId = '^' + blockId;
                 } else {
                     continue;
                 }
-            } else if (blockId && blockExists) {
-                // Pure block reference: a#^blockid
-                headerId = '^' + blockId;
             } else {
                 continue;
             }

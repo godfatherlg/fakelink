@@ -92,12 +92,10 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
             let headerId: string | undefined;
             const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
-            const sections = this.app.metadataCache.getFileCache(dest)?.sections ?? [];
-            const blockExists = blockId
-                ? sections.length === 0 || sections.some((s) => s.id === blockId)
-                : false;
 
-            if (headingPath && headings.length > 0) {
+            if (blockId) {
+                headerId = '^' + blockId;
+            } else if (headingPath && headings.length > 0) {
                 const segments = headingPath.split('#');
                 const lastSegment = segments[segments.length - 1].trim();
                 const heading = headings.find(
@@ -105,13 +103,9 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 );
                 if (heading) {
                     headerId = heading.heading.trim();
-                } else if (blockId && blockExists) {
-                    headerId = '^' + blockId;
                 } else {
                     continue;
                 }
-            } else if (blockId && blockExists) {
-                headerId = '^' + blockId;
             } else {
                 continue;
             }
