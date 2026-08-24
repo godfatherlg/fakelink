@@ -64,6 +64,107 @@ export class GlossaryLinker extends MarkdownRenderChild {
         return currentPath;
     }
 
+    /**
+     * Recognize bare internal-link syntax (e.g. "a#b", "a#^blockid") as virtual
+     * links in read mode. Mirrors liveLinker.findInternalLinkSyntaxMatches, but
+     * offsets are relative to the current text node (0-based).
+     */
+    findInternalLinkSyntaxMatches(text: string, currentFile: TFile, startId: number): VirtualMatch[] {
+        const matches: VirtualMatch[] = [];
+        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]#])+)(#(?:[^\s[\]]+)?)+/g;
+        let m: RegExpExecArray | null;
+        let id = startId;
+        while ((m = regex.exec(text)) !== null) {
+            const full = m[0];
+            if (full.startsWith('[[')) continue;
+
+            const hashIdx = full.indexOf('#');
+            if (hashIdx <= 0) continue;
+            const notePart = full.slice(0, hashIdx);
+            const anchorPart = full.slice(hashIdx + 1);
+
+            const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            if (!dest) continue;
+
+            const blockIdx = anchorPart.indexOf('^');
+            const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
+            const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
+
+            let headerId: string | undefined;
+            const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
+            const sections = this.app.metadataCache.getFileCache(dest)?.sections ?? [];
+            const blockExists = blockId
+                ? sections.length === 0 || sections.some((s) => s.id === blockId)
+                : false;
+
+            if (headingPath && headings.length > 0) {
+                const segments = headingPath.split('#');
+                const lastSegment = segments[segments.length - 1].trim();
+                const heading = headings.find(
+                    (h) => h.heading.trim().toLowerCase() === lastSegment.toLowerCase()
+                );
+                if (heading) {
+                    headerId = heading.heading.trim();
+                } else if (blockId && blockExists) {
+                    headerId = '^' + blockId;
+                } else {
+                    continue;
+                }
+            } else if (blockId && blockExists) {
+                headerId = '^' + blockId;
+            } else {
+                continue;
+            }
+
+            matches.push(
+                new VirtualMatch(
+                    id++,
+                    full,
+                    m.index,
+                    m.index + full.length,
+                    [dest],
+                    MatchType.Header,
+                    false,
+                    this.settings,
+                    this.plugin,
+                    headerId
+                )
+            );
+        }
+        return matches;
+    }
+
+    /**
+     * Simplified context-aware disambiguation for read mode. When a heading
+     * exists in multiple notes, prefer the note whose file name (or alias)
+     * appears in the current block-level element (p/li/td). Read mode processes
+     * DOM text nodes, so we approximate "current paragraph" with the nearest
+     * block element's text content.
+     */
+    disambiguateFilesByContextReadMode(files: TFile[], startEl: Element | null): TFile[] {
+        if (files.length <= 1 || !startEl) return files;
+
+        let blockEl: Element | null = startEl;
+        while (blockEl && !['P', 'LI', 'TD', 'TH'].includes(blockEl.tagName)) {
+            blockEl = blockEl.parentElement;
+        }
+        const context = (blockEl?.textContent || '').toLowerCase();
+        if (context.trim().length === 0) return files;
+
+        const appearing = files.filter((file) => {
+            const names = [file.basename];
+            const cache = this.app.metadataCache.getFileCache(file);
+            const rawAliases: unknown = cache?.frontmatter?.aliases;
+            const aliases: unknown[] = Array.isArray(rawAliases) ? rawAliases : [];
+            for (const alias of aliases) {
+                if (typeof alias === 'string') names.push(alias);
+            }
+            return names.some((n) => n.length >= 2 && context.includes(n.toLowerCase()));
+        });
+
+        return appearing.length === 1 ? [appearing[0]] : files;
+    }
+
     onload() {
         if (!this.settings.linkerActivated) {
             this.clearExistingLinks();
@@ -132,6 +233,16 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                                         // TODO: Handle multiple files
 
+                                        // Context-aware disambiguation in read mode.
+                                        let files = Array.from(node.files);
+                                        if (
+                                            this.settings.enableContextDisambiguation &&
+                                            node.type === MatchType.Header &&
+                                            files.length > 1
+                                        ) {
+                                            files = this.disambiguateFilesByContextReadMode(files, childNode.parentElement);
+                                        }
+
                                         // Ensure headerId is correctly passed when matching headings
                                         const headerId = node.type === MatchType.Header 
                                             ? node.headerId
@@ -141,7 +252,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 name,
                                                 nFrom,
                                                 nTo,
-                                                Array.from(node.files),
+                                                files,
                                                 node.type,
                                                 !isWordBoundary,
                                                 this.settings,
@@ -188,6 +299,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 // Push the char to get the next nodes in the prefix tree
                                 this.linkerCache.cache.pushChar(char);
                                 i += char.length;
+                            }
+
+                            // Recognize bare internal-link syntax in read mode.
+                            if (this.settings.enableInternalLinkSyntax) {
+                                const sourceFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
+                                if (sourceFile instanceof TFile) {
+                                    const internalMatches = this.findInternalLinkSyntaxMatches(text, sourceFile, id);
+                                    if (internalMatches.length > 0) {
+                                        matches = matches.concat(internalMatches);
+                                        id += internalMatches.length;
+                                    }
+                                }
                             }
 
                             // Sort additions by from position

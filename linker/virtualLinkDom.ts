@@ -149,7 +149,13 @@ export class VirtualMatch {
                     const base = Math.max(100, this.settings.headerJumpRetryDelay || 500);
                     [base, base * 6, base * 12].forEach(delay => {
                         window.setTimeout(() => {
-                            void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                            // Only re-navigate if the user is still on the target
+                            // file. Otherwise (e.g. they hit "back"), these queued
+                            // timers would keep yanking them back to the link target.
+                            const activeFile = this.plugin.app.workspace.getActiveFile();
+                            if (activeFile && targetFile && activeFile.path === targetFile.path) {
+                                void this.plugin.app.workspace.openLinkText(refullPath, '', false, { active: true });
+                            }
                         }, delay);
                     });
                 }

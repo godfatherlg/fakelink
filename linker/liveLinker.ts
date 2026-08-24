@@ -298,8 +298,9 @@ class AutoLinkerPlugin implements PluginValue {
     /**
      * Context-aware disambiguation: when a heading name exists in multiple notes,
      * narrow the candidate files to the one whose file name (or an alias) appears
-     * earlier in the current paragraph. Only used when enableContextDisambiguation
-     * is on and the match is a Header type with more than one candidate.
+     * CLOSEST to the current match in the current paragraph. Proximity is the
+     * signal — a name mentioned right before the heading is far more likely to be
+     * the intended target than one buried further up the paragraph.
      */
     disambiguateFilesByContext(files: TFile[], docPos: number, view: EditorView): TFile[] {
         if (files.length <= 1) return files;
@@ -325,9 +326,10 @@ class AutoLinkerPlugin implements PluginValue {
         const context = doc.sliceString(paraStart, docPos).toLowerCase();
         if (context.trim().length === 0) return files;
 
-        // Score each candidate file by whether its name/alias appears in the context.
+        // Score each candidate by the proximity of its most recent name/alias
+        // mention: distance = chars from the end of that mention to the match.
         const scored = files.map((file) => {
-            let score = 0;
+            let closestDistance = Number.POSITIVE_INFINITY;
             const names = [file.basename];
             const cache = this.app.metadataCache.getFileCache(file);
             const rawAliases: unknown = cache?.frontmatter?.aliases;
@@ -338,22 +340,23 @@ class AutoLinkerPlugin implements PluginValue {
             for (const name of names) {
                 const lower = name.toLowerCase();
                 if (lower.length < 2) continue; // ignore single-char names (too noisy)
-                if (context.includes(lower)) {
-                    // Longer names that appear are a stronger signal.
-                    score += lower.length;
-                }
+                const idx = context.lastIndexOf(lower);
+                if (idx === -1) continue;
+                const distance = context.length - (idx + lower.length);
+                if (distance < closestDistance) closestDistance = distance;
             }
-            return { file, score };
+            return { file, distance: closestDistance };
         });
 
-        const best = scored.reduce((a, b) => (b.score > a.score ? b : a), { file: files[0], score: 0 });
-        // Only narrow down if exactly one file clearly scored above the rest.
-        if (best.score > 0) {
-            const topScore = best.score;
-            const winners = scored.filter((s) => s.score === topScore);
-            if (winners.length === 1) {
-                return [winners[0].file];
-            }
+        // Keep only candidates that actually appeared in the context.
+        const hits = scored.filter((s) => Number.isFinite(s.distance));
+        if (hits.length === 0) return files;
+
+        // Only narrow down when exactly one file is clearly the closest.
+        const minDist = Math.min(...hits.map((s) => s.distance));
+        const winners = hits.filter((s) => s.distance === minDist);
+        if (winners.length === 1) {
+            return [winners[0].file];
         }
         return files;
     }
@@ -368,14 +371,14 @@ class AutoLinkerPlugin implements PluginValue {
      * Returns VirtualMatch objects covering the whole "a#b..." token. The leading
      * part "a" is resolved against the note path (like Obsidian's internal links).
      */
-    findInternalLinkSyntaxMatches(text: string, rangeFrom: number, currentFile: TFile): VirtualMatch[] {
+    findInternalLinkSyntaxMatches(text: string, rangeFrom: number, currentFile: TFile, startId: number = 0): VirtualMatch[] {
         const matches: VirtualMatch[] = [];
         // Match a non-whitespace, non-bracket token containing at least one '#'
         // but exclude tokens already wrapped in [[...]] (those are real links and
         // are handled/excluded elsewhere).
         const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]#])+)(#(?:[^\s[\]]+)?)+/g;
         let m: RegExpExecArray | null;
-        let id = 0;
+        let id = startId;
         while ((m = regex.exec(text)) !== null) {
             const full = m[0];
             // Skip if it starts with "[[" — a real internal link.
@@ -395,9 +398,20 @@ class AutoLinkerPlugin implements PluginValue {
             const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
             const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
 
-            // Determine the final heading id to jump to.
+            // Determine the final anchor to jump to. Obsidian link format:
+            //   heading -> "#heading"
+            //   block   -> "#^blockid"  (note the caret; a bare id would be
+            //              interpreted as a heading and fail to resolve)
             let headerId: string | undefined;
             const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
+
+            // Verify a block id actually exists in the target file (if given).
+            // If it doesn't, we must NOT create a match — otherwise it would
+            // replace a valid file-name link with a dead link.
+            const sections = this.app.metadataCache.getFileCache(dest)?.sections ?? [];
+            const blockExists = blockId
+                ? sections.length === 0 || sections.some((s) => s.id === blockId)
+                : false;
 
             if (headingPath && headings.length > 0) {
                 // headingPath may be "b" or "b#c". Match the LAST segment.
@@ -408,15 +422,15 @@ class AutoLinkerPlugin implements PluginValue {
                 );
                 if (heading) {
                     headerId = heading.heading.trim();
-                } else if (blockId) {
-                    // Heading not found but a block was given — still linkable via block.
-                    headerId = blockId;
+                } else if (blockId && blockExists) {
+                    // Heading not found but a valid block was given.
+                    headerId = '^' + blockId;
                 } else {
                     continue;
                 }
-            } else if (blockId) {
+            } else if (blockId && blockExists) {
                 // Pure block reference: a#^blockid
-                headerId = blockId;
+                headerId = '^' + blockId;
             } else {
                 continue;
             }
@@ -656,9 +670,13 @@ class AutoLinkerPlugin implements PluginValue {
             // "a#b#c^h6d8e3" or "a#^h6d8e3" as virtual links, so users can write
             // plain-text references (e.g. in footnotes) without polluting the graph
             // with real links. Only active when enableInternalLinkSyntax is on.
+            // These matches are kept separate: their ranges are added to the
+            // exclusion tree (so they fully replace any partial prefix-tree match),
+            // but they themselves bypass filterOverlapping (which would otherwise
+            // delete them since their own range is in the tree).
+            let internalMatches: VirtualMatch[] = [];
             if (this.settings.enableInternalLinkSyntax && mappedFile) {
-                const internalMatches = this.findInternalLinkSyntaxMatches(text, from, mappedFile);
-                matches.push(...internalMatches);
+                internalMatches = this.findInternalLinkSyntaxMatches(text, from, mappedFile, id);
                 id += internalMatches.length;
             }
 
@@ -711,24 +729,34 @@ class AutoLinkerPlugin implements PluginValue {
             // Exclude text between custom start/end symbols (e.g. { ... }) from
             // virtual linking. We insert the ranges into the same interval tree
             // used for syntax nodes, so filterOverlapping drops any match inside.
-            if (
-                this.settings.enableSymbolExclusion &&
-                this.settings.excludeSymbolStart &&
-                this.settings.excludeSymbolEnd &&
-                this.settings.excludeSymbolStart !== this.settings.excludeSymbolEnd
-            ) {
-                const startSym = this.settings.excludeSymbolStart;
-                const endSym = this.settings.excludeSymbolEnd;
-                let searchFrom = 0;
-                while (true) {
-                    const startIdx = text.indexOf(startSym, searchFrom);
-                    if (startIdx === -1) break;
-                    const endIdx = text.indexOf(endSym, startIdx + startSym.length);
-                    // Unclosed start symbol excludes the rest of the visible range.
-                    const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
-                    excludedIntervalTree.insert([from + startIdx, from + rangeEnd]);
-                    searchFrom = startIdx + startSym.length;
+            // Multiple symbol pairs are supported by comma-separating the start and
+            // end lists (e.g. start "{,（" end "},）").
+            if (this.settings.enableSymbolExclusion) {
+                const startSyms = (this.settings.excludeSymbolStart || '').split(',').map(s => s.trim()).filter(Boolean);
+                const endSyms = (this.settings.excludeSymbolEnd || '').split(',').map(s => s.trim()).filter(Boolean);
+                const pairCount = Math.min(startSyms.length, endSyms.length);
+                for (let p = 0; p < pairCount; p++) {
+                    const startSym = startSyms[p];
+                    const endSym = endSyms[p];
+                    if (!startSym || !endSym || startSym === endSym) continue;
+                    let searchFrom = 0;
+                    while (true) {
+                        const startIdx = text.indexOf(startSym, searchFrom);
+                        if (startIdx === -1) break;
+                        const endIdx = text.indexOf(endSym, startIdx + startSym.length);
+                        // Unclosed start symbol excludes the rest of the visible range.
+                        const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
+                        excludedIntervalTree.insert([from + startIdx, from + rangeEnd]);
+                        searchFrom = startIdx + startSym.length;
+                    }
                 }
+            }
+
+            // Exclude successfully-parsed internal-link syntax ranges from
+            // prefix-tree matching, so "note#heading" fully replaces a partial
+            // "note" match instead of competing with it in filterOverlapping.
+            for (const im of internalMatches) {
+                excludedIntervalTree.insert([im.from, im.to]);
             }
 
             // Delete additions that links to already linked files
@@ -744,6 +772,14 @@ class AutoLinkerPlugin implements PluginValue {
             // Delete additions that overlap
             // Additions are sorted by from position and after that by length, we want to keep longer additions
             matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce, excludedIntervalTree);
+
+            // Re-join the internal-link syntax matches now that prefix-tree matches
+            // inside their ranges have been dropped. They are re-sorted so the
+            // RangeSetBuilder below receives them in ascending order.
+            if (internalMatches.length > 0) {
+                matches = matches.concat(internalMatches);
+                matches = VirtualMatch.sort(matches);
+            }
 
             // Store the files that are linked by a virtual link
             matches.forEach((addition) => addition.files.forEach((f) => alreadyLinkedFiles.add(f)));
