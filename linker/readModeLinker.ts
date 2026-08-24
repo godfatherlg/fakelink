@@ -3,6 +3,7 @@ import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, TF
 import { LinkerPluginSettings } from '../main';
 import { LinkerCache, MatchType, PrefixTree } from './linkerCache';
 import { VirtualMatch } from './virtualLinkDom';
+import IntervalTree from '@flatten-js/interval-tree';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('../main').default;
@@ -310,6 +311,32 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // Sort additions by from position
                             matches = VirtualMatch.sort(matches);
 
+                            // Exclude text between custom start/end symbols (e.g. { ... })
+                            // from virtual linking in read mode, mirroring live preview.
+                            // Offsets here are relative to this text node, the same
+                            // coordinate space as each VirtualMatch's from/to.
+                            let excludedIntervalTree: IntervalTree | undefined;
+                            if (this.settings.enableSymbolExclusion) {
+                                excludedIntervalTree = new IntervalTree();
+                                const startSyms = (this.settings.excludeSymbolStart || '').split(',').map(s => s.trim()).filter(Boolean);
+                                const endSyms = (this.settings.excludeSymbolEnd || '').split(',').map(s => s.trim()).filter(Boolean);
+                                const pairCount = Math.min(startSyms.length, endSyms.length);
+                                for (let p = 0; p < pairCount; p++) {
+                                    const startSym = startSyms[p];
+                                    const endSym = endSyms[p];
+                                    if (!startSym || !endSym || startSym === endSym) continue;
+                                    let searchFrom = 0;
+                                    while (true) {
+                                        const startIdx = text.indexOf(startSym, searchFrom);
+                                        if (startIdx === -1) break;
+                                        const endIdx = text.indexOf(endSym, startIdx + startSym.length);
+                                        const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
+                                        excludedIntervalTree.insert([startIdx, rangeEnd]);
+                                        searchFrom = startIdx + startSym.length;
+                                    }
+                                }
+                            }
+
                             // Delete additions that links to already linked files
                             if (this.settings.excludeLinksToRealLinkedFiles) {
                                 matches = VirtualMatch.filterAlreadyLinked(matches, explicitlyLinkedFiles);
@@ -321,7 +348,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             }
                             // Delete additions that overlap
                             // Additions are sorted by from position and after that by length, we want to keep longer additions
-                            matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce);
+                            matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce, excludedIntervalTree);
 
                             const parent = childNode.parentElement;
                             let lastTo = 0;

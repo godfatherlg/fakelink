@@ -82,9 +82,8 @@ export class VirtualMatch {
             if (!this.isSubWord) {
                 span.appendChild(this.getMultipleReferencesIndicatorSpan());
             }
-            span.appendChild(this.getMultipleReferencesSpan(visibleFiles));
-        }
-        if (hasMore) {
+            span.appendChild(this.getMultipleReferencesSpan(visibleFiles, hasMore ? sortedFiles.length - visibleFiles.length : 0));
+        } else if (hasMore) {
             span.appendChild(this.getOverflowIndicatorSpan(sortedFiles.length - visibleFiles.length));
         }
 
@@ -231,7 +230,7 @@ export class VirtualMatch {
         return span;
     }
 
-    getMultipleReferencesSpan(files?: TFile[]) {
+    getMultipleReferencesSpan(files?: TFile[], overflowCount: number = 0) {
         const spanReferences = activeDocument.createElement('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
@@ -261,6 +260,12 @@ export class VirtualMatch {
             spanReferences.appendChild(link);
 
             if (index == fileList.length - 1) {
+                if (overflowCount > 0) {
+                    const overflow = activeDocument.createElement('span');
+                    overflow.textContent = '|...';
+                    overflow.setAttribute('title', `${overflowCount} more reference(s)`);
+                    spanReferences.appendChild(overflow);
+                }
                 const bracket = activeDocument.createElement('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
@@ -279,7 +284,7 @@ export class VirtualMatch {
 
     getOverflowIndicatorSpan(hiddenCount: number) {
         const spanIndicator = activeDocument.createElement('span');
-        spanIndicator.textContent = ' ...';
+        spanIndicator.textContent = ' [...]';
         // Reuse the same class as the reference list so it shows/hides together
         // (visible on hover, or always visible when alwaysShowMultipleReferences
         // is enabled).
