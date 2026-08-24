@@ -1446,8 +1446,8 @@ function numberDef(name: string, key: string, opts: DefOpts & { min?: number; ma
 function colorDef(name: string, key: string, opts: DefOpts = {}): SettingDefinition {
     return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'color', key, disabled: opts.disabled } };
 }
-function actionDef(name: string, action: () => void, opts: DefOpts = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, action: () => action() };
+function actionDef(name: string, action: () => void | Promise<void>, opts: DefOpts = {}): SettingDefinition {
+    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, action: () => { void action(); } };
 }
 function groupDef(heading: string, items: SettingGroupItem[], visible?: () => boolean): SettingDefinitionGroup {
     return { type: 'group', heading, items, visible };
@@ -1550,7 +1550,7 @@ class LinkerSettingTab extends PluginSettingTab {
                 this.applyCssVar('--virtual-link-note-color', value as string);
                 break;
             default:
-                await this.plugin.updateSettings({ [key]: value } as Partial<LinkerPluginSettings>);
+                await this.plugin.updateSettings({ [key]: value });
         }
 
         if (needsFullUpdate) {
