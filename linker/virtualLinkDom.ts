@@ -49,7 +49,8 @@ export class VirtualMatch {
     // DOM methods
 
     getCompleteLinkElement(inTableCellEditor = false) {
-        // Hide link if total matches exceed threshold
+        // Hide the link entirely when the total number of matches exceeds the
+        // configured threshold (too noisy to be useful).
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
             const emptySpan = activeDocument.createElement('span');
             emptySpan.textContent = this.originText;
@@ -279,7 +280,12 @@ export class VirtualMatch {
     getOverflowIndicatorSpan(hiddenCount: number) {
         const spanIndicator = activeDocument.createElement('span');
         spanIndicator.textContent = ' ...';
-        spanIndicator.classList.add('multiple-files-indicator');
+        // Reuse the same class as the reference list so it shows/hides together
+        // (visible on hover, or always visible when alwaysShowMultipleReferences
+        // is enabled).
+        if (!this.settings.alwaysShowMultipleReferences) {
+            spanIndicator.classList.add('multiple-files-references');
+        }
         spanIndicator.setAttribute('title', `${hiddenCount} more reference(s)`);
         return spanIndicator;
     }

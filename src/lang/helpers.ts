@@ -65,7 +65,7 @@ const zhCN: Record<string, string> = {
     'Avoid linking in current line': '当前行不显示链接',
     'If activated, there will be no links in the current line.': '启用后，当前行不会显示任何虚拟链接。',
     'Maximum references to show': '最多显示引用数',
-    'The maximum number of reference markers [1][2]... shown after a virtual link.': '虚拟链接后显示的引用标记 [1][2]... 的最大数量。',
+    'The maximum number of reference markers [1][2]... shown after a virtual link. When a link has more references, a "..." indicator is shown.': '虚拟链接后显示的引用标记 [1][2]... 的最大数量。当链接有更多引用时，会显示 "..." 提示。',
     'Hide link when references exceed': '引用过多时隐藏链接',
     'When the total number of matching files (names + aliases + headers) exceeds this threshold, the virtual link will not be displayed.': '当匹配的文件总数（文件名 + 别名 + 标题）超过此阈值时，将不显示该虚拟链接。',
 

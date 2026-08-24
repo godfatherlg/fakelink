@@ -1759,7 +1759,7 @@ class LinkerSettingTab extends PluginSettingTab {
         // Max references to show in virtual link suffix
         new Setting(containerEl)
             .setName(t('Maximum references to show'))
-            .setDesc(t('The maximum number of reference markers [1][2]... shown after a virtual link.'))
+            .setDesc(t('The maximum number of reference markers [1][2]... shown after a virtual link. When a link has more references, a "..." indicator is shown.'))
             .addText((text) => {
                 text.setValue(String(this.plugin.settings.maxReferenceCount)).onChange(async (value) => {
                     const n = parseInt(value);
