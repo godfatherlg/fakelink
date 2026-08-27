@@ -174,12 +174,19 @@ export class GlossaryLinker extends MarkdownRenderChild {
         const explicitlyLinkedFiles = new Set<TFile>();
 
         for (const tag of tags) {
-            // console.log("Tag: ", tag);
-            const nodeList = this.containerEl.getElementsByTagName(tag);
-            // if (nodeList.length === 0) continue;
-            // if (nodeList.length != 0) console.log(tag, nodeList.length);
+            // Snapshot the live HTMLCollection before mutating the DOM. As we
+            // process text nodes we insert new <span> elements (virtual links);
+            // without a snapshot those would keep growing the collection and
+            // cause an infinite loop (see issue #13).
+            const nodeList = Array.from(this.containerEl.getElementsByTagName(tag));
             for (let index = 0; index <= nodeList.length; index++) {
-                const item: Element = index == nodeList.length ? this.containerEl : nodeList.item(index)!;
+                const item: Element | null = index === nodeList.length ? this.containerEl : (nodeList[index] ?? null);
+
+                // Skip elements already wrapped inside a generated virtual link,
+                // otherwise we would re-process the text we just linked.
+                if (!item || item.closest('.virtual-link')) {
+                    continue;
+                }
 
                 for (let childNodeIndex = 0; childNodeIndex < item.childNodes.length; childNodeIndex++) {
                     const childNode = item.childNodes[childNodeIndex];
