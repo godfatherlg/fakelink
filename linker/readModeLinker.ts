@@ -188,8 +188,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                     continue;
                 }
 
-                for (let childNodeIndex = 0; childNodeIndex < item.childNodes.length; childNodeIndex++) {
-                    const childNode = item.childNodes[childNodeIndex];
+                // Snapshot the direct child nodes too. During processing we
+                // insert replacement spans/text before each text node and then
+                // remove the original, which would otherwise mutate the live
+                // NodeList mid-iteration (same class of bug as issue #13).
+                const childNodes = Array.from(item.childNodes);
+                for (let childNodeIndex = 0; childNodeIndex < childNodes.length; childNodeIndex++) {
+                    const childNode = childNodes[childNodeIndex];
 
                     if (childNode.nodeType === Node.TEXT_NODE) {
                         let text = childNode.textContent || '';
@@ -391,7 +396,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 parent?.insertBefore(activeDocument.createTextNode(text.slice(lastTo)), childNode);
                             }
                             parent?.removeChild(childNode);
-                            childNodeIndex += 1;
                         }
                     }
                 }
