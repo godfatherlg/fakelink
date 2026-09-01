@@ -72,6 +72,10 @@ FakeLink improvements:
         
     - Only keywords between configured symbols will trigger virtual links
         
+- Jump to line via `obsidian://adv-uri` links
+    
+    - A single click reliably positions the cursor on the target line
+        
 
 ---
 
@@ -259,6 +263,44 @@ Default behavior:
 Virtual link color is slightly darker than normal links.
 
 If you want custom styles, you can disable the default style and use CSS.
+
+---
+
+# Line Jumping
+
+FakeLink can take over clicks on `obsidian://adv-uri` links that carry a `line` parameter, so a single click reliably positions the cursor on the target line (no need to click twice while the target file loads).
+
+## Do I need the Advanced URI plugin?
+
+No. The `obsidian://adv-uri` link format originates from the Advanced URI plugin, but FakeLink intercepts the click directly and does **not** depend on that plugin at runtime. You do not need to install Advanced URI for line jumping to work — any markdown link in the `obsidian://adv-uri` format is handled by FakeLink itself.
+
+## Link format
+
+A full link looks like this:
+
+```
+obsidian://adv-uri?vault=bba24b423cdaaeeb&filepath=2026%E4%B8%8A...%2F...%2Fnote.md&line=3&column=1&openmode=true&view-mode=source
+```
+
+FakeLink only reads two parameters:
+
+| Parameter | Meaning | Required |
+|---|---|---|
+| `filepath` | URL-encoded path relative to the vault root (slashes encoded as `%2F`) | Yes |
+| `line` | 1-based line number to jump to | Yes |
+| `vault`, `column`, `openmode`, `view-mode` | Ignored by FakeLink | No |
+
+So the minimal link FakeLink needs is:
+
+```
+obsidian://adv-uri?filepath=<URL-encoded relative path>&line=<line number>
+```
+
+## How to create these links
+
+`filepath` must be URL-encoded, so it is easiest to generate these links with a tool — for example the Advanced URI plugin's "Copy URI" command, or a checklist/task tool that produces them. If you already have such links in your notes, they will work as-is.
+
+To jump, enable **Jump to line on adv-uri click** in Settings → Line Jumping, and adjust **Jump delay (ms)** if large files need more time to render.
 
 ---
 

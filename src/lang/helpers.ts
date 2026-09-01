@@ -11,6 +11,7 @@ const zhCN: Record<string, string> = {
     'Files': '文件范围',
     'Exclusions': '排除',
     'Special syntax': '特殊语法',
+    'Line jumping': '行跳转',
     'References': '引用显示',
     'Appearance': '外观',
 
@@ -155,6 +156,13 @@ const zhCN: Record<string, string> = {
 
     'Context-aware header disambiguation': '上下文感知的标题消歧',
     'When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.': '当标题名存在于多个笔记中时，优先指向当前段落中距离匹配位置最近处出现其文件名（或别名）的笔记，使链接指向最相关的笔记，而不是列出所有匹配项。',
+
+    'Jump to line on adv-uri click': '点击 adv-uri 链接时跳转到行',
+    'When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. No Advanced URI plugin is required — FakeLink handles the jump itself, so a single click reliably positions the cursor on the target line.': '启用后，点击带有 line 参数的 obsidian://adv-uri 链接时，将由 FakeLink 直接接管并跳转到目标行。无需安装 Advanced URI 插件——FakeLink 自行完成跳转，单次点击即可可靠地定位光标到目标行。',
+    'Jump delay (ms)': '跳转延时（毫秒）',
+    'The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.': '定位光标前等待目标文件渲染的最长时间（毫秒）。小文件几乎立即跳转；大文件最多等待到此上限。默认 8000。',
+    'Open in new tab': '在新标签页打开',
+    'When the target file is not already open, open it in a new tab. When off, the current tab is reused.': '当目标文件尚未打开时，在新标签页中打开。关闭时则复用当前标签页。',
 };
 
 export function t(text: string): string {

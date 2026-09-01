@@ -567,6 +567,9 @@ export interface LinkerPluginSettings {
     excludeSymbolEnd: string; // End symbol marking text to exclude from linking
     enableInternalLinkSyntax: boolean; // Recognize bare internal-link syntax like "a#b", "a#^block" as virtual links
     enableContextDisambiguation: boolean; // Limit a multi-file header match to the file named in the current paragraph
+    jumpEnabled: boolean; // Intercept obsidian://adv-uri clicks to jump to a line directly
+    jumpDelayMs: number; // Delay (ms) to wait for the target file to render before jumping to the line
+    jumpOpenInNewTab: boolean; // When the target file is not open, open it in a new tab
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -637,6 +640,9 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludeSymbolEnd: '}',
     enableInternalLinkSyntax: false,
     enableContextDisambiguation: false,
+    jumpEnabled: true,
+    jumpDelayMs: 8000,
+    jumpOpenInNewTab: true,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -678,6 +684,52 @@ export default class LinkerPlugin extends Plugin {
         else if (isEditorMode && !this.settings.linkerActivated) {
             await this.updateSettings({ linkerActivated: true });
         }
+    }
+
+    // Wait until the target file's editor has rendered at least `targetLine`
+    // lines, polling every 200ms until `timeoutMs` elapses. This replaces a
+    // fixed sleep so small files jump immediately while large files still get
+    // the full configured delay as an upper bound.
+    private async waitForEditor(view: MarkdownView, targetLine: number, timeoutMs: number): Promise<boolean> {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            if (view.editor && view.editor.lineCount() >= targetLine) {
+                return true;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        return view.editor != null;
+    }
+
+    // Open the target file (reusing its existing tab if already open, otherwise
+    // opening a new tab) and, once rendered, move the cursor to `line` and
+    // scroll it into view. `line` is 1-based (matching the adv-uri query).
+    async jumpToLine(filepath: string, line: number) {
+        const file = this.app.vault.getAbstractFileByPath(filepath);
+        if (!(file instanceof TFile)) return;
+
+        const existing = this.app.workspace.getLeavesOfType('markdown')
+            .find(l => (l.getViewState().state as { file?: string })?.file === file.path);
+
+        if (existing) {
+            await this.app.workspace.setActiveLeaf(existing, { focus: true });
+        } else {
+            const leaf = this.settings.jumpOpenInNewTab
+                ? this.app.workspace.getLeaf(true)
+                : this.app.workspace.getLeaf(false);
+            await leaf.openFile(file);
+        }
+
+        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!view) return;
+
+        const targetLine = line;
+        await this.waitForEditor(view, targetLine, this.settings.jumpDelayMs);
+
+        const safeLine = Math.min(targetLine - 1, Math.max(0, view.editor.lineCount() - 1));
+        view.editor.focus();
+        view.editor.setCursor({ line: safeLine, ch: 0 });
+        view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, true);
     }
 
     settings: LinkerPluginSettings;
@@ -844,6 +896,23 @@ export default class LinkerPlugin extends Plugin {
 
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
+
+        // Intercept obsidian://adv-uri link clicks to jump to a line directly,
+        // bypassing Advanced URI's own (flaky) line positioning.
+        this.registerDomEvent(this.app.workspace.containerEl, 'click', (evt) => {
+            if (!this.settings.jumpEnabled) return;
+            const a = (evt.target as HTMLElement).closest('a');
+            if (!a) return;
+            const href = a.getAttribute('href') || '';
+            if (!href.startsWith('obsidian://adv-uri')) return;
+            const p = new URLSearchParams(href.slice('obsidian://adv-uri?'.length));
+            const line = parseInt(p.get('line') || '', 10);
+            if (!line || line < 1) return;
+            const filepath = p.get('filepath') || '';
+            evt.preventDefault();
+            evt.stopImmediatePropagation();
+            void this.jumpToLine(filepath, line);
+        }, true);
 
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
@@ -1839,6 +1908,23 @@ class LinkerSettingTab extends PluginSettingTab {
                 }),
                 toggleDef(t('Skip links with multiple targets (batch convert)'), 'skipMultipleTargets', {
                     desc: t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'),
+                }),
+            ]),
+
+            // ---------- Line jumping ----------
+            groupDef(t('Line jumping'), [
+                toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
+                    desc: t('When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. No Advanced URI plugin is required — FakeLink handles the jump itself, so a single click reliably positions the cursor on the target line.'),
+                }),
+                numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
+                    desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
+                    min: 0,
+                    max: 60000,
+                    visible: () => s.jumpEnabled,
+                }),
+                toggleDef(t('Open in new tab'), 'jumpOpenInNewTab', {
+                    desc: t('When the target file is not already open, open it in a new tab. When off, the current tab is reused.'),
+                    visible: () => s.jumpEnabled,
                 }),
             ]),
 
