@@ -272,7 +272,12 @@ FakeLink can take over clicks on `obsidian://adv-uri` links that carry a `line` 
 
 ## Do I need the Advanced URI plugin?
 
-No. The `obsidian://adv-uri` link format originates from the Advanced URI plugin, but FakeLink intercepts the click directly and does **not** depend on that plugin at runtime. You do not need to install Advanced URI for line jumping to work — any markdown link in the `obsidian://adv-uri` format is handled by FakeLink itself.
+It depends on which side you are on:
+
+- **To jump (click a link):** No. FakeLink intercepts the click directly and does **not** depend on Advanced URI at runtime — any markdown link in the `obsidian://adv-uri` format is handled by FakeLink itself.
+- **To create the links:** Yes, recommended. The `filepath` must be URL-encoded (slashes as `%2F`, CJK characters percent-encoded), which is tedious to write by hand. Installing the [Advanced URI](https://github.com/Vinzent03/obsidian-advanced-uri) plugin gives you a "Copy URI" command that generates these line-targeting links for you.
+
+So: install Advanced URI if you want an easy way to **produce** line-targeting links. It is not required for the **jumping** part.
 
 ## Link format
 
@@ -298,7 +303,7 @@ obsidian://adv-uri?filepath=<URL-encoded relative path>&line=<line number>
 
 ## How to create these links
 
-`filepath` must be URL-encoded, so it is easiest to generate these links with a tool — for example the Advanced URI plugin's "Copy URI" command, or a checklist/task tool that produces them. If you already have such links in your notes, they will work as-is.
+`filepath` must be URL-encoded, so the recommended way is to install the [Advanced URI](https://github.com/Vinzent03/obsidian-advanced-uri) plugin and use its "Copy URI" command (or a checklist/task tool that produces them). If you already have such links in your notes, they will work as-is.
 
 To jump, enable **Jump to line on adv-uri click** in Settings → Line Jumping, and adjust **Jump delay (ms)** if large files need more time to render.
 

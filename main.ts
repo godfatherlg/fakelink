@@ -696,7 +696,7 @@ export default class LinkerPlugin extends Plugin {
             if (view.editor && view.editor.lineCount() >= targetLine) {
                 return true;
             }
-            await new Promise((resolve) => setTimeout(resolve, 200));
+            await new Promise((resolve) => window.setTimeout(resolve, 200));
         }
         return view.editor != null;
     }
@@ -712,7 +712,7 @@ export default class LinkerPlugin extends Plugin {
             .find(l => (l.getViewState().state as { file?: string })?.file === file.path);
 
         if (existing) {
-            await this.app.workspace.setActiveLeaf(existing, { focus: true });
+            this.app.workspace.setActiveLeaf(existing, { focus: true });
         } else {
             const leaf = this.settings.jumpOpenInNewTab
                 ? this.app.workspace.getLeaf(true)
