@@ -1914,7 +1914,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // ---------- Line jumping ----------
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
-                    desc: t('When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. No Advanced URI plugin is required — FakeLink handles the jump itself, so a single click reliably positions the cursor on the target line.'),
+                    desc: t('When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. The Advanced URI plugin is not required for jumping — but it is recommended if you want an easy way to generate these line-targeting links (its "Copy URI" command).'),
                 }),
                 numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
                     desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
