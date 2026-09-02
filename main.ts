@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -720,35 +720,68 @@ export default class LinkerPlugin extends Plugin {
         return view.editor != null;
     }
 
-    // Open the target file (reusing its existing tab if already open,
-    // otherwise opening a new tab) and, once rendered, move the cursor to
+    // Open the target file only (reuse its tab if already open, otherwise
+    // open a new one) and return the leaf. Used both by the jump logic and by
+    // the protocol handler when a URI carries no line (the "open file" step of
+    // an external handler's two-step sequence), so the file gets opened early
+    // and rendered before the line jump arrives.
+    private async openFileOnly(file: TFile): Promise<WorkspaceLeaf | null> {
+        const existing = this.app.workspace.getLeavesOfType('markdown')
+            .find(l => (l.getViewState().state as { file?: string })?.file === file.path);
+
+        let leaf: WorkspaceLeaf;
+        if (existing) {
+            this.app.workspace.setActiveLeaf(existing, { focus: true });
+            leaf = existing;
+        } else {
+            leaf = this.settings.jumpOpenInNewTab
+                ? this.app.workspace.getLeaf(true)
+                : this.app.workspace.getLeaf(false);
+            await leaf.openFile(file);
+            // CodeMirror only mounts its real DOM for the active leaf, so make
+            // sure the freshly opened leaf is active before scrolling.
+            this.app.workspace.setActiveLeaf(leaf, { focus: true });
+        }
+        return leaf;
+    }
+
+    // Open the target file (if needed) and, once rendered, move the cursor to
     // `line` and scroll it into view. `line` is 1-based (adv-uri format).
     async jumpToLine(filepath: string, line: number) {
         const file = this.app.vault.getAbstractFileByPath(filepath);
         if (!(file instanceof TFile)) return;
 
-        const existing = this.app.workspace.getLeavesOfType('markdown')
-            .find(l => (l.getViewState().state as { file?: string })?.file === file.path);
+        const wasAlreadyOpen = this.app.workspace.getLeavesOfType('markdown')
+            .some(l => (l.getViewState().state as { file?: string })?.file === file.path);
 
-        if (existing) {
-            this.app.workspace.setActiveLeaf(existing, { focus: true });
-        } else {
-            const leaf = this.settings.jumpOpenInNewTab
-                ? this.app.workspace.getLeaf(true)
-                : this.app.workspace.getLeaf(false);
-            await leaf.openFile(file);
-        }
-
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (!view) return;
+        const leaf = await this.openFileOnly(file);
+        if (!leaf) return;
+        const view = leaf.view;
+        if (!(view instanceof MarkdownView)) return;
 
         const targetLine = line;
         await this.waitForEditor(view, targetLine, this.settings.jumpDelayMs);
 
+        if (!wasAlreadyOpen) {
+            // Freshly opened file: wait a beat for CodeMirror's first layout
+            // and any MathJax/images to finish reflowing, otherwise
+            // scrollIntoView races the ongoing measurement and triggers the
+            // "Measure loop restarted" warning (and a visible stutter).
+            await new Promise((resolve) => window.setTimeout(resolve, 1200));
+        }
+
         const safeLine = Math.min(targetLine - 1, Math.max(0, view.editor.lineCount() - 1));
         view.editor.focus();
         view.editor.setCursor({ line: safeLine, ch: 0 });
-        view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, true);
+        // Centering (center=true) cannot scroll to the very first lines of a
+        // note - there is not half a viewport of content above them, so CM
+        // refuses to move. For those top lines use center=false (scrolls them
+        // to the top). For deeper lines use center=true so the target sits in
+        // the middle of the screen instead of hugging the bottom edge (which
+        // is what center=false's "nearest visible" does for lines below the
+        // current viewport).
+        const center = safeLine >= 15;
+        view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, center);
     }
 
     settings: LinkerPluginSettings;
@@ -934,6 +967,38 @@ export default class LinkerPlugin extends Plugin {
             evt.stopImmediatePropagation();
             void this.jumpToLine(filepath, line);
         }, true);
+
+        // Take over the obsidian://adv-uri protocol so line links (including
+        // those fired from an external browser/handler) are jumped by FakeLink.
+        // Obsidian allows only ONE handler per protocol action, so we give way
+        // when the Advanced URI plugin is enabled (it registers the same
+        // action); when AU is disabled, FakeLink owns it and uses
+        // scrollIntoView(center=false), which also fixes the "top few lines
+        // won't scroll" bug that Advanced URI's centered scroll has.
+        window.setTimeout(() => {
+            const advancedUriLoaded = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } })
+                .plugins?.plugins?.['obsidian-advanced-uri'] != null;
+            if (advancedUriLoaded) {
+                console.warn('[fakelink] Advanced URI is enabled - not registering adv-uri protocol to avoid conflict. Disable Advanced URI to let FakeLink handle line jumping.');
+                return;
+            }
+            if (!this.settings.jumpEnabled) return;
+            this.registerObsidianProtocolHandler('adv-uri', (data) => {
+                if (!this.settings.jumpEnabled) return;
+                const filepath = (data as Record<string, string>)['filepath'] || '';
+                const line = parseInt((data as Record<string, string>)['line'] || '', 10);
+                if (!filepath) return;
+                if (!line || line < 1) {
+                    // No line: this is the "open the file" step of an external
+                    // handler's two-step sequence. Open it now (so it renders
+                    // early) and do nothing else.
+                    const file = this.app.vault.getAbstractFileByPath(filepath);
+                    if (file instanceof TFile) void this.openFileOnly(file);
+                    return;
+                }
+                void this.jumpToLine(filepath, line);
+            });
+        }, 500);
 
         // Right-click context menu: copy an obsidian://adv-uri link pointing at
         // the line where the cursor is. This lets users generate line links
@@ -1951,7 +2016,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // ---------- Line jumping ----------
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
-                    desc: t('When enabled, FakeLink intercepts clicks on obsidian://adv-uri links that are rendered as regular clickable links (<a>) and jumps to the target line itself, so line links work even without the Advanced URI plugin. In edit mode Obsidian renders such links without a clickable element, so there line jumping is handled by the Advanced URI plugin (if installed) instead. FakeLink never registers the protocol handler, so the two plugins coexist without conflict. Generate line links via the right-click menu "Copy line link (adv-uri)".'),
+                    desc: t('When enabled, FakeLink registers the obsidian://adv-uri protocol and handles line jumping itself, including links fired from external apps (e.g. a browser or a custom obsidianjump:// handler). Obsidian allows only ONE plugin to handle this protocol, so you must NOT enable the Advanced URI plugin at the same time — keep it disabled, otherwise one of the two plugins will fail to load. Generate line links via the right-click menu "Copy line link (adv-uri)".'),
                 }),
                 numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
                     desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
