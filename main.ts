@@ -693,13 +693,15 @@ export default class LinkerPlugin extends Plugin {
         return `obsidian://adv-uri?filepath=${encodeURIComponent(file.path)}&line=${line}`;
     }
 
-    // Right-click menu action: copy a line link (adv-uri format) to the
-    // clipboard, so users can build line-jumping checklists without the
-    // Advanced URI plugin.
+    // Right-click menu action: copy a Markdown link to the current line, e.g.
+    //   [5](obsidian://adv-uri?filepath=...&line=5)
+    // so pasting into a checklist gives a clean clickable label (the line
+    // number) instead of a long raw URL.
     async copyLineUri(file: TFile, lineZeroBased: number) {
+        const line = lineZeroBased + 1;
         const uri = this.buildLineUri(file, lineZeroBased);
         try {
-            await navigator.clipboard.writeText(uri);
+            await navigator.clipboard.writeText(`[${line}](${uri})`);
             new Notice(t('Line link copied'));
         } catch {
             new Notice(t('Failed to copy line link'));
