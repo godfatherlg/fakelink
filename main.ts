@@ -1950,7 +1950,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // ---------- Line jumping ----------
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
-                    desc: t('When enabled, FakeLink registers the obsidian://adv-uri protocol and jumps directly to the target line on a single click. Note: Obsidian only allows ONE plugin to handle this protocol, so you must DISABLE the Advanced URI plugin while this is on (Advanced URI would fail to load otherwise). To generate line links, use the right-click menu "Copy line link (adv-uri)" instead — no Advanced URI needed.'),
+                    desc: t('When enabled, FakeLink intercepts clicks on obsidian://adv-uri links that are rendered as regular clickable links (<a>) and jumps to the target line itself, so line links work even without the Advanced URI plugin. In edit mode Obsidian renders such links without a clickable element, so there line jumping is handled by the Advanced URI plugin (if installed) instead. FakeLink never registers the protocol handler, so the two plugins coexist without conflict. Generate line links via the right-click menu "Copy line link (adv-uri)".'),
                 }),
                 numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
                     desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
