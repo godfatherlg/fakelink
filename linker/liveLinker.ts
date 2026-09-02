@@ -525,8 +525,6 @@ class AutoLinkerPlugin implements PluginValue {
                             const aFrom = from + actualFrom;
                             const aTo = from + nTo;
 
-                            // console.log("MATCH", name, aFrom, aTo, node.caseIsMatched, node.requiresCaseMatch)
-
                             // Filter out files with excluded extensions
                             let filteredFiles = Array.from(node.files).filter(file => {
                                 return !this.settings.excludedExtensions.some(ext => 
@@ -692,8 +690,6 @@ class AutoLinkerPlugin implements PluginValue {
                 enter(node) {
                     const type = node.type.name;
                     const types = type.split('_');
-                    // const text = view.state.doc.sliceString(node.from, node.to);
-                    // console.log(text, node.type.name, types, node.from, node.to)
 
                     for (const excludedType of excludedTypes) {
                         if (type.contains(excludedType)) {

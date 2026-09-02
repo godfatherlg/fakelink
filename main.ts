@@ -686,10 +686,28 @@ export default class LinkerPlugin extends Plugin {
         }
     }
 
+    // Build an obsidian://adv-uri link pointing at a 1-based line of a file,
+    // with the path URL-encoded (slashes as %2F, CJK percent-encoded).
+    private buildLineUri(file: TFile, lineZeroBased: number): string {
+        const line = lineZeroBased + 1;
+        return `obsidian://adv-uri?filepath=${encodeURIComponent(file.path)}&line=${line}`;
+    }
+
+    // Right-click menu action: copy a line link (adv-uri format) to the
+    // clipboard, so users can build line-jumping checklists without the
+    // Advanced URI plugin.
+    async copyLineUri(file: TFile, lineZeroBased: number) {
+        const uri = this.buildLineUri(file, lineZeroBased);
+        try {
+            await navigator.clipboard.writeText(uri);
+            new Notice(t('Line link copied'));
+        } catch {
+            new Notice(t('Failed to copy line link'));
+        }
+    }
+
     // Wait until the target file's editor has rendered at least `targetLine`
-    // lines, polling every 200ms until `timeoutMs` elapses. This replaces a
-    // fixed sleep so small files jump immediately while large files still get
-    // the full configured delay as an upper bound.
+    // lines, polling every 200ms until `timeoutMs` elapses.
     private async waitForEditor(view: MarkdownView, targetLine: number, timeoutMs: number): Promise<boolean> {
         const start = Date.now();
         while (Date.now() - start < timeoutMs) {
@@ -701,9 +719,9 @@ export default class LinkerPlugin extends Plugin {
         return view.editor != null;
     }
 
-    // Open the target file (reusing its existing tab if already open, otherwise
-    // opening a new tab) and, once rendered, move the cursor to `line` and
-    // scroll it into view. `line` is 1-based (matching the adv-uri query).
+    // Open the target file (reusing its existing tab if already open,
+    // otherwise opening a new tab) and, once rendered, move the cursor to
+    // `line` and scroll it into view. `line` is 1-based (adv-uri format).
     async jumpToLine(filepath: string, line: number) {
         const file = this.app.vault.getAbstractFileByPath(filepath);
         if (!(file instanceof TFile)) return;
@@ -897,8 +915,10 @@ export default class LinkerPlugin extends Plugin {
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
 
-        // Intercept obsidian://adv-uri link clicks to jump to a line directly,
-        // bypassing Advanced URI's own (flaky) line positioning.
+        // Intercept obsidian://adv-uri link clicks (DOM level) to jump to a
+        // line directly. FakeLink does NOT register the protocol handler, so
+        // the Advanced URI plugin stays fully functional. This handler only
+        // catches links rendered as real <a> elements.
         this.registerDomEvent(this.app.workspace.containerEl, 'click', (evt) => {
             if (!this.settings.jumpEnabled) return;
             const a = (evt.target as HTMLElement).closest('a');
@@ -913,6 +933,22 @@ export default class LinkerPlugin extends Plugin {
             evt.stopImmediatePropagation();
             void this.jumpToLine(filepath, line);
         }, true);
+
+        // Right-click context menu: copy an obsidian://adv-uri link pointing at
+        // the line where the cursor is. This lets users generate line links
+        // without the Advanced URI plugin (whose "Copy URI" this replaces).
+        this.registerEvent(
+            this.app.workspace.on('editor-menu', (menu, editor, info) => {
+                const file = info.file;
+                if (!file) return;
+                menu.addItem((item) =>
+                    item
+                        .setTitle(t('Copy line link (adv-uri)'))
+                        .setIcon('link')
+                        .onClick(() => this.copyLineUri(file, editor.getCursor().line))
+                );
+            })
+        );
 
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
@@ -1914,7 +1950,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // ---------- Line jumping ----------
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
-                    desc: t('When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. The Advanced URI plugin is not required for jumping — but it is recommended if you want an easy way to generate these line-targeting links (its "Copy URI" command).'),
+                    desc: t('When enabled, FakeLink registers the obsidian://adv-uri protocol and jumps directly to the target line on a single click. Note: Obsidian only allows ONE plugin to handle this protocol, so you must DISABLE the Advanced URI plugin while this is on (Advanced URI would fail to load otherwise). To generate line links, use the right-click menu "Copy line link (adv-uri)" instead — no Advanced URI needed.'),
                 }),
                 numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
                     desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),

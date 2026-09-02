@@ -157,8 +157,11 @@ const zhCN: Record<string, string> = {
     'Context-aware header disambiguation': '上下文感知的标题消歧',
     'When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.': '当标题名存在于多个笔记中时，优先指向当前段落中距离匹配位置最近处出现其文件名（或别名）的笔记，使链接指向最相关的笔记，而不是列出所有匹配项。',
 
+    'Copy line link (adv-uri)': '复制行链接（adv-uri）',
+    'Line link copied': '行链接已复制',
+    'Failed to copy line link': '复制行链接失败',
     'Jump to line on adv-uri click': '点击 adv-uri 链接时跳转到行',
-    'When enabled, clicks on obsidian://adv-uri links carrying a line parameter are jumped to directly by FakeLink. The Advanced URI plugin is not required for jumping — but it is recommended if you want an easy way to generate these line-targeting links (its "Copy URI" command).': '启用后，点击带有 line 参数的 obsidian://adv-uri 链接时，将由 FakeLink 直接接管并跳转到目标行。跳转功能不依赖 Advanced URI 插件——但如果想方便地生成这些行定位链接（用其 "Copy URI" 命令），建议安装。',
+    'When enabled, FakeLink registers the obsidian://adv-uri protocol and jumps directly to the target line on a single click. Note: Obsidian only allows ONE plugin to handle this protocol, so you must DISABLE the Advanced URI plugin while this is on (Advanced URI would fail to load otherwise). To generate line links, use the right-click menu "Copy line link (adv-uri)" instead — no Advanced URI needed.': '启用后，FakeLink 将注册 obsidian://adv-uri 协议，单击链接即可直接跳转到目标行。注意：Obsidian 只允许一个插件处理该协议，因此开启此功能时必须禁用 Advanced URI 插件（否则 Advanced URI 将无法加载）。如需生成行链接，改用右键菜单「复制行链接（adv-uri）」即可，无需 Advanced URI。',
     'Jump delay (ms)': '跳转延时（毫秒）',
     'The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.': '定位光标前等待目标文件渲染的最长时间（毫秒）。小文件几乎立即跳转；大文件最多等待到此上限。默认 8000。',
     'Open in new tab': '在新标签页打开',

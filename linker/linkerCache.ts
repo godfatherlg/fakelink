@@ -628,7 +628,6 @@ export class PrefixTree {
         // Store the leaf node for the file to be able to remove it later
         const path = file.path;
         this.mapFilePathToLeaveNodes.set(path, [node, ...(this.mapFilePathToLeaveNodes.get(path) ?? [])]);
-        // console.log("Adding file", file, name);
     }
 
     // Get the header ID for a file and keyword, used for heading highlight on jump
@@ -1019,8 +1018,6 @@ export class PrefixTree {
         // Remove files that are no longer in the vault
         const filesToRemove = [...this.setIndexedFilePaths].filter((f) => !currentVaultFiles.has(f));
         filesToRemove.forEach((f) => this.removeFileFromTree(f));
-
-        // console.log(`[FakeLink] indexed ${this.setIndexedFilePaths.size} files`);
     }
 
     findFiles(prefix: string): Set<TFile> {

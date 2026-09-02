@@ -272,12 +272,10 @@ FakeLink can take over clicks on `obsidian://adv-uri` links that carry a `line` 
 
 ## Do I need the Advanced URI plugin?
 
-It depends on which side you are on:
+No. FakeLink handles both sides itself:
 
-- **To jump (click a link):** No. FakeLink intercepts the click directly and does **not** depend on Advanced URI at runtime — any markdown link in the `obsidian://adv-uri` format is handled by FakeLink itself.
-- **To create the links:** Yes, recommended. The `filepath` must be URL-encoded (slashes as `%2F`, CJK characters percent-encoded), which is tedious to write by hand. Installing the [Advanced URI](https://github.com/Vinzent03/obsidian-advanced-uri) plugin gives you a "Copy URI" command that generates these line-targeting links for you.
-
-So: install Advanced URI if you want an easy way to **produce** line-targeting links. It is not required for the **jumping** part.
+- **To jump (click a link):** With **Jump to line on adv-uri click** enabled, FakeLink registers the `obsidian://adv-uri` protocol and jumps to the target line on a single click — including files that are not open yet. Because Obsidian only allows ONE plugin per protocol, **disable the Advanced URI plugin** while this feature is on.
+- **To create the links:** Use the editor's right-click menu → **Copy line link (adv-uri)**. It copies an `obsidian://adv-uri` link for the current line to your clipboard, ready to paste into a checklist. No Advanced URI plugin needed.
 
 ## Link format
 

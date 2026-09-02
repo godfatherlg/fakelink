@@ -364,8 +364,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                             const parent = childNode.parentElement;
                             let lastTo = 0;
-                            // console.log("Parent: ", parent);
-
 
                             matches.forEach((match) => {
                                 match.files.forEach((f) => linkedFiles.add(f));
