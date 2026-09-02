@@ -686,20 +686,19 @@ export default class LinkerPlugin extends Plugin {
         }
     }
 
-    // Build an obsidian://adv-uri link pointing at a 1-based line of a file,
-    // with the path URL-encoded (slashes as %2F, CJK percent-encoded).
-    private buildLineUri(file: TFile, lineZeroBased: number): string {
-        const line = lineZeroBased + 1;
-        return `obsidian://adv-uri?filepath=${encodeURIComponent(file.path)}&line=${line}`;
-    }
-
-    // Right-click menu action: copy a Markdown link to the current line, e.g.
-    //   [5](obsidian://adv-uri?filepath=...&line=5)
-    // so pasting into a checklist gives a clean clickable label (the line
-    // number) instead of a long raw URL.
+    // Copy a Markdown link for the current line, e.g.
+    //   [33](obsidian://adv-uri?vault=<id>&filepath=<url-encoded path>&line=33&column=1&openmode=true&view-mode=source)
+    // The full parameter set matches what Advanced URI generates, while the
+    // [line-number](...) wrapper keeps the pasted checklist line clean.
     async copyLineUri(file: TFile, lineZeroBased: number) {
         const line = lineZeroBased + 1;
-        const uri = this.buildLineUri(file, lineZeroBased);
+        // Vault id is not part of the public API; fall back to the vault name
+        // if getId is unavailable at runtime.
+        const vaultId = (this.app.vault as unknown as { getId?: () => string }).getId?.()
+            ?? this.app.vault.getName();
+        const uri = `obsidian://adv-uri?vault=${encodeURIComponent(vaultId)}`
+            + `&filepath=${encodeURIComponent(file.path)}`
+            + `&line=${line}&column=1&openmode=true&view-mode=source`;
         try {
             await navigator.clipboard.writeText(`[${line}](${uri})`);
             new Notice(t('Line link copied'));
