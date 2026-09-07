@@ -166,6 +166,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
             return;
         }
 
+        // Skip files whose folder is in "excluded directories for generating
+        // virtual links" (source-side exclusion), mirroring liveLinker.
+        const excludedFolders = this.settings.excludedDirectoriesForLinking;
+        if (excludedFolders.length > 0) {
+            const sourceFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
+            const parentPath = sourceFile?.parent?.path ?? '';
+            if (excludedFolders.includes(parentPath)) {
+                this.clearExistingLinks();
+                return;
+            }
+        }
+
         const tags = ['p', 'li', 'td', 'th', 'span', 'em', 'strong', 'mark', 'del', 's'];
 
         // TODO: Onload is called on the divs separately, so these sets are not stored between divs.
