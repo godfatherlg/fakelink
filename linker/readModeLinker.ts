@@ -72,7 +72,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
      */
     findInternalLinkSyntaxMatches(text: string, currentFile: TFile, startId: number): VirtualMatch[] {
         const matches: VirtualMatch[] = [];
-        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#])+)(#(?:[^\s[\]|]+)?)+(?:\|([^\s[\]|]+))?/g;
+        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#\p{P}])+)(#(?:[^\s[\]|\p{P}]+)?)+(?:\|([^\s[\]|\p{P}]+))?/gu;
         let m: RegExpExecArray | null;
         let id = startId;
         while ((m = regex.exec(text)) !== null) {
@@ -81,21 +81,39 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
             // Split optional display alias: `a#b|别名` → target "a#b", display "别名".
             let targetPart = full;
-            let displayText = full;
+            let aliasPart: string | undefined;
             const pipeIdx = full.indexOf('|');
             if (pipeIdx > 0) {
                 targetPart = full.slice(0, pipeIdx);
                 const alias = full.slice(pipeIdx + 1);
-                if (alias) displayText = alias;
+                if (alias) aliasPart = alias;
             }
 
             const hashIdx = targetPart.indexOf('#');
             if (hashIdx <= 0) continue;
-            const notePart = targetPart.slice(0, hashIdx);
+            let notePart = targetPart.slice(0, hashIdx);
             const anchorPart = targetPart.slice(hashIdx + 1);
 
-            const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            // Resolve the note part to a file, right-to-left to skip any preceding
+            // letters/digits that the note capture greedily absorbed.
+            let dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            let prefixCut = 0;
+            if (!dest && notePart.length > 1) {
+                for (let cut = 1; cut < notePart.length; cut++) {
+                    const candidate = notePart.slice(cut);
+                    const d = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(candidate), currentFile.path);
+                    if (d) {
+                        dest = d;
+                        notePart = candidate;
+                        prefixCut = cut;
+                        break;
+                    }
+                }
+            }
             if (!dest) continue;
+
+            // Display text: alias if given, otherwise the (possibly trimmed) target.
+            const displayText = aliasPart || (notePart + '#' + anchorPart);
 
             const blockIdx = anchorPart.indexOf('^');
             const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
@@ -125,7 +143,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 new VirtualMatch(
                     id++,
                     displayText,
-                    m.index,
+                    m.index + prefixCut,
                     m.index + full.length,
                     [dest],
                     MatchType.Header,

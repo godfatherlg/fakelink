@@ -2003,7 +2003,7 @@ class LinkerSettingTab extends PluginSettingTab {
             // ---------- Special syntax ----------
             groupDef(t('Special syntax'), [
                 toggleDef(t('Bare internal link syntax'), 'enableInternalLinkSyntax', {
-                    desc: t('When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).'),
+                    desc: t('When enabled, plain text like "note#heading", "note#^block-id", or "note#heading|alias" is treated as a virtual link. Append "|alias" to set a custom display name. Links end at a space or punctuation; letters/digits directly after the alias become part of it, so add a space before them if needed.'),
                 }),
                 toggleDef(t('Context-aware header disambiguation'), 'enableContextDisambiguation', {
                     desc: t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'),

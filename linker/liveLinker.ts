@@ -371,7 +371,7 @@ class AutoLinkerPlugin implements PluginValue {
         // Match a non-whitespace, non-bracket token containing at least one '#'
         // but exclude tokens already wrapped in [[...]] (those are real links and
         // are handled/excluded elsewhere).
-        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#])+)(#(?:[^\s[\]|]+)?)+(?:\|([^\s[\]|]+))?/g;
+        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#\p{P}])+)(#(?:[^\s[\]|\p{P}]+)?)+(?:\|([^\s[\]|\p{P}]+))?/gu;
         let m: RegExpExecArray | null;
         let id = startId;
         while ((m = regex.exec(text)) !== null) {
@@ -383,22 +383,41 @@ class AutoLinkerPlugin implements PluginValue {
             // "别名". The link covers the whole token (from..to), but note/anchor
             // resolution uses only the part before the pipe.
             let targetPart = full;
-            let displayText = full;
+            let aliasPart: string | undefined;
             const pipeIdx = full.indexOf('|');
             if (pipeIdx > 0) {
                 targetPart = full.slice(0, pipeIdx);
                 const alias = full.slice(pipeIdx + 1);
-                if (alias) displayText = alias;
+                if (alias) aliasPart = alias;
             }
 
             const hashIdx = targetPart.indexOf('#');
             if (hashIdx <= 0) continue;
-            const notePart = targetPart.slice(0, hashIdx);
+            let notePart = targetPart.slice(0, hashIdx);
             const anchorPart = targetPart.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
 
-            // Resolve the note part to a file.
-            const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            // Resolve the note part to a file. The note capture may have greedily
+            // absorbed preceding letters/digits (e.g. "abc王鸽" when only "王鸽"
+            // is the note). If the full part doesn't resolve, try shorter suffixes
+            // (right-to-left) to find the longest resolvable note name.
+            let dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+            let prefixCut = 0;
+            if (!dest && notePart.length > 1) {
+                for (let cut = 1; cut < notePart.length; cut++) {
+                    const candidate = notePart.slice(cut);
+                    const d = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(candidate), currentFile.path);
+                    if (d) {
+                        dest = d;
+                        notePart = candidate;
+                        prefixCut = cut;
+                        break;
+                    }
+                }
+            }
             if (!dest) continue;
+
+            // Display text: alias if given, otherwise the (possibly trimmed) target.
+            const displayText = aliasPart || (notePart + '#' + anchorPart);
 
             // The anchor can be a heading path and/or a block id.
             const blockIdx = anchorPart.indexOf('^');
@@ -435,7 +454,7 @@ class AutoLinkerPlugin implements PluginValue {
                 continue;
             }
 
-            const aFrom = rangeFrom + m.index;
+            const aFrom = rangeFrom + m.index + prefixCut;
             const aTo = rangeFrom + m.index + full.length;
             matches.push(
                 new VirtualMatch(

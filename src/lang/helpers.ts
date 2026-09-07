@@ -152,7 +152,7 @@ const zhCN: Record<string, string> = {
     'Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.': '标记要排除文本结束位置的符号。可用逗号分隔多个符号（与起始符号按位置一一对应）。每个符号必须与其对应的起始符号不同。',
 
     'Bare internal link syntax': '内部链接语法',
-    'When enabled, plain text like "note#heading" or "note#^block-id" will be treated as a virtual link to that heading/block, without needing to wrap it in [[ ]] (which would create a real link).': '启用后，纯文本如 "note#heading" 或 "note#^block-id" 将被视为指向该标题/块的虚拟链接，无需用 [[ ]] 包裹（包裹会创建真实链接）。',
+    'When enabled, plain text like "note#heading", "note#^block-id", or "note#heading|alias" is treated as a virtual link. Append "|alias" to set a custom display name. Links end at a space or punctuation; letters/digits directly after the alias become part of it, so add a space before them if needed.': '启用后，纯文本如 "note#heading"、"note#^block-id" 或 "note#heading|别名" 将被视为虚拟链接。追加 "|别名" 可设置自定义显示名称。链接以空格或标点符号结束；紧跟在别名后的字母/数字会并入别名，如需分隔请在其前加空格。',
 
     'Context-aware header disambiguation': '上下文感知的标题消歧',
     'When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.': '当标题名存在于多个笔记中时，优先指向当前段落中距离匹配位置最近处出现其文件名（或别名）的笔记，使链接指向最相关的笔记，而不是列出所有匹配项。',
