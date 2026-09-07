@@ -371,7 +371,7 @@ class AutoLinkerPlugin implements PluginValue {
         // Match a non-whitespace, non-bracket token containing at least one '#'
         // but exclude tokens already wrapped in [[...]] (those are real links and
         // are handled/excluded elsewhere).
-        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]#])+)(#(?:[^\s[\]]+)?)+/g;
+        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#])+)(#(?:[^\s[\]|]+)?)+(?:\|([^\s[\]|]+))?/g;
         let m: RegExpExecArray | null;
         let id = startId;
         while ((m = regex.exec(text)) !== null) {
@@ -379,10 +379,22 @@ class AutoLinkerPlugin implements PluginValue {
             // Skip if it starts with "[[" — a real internal link.
             if (full.startsWith('[[')) continue;
 
-            const hashIdx = full.indexOf('#');
+            // Split optional display alias: `a#b|别名` → target "a#b", display
+            // "别名". The link covers the whole token (from..to), but note/anchor
+            // resolution uses only the part before the pipe.
+            let targetPart = full;
+            let displayText = full;
+            const pipeIdx = full.indexOf('|');
+            if (pipeIdx > 0) {
+                targetPart = full.slice(0, pipeIdx);
+                const alias = full.slice(pipeIdx + 1);
+                if (alias) displayText = alias;
+            }
+
+            const hashIdx = targetPart.indexOf('#');
             if (hashIdx <= 0) continue;
-            const notePart = full.slice(0, hashIdx);
-            const anchorPart = full.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
+            const notePart = targetPart.slice(0, hashIdx);
+            const anchorPart = targetPart.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
 
             // Resolve the note part to a file.
             const dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
@@ -428,7 +440,7 @@ class AutoLinkerPlugin implements PluginValue {
             matches.push(
                 new VirtualMatch(
                     id++,
-                    full,
+                    displayText,
                     aFrom,
                     aTo,
                     [dest],
