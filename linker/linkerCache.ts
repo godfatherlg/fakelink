@@ -286,7 +286,7 @@ export class PrefixTree {
     // length-difference > 2 short-circuits (such pairs can never reach >=80%
     // similarity for our shortest indexed keywords). This replaced the earlier
     // full-map scan that caused Obsidian to lag on large vaults.
-    findFuzzyMatches(word: string, threshold: number): { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] {
+    findFuzzyMatches(word: string, threshold: number, excludeFile?: TFile | null): { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] {
         const w = word.toLowerCase();
         if (!w || !this.settings.enableStemming) return [];
         // Skip short query words: fuzzy-matching a too-short document word
@@ -310,7 +310,20 @@ export class PrefixTree {
             if (sim >= minSim) {
                 const entries = this.fuzzyKeywordMap.get(key)!;
                 for (const e of entries) {
-                    results.push({ files: e.files, headerId: e.headerId, canonical: e.canonical, similarity: sim });
+                    // Respect excludeLinksToOwnNote: drop the current note from
+                    // fuzzy results, mirroring getCurrentMatchNodes' excludedNote.
+                    let files = e.files;
+                    if (excludeFile) {
+                        files = new Set([...e.files].filter((f) => f.path !== excludeFile.path));
+                        if (files.size === 0) continue;
+                    }
+                    // Final gate: re-apply the unified exclusion check (extension /
+                    // directory / includeAllFiles) so a stale index entry can never
+                    // leak a fuzzy link to an excluded file (e.g. excludedDirectories
+                    // changed but the tree hasn't been re-indexed yet).
+                    files = new Set([...files].filter((f) => !this.shouldExcludeFile(f)));
+                    if (files.size === 0) continue;
+                    results.push({ files, headerId: e.headerId, canonical: e.canonical, similarity: sim });
                 }
             }
         }
@@ -663,6 +676,37 @@ export class PrefixTree {
         return upperCaseChars / length >= upperCasePart;
     }
 
+    /**
+     * Unified check for whether a file should be excluded from being a virtual
+     * link target. Both the exact-match index (prefix tree) and the fuzzy-match
+     * index (fuzzyKeywordMap) share this, so both obey the exact same exclusion
+     * rules (extension / directory / includeAllFiles).
+     */
+    private shouldExcludeFile(file: TFile): boolean {
+        const path = file.path;
+
+        // Check if file extension is excluded
+        if (this.settings.excludedExtensions.some(ext =>
+            path.toLowerCase().endsWith(ext.toLowerCase())
+        )) {
+            return true;
+        }
+
+        const metaInfo = this.fetcher.getMetaInfo(file);
+        const includeFile = metaInfo.includeFile;
+        const excludeFile = metaInfo.excludeFile;
+        const isInIncludedDir = metaInfo.isInIncludedDir;
+        const isInExcludedDir = metaInfo.isInExcludedDir;
+
+        if (excludeFile || (isInExcludedDir && !includeFile)) {
+            return true;
+        }
+        if (!includeFile && !isInIncludedDir && !metaInfo.includeAllFiles) {
+            return true;
+        }
+        return false;
+    }
+
     private addFileToTree(file: TFile) {
         const path = file.path;
 
@@ -670,10 +714,9 @@ export class PrefixTree {
             return;
         }
 
-        // Check if file extension is excluded
-        if (this.settings.excludedExtensions.some(ext => 
-            path.toLowerCase().endsWith(ext.toLowerCase())
-        )) {
+        // Unified exclusion check, hoisted before any indexing bookkeeping so an
+        // excluded file is never registered in the index metadata.
+        if (this.shouldExcludeFile(file)) {
             return;
         }
 
@@ -684,30 +727,12 @@ export class PrefixTree {
         this.setIndexedFilePaths.add(path);
         this.mapIndexedFilePathsToUpdateTime.set(path, file.stat.mtime);
 
-        // Get the virtual linker related metadata of the file
-        const metaInfo = this.fetcher.getMetaInfo(file);
-
         // Get the tags of the file
         // and normalize them by removing the # in front of tags
         const fileCache = this.app.metadataCache.getFileCache(file);
         const tagsArray: string[] | null = fileCache ? getAllTags(fileCache) : null;
         const tags = (tagsArray ?? []).filter(s => PrefixTree.isNoneEmptyString(s))
             .map((tag) => (tag.startsWith('#') ? tag.slice(1) : tag));
-
-        const includeFile = metaInfo.includeFile;
-        const excludeFile = metaInfo.excludeFile;
-
-        const isInIncludedDir = metaInfo.isInIncludedDir;
-        const isInExcludedDir = metaInfo.isInExcludedDir;
-
-        if (excludeFile || (isInExcludedDir && !includeFile)) {
-            return;
-        }
-
-        // Skip files that are not in the linker directories
-        if (!includeFile && !isInIncludedDir && !metaInfo.includeAllFiles) {
-            return;
-        }
 
         const metadata = this.app.metadataCache.getFileCache(file);
         let aliases: string[] = (metadata?.frontmatter?.aliases as string[]) ?? [];

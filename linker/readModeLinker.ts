@@ -204,6 +204,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                         let matches: VirtualMatch[] = [];
 
                         let id = 0;
+                        let wordStart = 0; // start offset of the current document word
 
                         // Iterate over every char in the text
                         for (let i = 0; i <= text.length; i) {
@@ -301,9 +302,69 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             matches.push(match);
                                         });
                                     }
+
+                                    // Fuzzy (词义模糊) fallback in read mode, mirroring liveLinker:
+                                    // when no exact match was found, link the normalized word if its
+                                    // similarity to a normalized keyword is above the threshold.
+                                    if (currentNodes.length === 0 && this.settings.enableStemming) {
+                                        const rawWord = text.slice(wordStart, i).trim();
+                                        if (rawWord.length > 0) {
+                                            const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
+                                            if (normWord) {
+                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
+                                                for (const fr of fuzzyResults) {
+                                                    let fFrom = wordStart;
+                                                    const fTo = i;
+                                                    while (fFrom < fTo && /\s/.test(text[fFrom])) fFrom++;
+                                                    const fName = text.slice(fFrom, fTo);
+
+                                                    const filteredFiles = Array.from(fr.files).filter(file => {
+                                                        return !this.settings.excludedExtensions.some(ext =>
+                                                            file.path.toLowerCase().endsWith(ext.toLowerCase())
+                                                        );
+                                                    });
+                                                    if (filteredFiles.length === 0) continue;
+
+                                                    let fuzzyMatchType = MatchType.Note;
+                                                    if (fr.headerId) {
+                                                        fuzzyMatchType = MatchType.Header;
+                                                    } else if (fr.canonical) {
+                                                        const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === fr.canonical!.toLowerCase());
+                                                        if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                                    }
+
+                                                    const virtualMatch = new VirtualMatch(
+                                                        id++,
+                                                        fName,
+                                                        fFrom,
+                                                        fTo,
+                                                        filteredFiles,
+                                                        fuzzyMatchType,
+                                                        false,
+                                                        this.settings,
+                                                        this.plugin,
+                                                        fr.headerId
+                                                    );
+
+                                                    if (filteredFiles.length > 1) {
+                                                        filteredFiles.forEach((file, index) => {
+                                                            if (index === 0) return;
+                                                            const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                                                virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
+                                                            }
+                                                        });
+                                                    }
+
+                                                    matches.push(virtualMatch);
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
 
                                 // Push the char to get the next nodes in the prefix tree
+                                if (isWordBoundary) wordStart = i;
                                 this.linkerCache.cache.pushChar(char);
                                 i += char.length;
                             }

@@ -169,7 +169,7 @@ export class VirtualMatch {
 
     getLinkRootSpan(inTableCellEditor = false) {
         const span = activeDocument.createElement('span');
-        span.classList.add('glossary-entry', 'virtual-link', 'virtual-link-span');
+        span.classList.add('virtual-link', 'virtual-link-span');
         
         if (this.settings.applyDefaultLinkStyling) {
             span.classList.add('virtual-link-default');

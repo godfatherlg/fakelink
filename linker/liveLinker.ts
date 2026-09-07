@@ -120,11 +120,6 @@ export class VirtualLinkWidget extends WidgetType {
         
         return element;
     }
-    
-    // Set higher decoration priority
-    get estimatedHeight(): number {
-        return -1;
-    }
 }
 
 class AutoLinkerPlugin implements PluginValue {
@@ -588,12 +583,15 @@ class AutoLinkerPlugin implements PluginValue {
                         if (rawWord.length > 0) {
                             const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
                             if (normWord) {
-                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold);
+                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
                                 for (const fr of fuzzyResults) {
                                     let fFromRel = wordStartRel;
                                     const fToRel = i;
-                                    // Trim leading newlines to avoid cross-line decorations
-                                    while (fFromRel < fToRel && text[fFromRel] === '\n') {
+                                    // Trim leading whitespace so the decoration range matches
+                                    // the word exactly. A leading space (e.g. after a list
+                                    // marker "1. ") would otherwise become part of the link
+                                    // text and break list indentation / layout.
+                                    while (fFromRel < fToRel && /\s/.test(text[fFromRel])) {
                                         fFromRel++;
                                     }
                                     const fName = text.slice(fFromRel, fToRel);

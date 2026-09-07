@@ -157,10 +157,13 @@ export function scanVirtualLinks(
                 if (rawWord.length > 0) {
                     const normWord = cacheTree.fuzzyNormalize(rawWord, settings.stemmingLanguage);
                     if (normWord) {
-                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold);
+                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold, ownNote);
                         for (const fr of fuzzyResults) {
                             let fFrom = wordStart;
                             let fTo = i;
+                            // Trim leading whitespace so the link range matches the word
+                            // exactly (avoids a leading space becoming part of the link).
+                            while (fFrom < fTo && /\s/.test(text[fFrom])) fFrom++;
                             const fName = text.slice(fFrom, fTo);
 
                             if (isInsideExistingLink(text, fFrom)) continue;
