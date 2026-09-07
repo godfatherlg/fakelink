@@ -130,23 +130,27 @@ export class GlossaryLinker extends MarkdownRenderChild {
     }
 
     /**
-     * Simplified context-aware disambiguation for read mode. When a heading
-     * exists in multiple notes, prefer the note whose file name (or alias)
-     * appears in the current block-level element (p/li/td). Read mode processes
-     * DOM text nodes, so we approximate "current paragraph" with the nearest
-     * block element's text content.
+     * Context-aware disambiguation for read mode, matching liveLinker's
+     * "nearest mention" algorithm. When a heading exists in multiple notes,
+     * prefer the note whose file name (or alias) appears closest to the match
+     * within the current block element (p/li/td/th). Read mode operates on DOM
+     * text nodes, so we walk the block's text nodes to reconstruct the text
+     * that precedes the match position.
      */
-    disambiguateFilesByContextReadMode(files: TFile[], startEl: Element | null): TFile[] {
-        if (files.length <= 1 || !startEl) return files;
+    disambiguateFilesByContextReadMode(files: TFile[], textNode: Node, offset: number): TFile[] {
+        if (files.length <= 1 || !textNode) return files;
 
-        let blockEl: Element | null = startEl;
+        let blockEl: Element | null = textNode.parentElement;
         while (blockEl && !['P', 'LI', 'TD', 'TH'].includes(blockEl.tagName)) {
             blockEl = blockEl.parentElement;
         }
-        const context = (blockEl?.textContent || '').toLowerCase();
+        if (!blockEl) return files;
+
+        const context = this.getTextBeforeNode(blockEl, textNode, offset).toLowerCase();
         if (context.trim().length === 0) return files;
 
-        const appearing = files.filter((file) => {
+        const scored = files.map((file) => {
+            let closestDistance = Number.POSITIVE_INFINITY;
             const names = [file.basename];
             const cache = this.app.metadataCache.getFileCache(file);
             const rawAliases: unknown = cache?.frontmatter?.aliases;
@@ -154,10 +158,44 @@ export class GlossaryLinker extends MarkdownRenderChild {
             for (const alias of aliases) {
                 if (typeof alias === 'string') names.push(alias);
             }
-            return names.some((n) => n.length >= 2 && context.includes(n.toLowerCase()));
+            for (const name of names) {
+                const lower = name.toLowerCase();
+                if (lower.length < 2) continue;
+                const idx = context.lastIndexOf(lower);
+                if (idx === -1) continue;
+                const distance = context.length - (idx + lower.length);
+                if (distance < closestDistance) closestDistance = distance;
+            }
+            return { file, distance: closestDistance };
         });
 
-        return appearing.length === 1 ? [appearing[0]] : files;
+        const hits = scored.filter((s) => Number.isFinite(s.distance));
+        if (hits.length === 0) return files;
+
+        const minDist = Math.min(...hits.map((s) => s.distance));
+        const winners = hits.filter((s) => s.distance === minDist);
+        if (winners.length === 1) {
+            return [winners[0].file];
+        }
+        return files;
+    }
+
+    /**
+     * Reconstruct the text content of a block element that precedes a given
+     * text node position, by walking the block's text nodes in document order.
+     */
+    private getTextBeforeNode(blockEl: Element, targetNode: Node, targetOffset: number): string {
+        let result = '';
+        const walker = activeDocument.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
+        let node: Node | null;
+        while ((node = walker.nextNode())) {
+            if (node === targetNode) {
+                result += (node.textContent || '').slice(0, targetOffset);
+                break;
+            }
+            result += node.textContent || '';
+        }
+        return result;
     }
 
     onload() {
@@ -179,11 +217,26 @@ export class GlossaryLinker extends MarkdownRenderChild {
         }
 
         const tags = ['p', 'li', 'td', 'th', 'span', 'em', 'strong', 'mark', 'del', 's'];
+        if (this.settings.allowLinksInHeaders) {
+            tags.push('h1', 'h2', 'h3', 'h4', 'h5', 'h6');
+        }
 
         // TODO: Onload is called on the divs separately, so these sets are not stored between divs.
         // Since divs can be rendered in arbitrary order, storing information about already linked files is not easy.
         const linkedFiles = new Set<TFile>();
         const explicitlyLinkedFiles = new Set<TFile>();
+
+        // Collect files already linked by real [[...]] links so excludeLinksToRealLinkedFiles
+        // works in read mode. Live mode parses these from the syntax tree; read mode parses
+        // the rendered <a class="internal-link"> elements instead (before we insert any
+        // virtual links below).
+        const realLinks = this.containerEl.querySelectorAll('a.internal-link');
+        realLinks.forEach((a) => {
+            const href = a.getAttribute('href') || '';
+            if (!href) return;
+            const target = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(href), this.ctx.sourcePath);
+            if (target) explicitlyLinkedFiles.add(target);
+        });
 
         for (const tag of tags) {
             // Snapshot the live HTMLCollection before mutating the DOM. As we
@@ -197,6 +250,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 // Skip elements already wrapped inside a generated virtual link,
                 // otherwise we would re-process the text we just linked.
                 if (!item || item.closest('.virtual-link')) {
+                    continue;
+                }
+
+                // When header links are disabled, skip any element inside a heading
+                // (span/em/strong within h1-h6) so headers are fully excluded,
+                // matching liveLinker's allowLinksInHeaders behavior.
+                if (!this.settings.allowLinksInHeaders && item.closest('h1,h2,h3,h4,h5,h6')) {
                     continue;
                 }
 
@@ -254,13 +314,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                         // TODO: Handle multiple files
 
                                         // Context-aware disambiguation in read mode.
-                                        let files = Array.from(node.files);
+                                        let files = Array.from(node.files).filter(file => {
+                                            return !this.settings.excludedExtensions.some(ext =>
+                                                file.path.toLowerCase().endsWith(ext.toLowerCase())
+                                            );
+                                        });
+                                        if (files.length === 0) return;
                                         if (
                                             this.settings.enableContextDisambiguation &&
                                             node.type === MatchType.Header &&
                                             files.length > 1
                                         ) {
-                                            files = this.disambiguateFilesByContextReadMode(files, childNode.parentElement);
+                                            files = this.disambiguateFilesByContextReadMode(files, childNode, nFrom);
                                         }
 
                                         // Ensure headerId is correctly passed when matching headings
@@ -381,15 +446,17 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 i += char.length;
                             }
 
-                            // Recognize bare internal-link syntax in read mode.
+                            // Recognize bare internal-link syntax in read mode. These
+                            // matches are collected separately and re-joined after
+                            // filterOverlapping, mirroring liveLinker: their ranges are
+                            // added to the exclusion tree so a prefix-tree partial match
+                            // inside them is dropped instead of competing.
+                            let internalMatches: VirtualMatch[] = [];
                             if (this.settings.enableInternalLinkSyntax) {
                                 const sourceFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
                                 if (sourceFile instanceof TFile) {
-                                    const internalMatches = this.findInternalLinkSyntaxMatches(text, sourceFile, id);
-                                    if (internalMatches.length > 0) {
-                                        matches = matches.concat(internalMatches);
-                                        id += internalMatches.length;
-                                    }
+                                    internalMatches = this.findInternalLinkSyntaxMatches(text, sourceFile, id);
+                                    id += internalMatches.length;
                                 }
                             }
 
@@ -422,6 +489,14 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 }
                             }
 
+                            // Exclude successfully-parsed internal-link syntax ranges from
+                            // prefix-tree matching (same as liveLinker), so "note#heading"
+                            // fully replaces a partial "note" match.
+                            for (const im of internalMatches) {
+                                if (!excludedIntervalTree) excludedIntervalTree = new IntervalTree();
+                                excludedIntervalTree.insert([im.from, im.to]);
+                            }
+
                             // Delete additions that links to already linked files
                             if (this.settings.excludeLinksToRealLinkedFiles) {
                                 matches = VirtualMatch.filterAlreadyLinked(matches, explicitlyLinkedFiles);
@@ -434,6 +509,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // Delete additions that overlap
                             // Additions are sorted by from position and after that by length, we want to keep longer additions
                             matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce, excludedIntervalTree);
+
+                            // Re-join the internal-link syntax matches now that prefix-tree
+                            // matches inside their ranges have been dropped.
+                            if (internalMatches.length > 0) {
+                                matches = matches.concat(internalMatches);
+                                matches = VirtualMatch.sort(matches);
+                            }
 
                             const parent = childNode.parentElement;
                             let lastTo = 0;

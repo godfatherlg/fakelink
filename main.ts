@@ -621,7 +621,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludedKeywords: [],
     headerAutoAppendSuffix: false,
     headerAutoAppendSymbol: '☱',
-    allowLinksInHeaders: true,
+    allowLinksInHeaders: false,
     colorOnlyDisplay: true,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
