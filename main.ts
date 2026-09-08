@@ -571,6 +571,7 @@ export interface LinkerPluginSettings {
     jumpEnabled: boolean; // Intercept obsidian://adv-uri clicks to jump to a line directly
     jumpDelayMs: number; // Delay (ms) to wait for the target file to render before jumping to the line
     jumpOpenInNewTab: boolean; // When the target file is not open, open it in a new tab
+    lineLinkSelfHeal: boolean; // Self-heal line links when target line numbers drift
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -645,6 +646,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     jumpEnabled: true,
     jumpDelayMs: 8000,
     jumpOpenInNewTab: true,
+    lineLinkSelfHeal: false,
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -698,14 +700,60 @@ export default class LinkerPlugin extends Plugin {
         // if getId is unavailable at runtime.
         const vaultId = (this.app.vault as unknown as { getId?: () => string }).getId?.()
             ?? this.app.vault.getName();
-        const uri = `obsidian://adv-uri?vault=${encodeURIComponent(vaultId)}`
+        let uri = `obsidian://adv-uri?vault=${encodeURIComponent(vaultId)}`
             + `&filepath=${encodeURIComponent(file.path)}`
             + `&line=${line}&column=1&openmode=true&view-mode=source`;
+        // Self-heal: store the target line text so the jump can find it again
+        // later even after edits shift the line numbers.
+        if (this.settings.lineLinkSelfHeal) {
+            const anchor = await this.getLineAnchor(file, lineZeroBased);
+            if (anchor) {
+                uri += `&anchor=${encodeURIComponent(anchor)}`;
+            }
+        }
         try {
             await navigator.clipboard.writeText(`[${line}](${uri})`);
             new Notice(t('Line link copied'));
         } catch {
             new Notice(t('Failed to copy line link'));
+        }
+    }
+
+    // Read the text of `lineZeroBased` and return a short anchor used to
+    // re-locate that line later if the file is edited and line numbers drift.
+    private async getLineAnchor(file: TFile, lineZeroBased: number): Promise<string> {
+        try {
+            const content = await this.app.vault.cachedRead(file);
+            const lines = content.split('\n');
+            const text = (lines[lineZeroBased] ?? '').trim();
+            const maxLen = 40;
+            return text.length > maxLen ? text.slice(0, maxLen) : text;
+        } catch {
+            return '';
+        }
+    }
+
+    // Return the line that currently holds `anchor`. Falls back to the recorded
+    // `line` when self-healing is off, no anchor was stored, or the anchor text
+    // can no longer be found (the line itself was edited away).
+    private async resolveLineByAnchor(file: TFile, line: number, anchor?: string): Promise<number> {
+        if (!this.settings.lineLinkSelfHeal || !anchor) return line;
+        try {
+            const content = await this.app.vault.cachedRead(file);
+            const lines = content.split('\n');
+            const idx = line - 1;
+            // Recorded line still holds the text → nothing to fix.
+            if (idx >= 0 && idx < lines.length && lines[idx].trim().startsWith(anchor)) {
+                return line;
+            }
+            // Drifted: prefer an exact line-start match, then a looser contains match.
+            const exact = lines.findIndex(l => l.trim().startsWith(anchor));
+            if (exact >= 0) return exact + 1;
+            const loose = lines.findIndex(l => l.trim().includes(anchor));
+            if (loose >= 0) return loose + 1;
+            return line;
+        } catch {
+            return line;
         }
     }
 
@@ -749,7 +797,7 @@ export default class LinkerPlugin extends Plugin {
 
     // Open the target file (if needed) and, once rendered, move the cursor to
     // `line` and scroll it into view. `line` is 1-based (adv-uri format).
-    async jumpToLine(filepath: string, line: number) {
+    async jumpToLine(filepath: string, line: number, anchor?: string) {
         const file = this.app.vault.getAbstractFileByPath(filepath);
         if (!(file instanceof TFile)) return;
 
@@ -761,7 +809,8 @@ export default class LinkerPlugin extends Plugin {
         const view = leaf.view;
         if (!(view instanceof MarkdownView)) return;
 
-        const targetLine = line;
+        // Self-heal: correct the line number when the recorded one has drifted.
+        const targetLine = await this.resolveLineByAnchor(file, line, anchor);
         await this.waitForEditor(view, targetLine, this.settings.jumpDelayMs);
 
         if (!wasAlreadyOpen) {
@@ -965,9 +1014,10 @@ export default class LinkerPlugin extends Plugin {
             const line = parseInt(p.get('line') || '', 10);
             if (!line || line < 1) return;
             const filepath = p.get('filepath') || '';
+            const anchor = p.get('anchor') || undefined;
             evt.preventDefault();
             evt.stopImmediatePropagation();
-            void this.jumpToLine(filepath, line);
+            void this.jumpToLine(filepath, line, anchor);
         }, true);
 
         // Take over the obsidian://adv-uri protocol so line links (including
@@ -987,8 +1037,10 @@ export default class LinkerPlugin extends Plugin {
             if (!this.settings.jumpEnabled) return;
             this.registerObsidianProtocolHandler('adv-uri', (data) => {
                 if (!this.settings.jumpEnabled) return;
-                const filepath = (data as Record<string, string>)['filepath'] || '';
-                const line = parseInt((data as Record<string, string>)['line'] || '', 10);
+                const d = data as Record<string, string>;
+                const filepath = d['filepath'] || '';
+                const line = parseInt(d['line'] || '', 10);
+                const anchor = d['anchor'] || undefined;
                 if (!filepath) return;
                 if (!line || line < 1) {
                     // No line: this is the "open the file" step of an external
@@ -998,7 +1050,7 @@ export default class LinkerPlugin extends Plugin {
                     if (file instanceof TFile) void this.openFileOnly(file);
                     return;
                 }
-                void this.jumpToLine(filepath, line);
+                void this.jumpToLine(filepath, line, anchor);
             });
         }, 500);
 
@@ -1999,17 +2051,6 @@ class LinkerSettingTab extends PluginSettingTab {
                     desc: t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'),
                     visible: () => s.enableFrontmatterExcludeList,
                 }),
-                toggleDef(t('Exclude text between symbols'), 'enableSymbolExclusion', {
-                    desc: t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Separate multiple symbol pairs with commas (e.g. start "{,（" end "},）"). Useful for pandoc citations or other special syntax.'),
-                }),
-                textDef(t('Start symbol'), 'excludeSymbolStart', {
-                    desc: t('Symbol marking the start of the excluded text. Separate multiple symbols with commas (matched positionally with the end symbols). Each must differ from its corresponding end symbol.'),
-                    visible: () => s.enableSymbolExclusion,
-                }),
-                textDef(t('End symbol'), 'excludeSymbolEnd', {
-                    desc: t('Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.'),
-                    visible: () => s.enableSymbolExclusion,
-                }),
             ]),
 
             // ---------- Special syntax ----------
@@ -2020,8 +2061,16 @@ class LinkerSettingTab extends PluginSettingTab {
                 toggleDef(t('Context-aware header disambiguation'), 'enableContextDisambiguation', {
                     desc: t('When a heading name exists in multiple notes, prefer the note whose file name (or alias) appears closest to the match in the current paragraph. This keeps links pointing to the most relevant note instead of listing all of them.'),
                 }),
-                toggleDef(t('Skip links with multiple targets (batch convert)'), 'skipMultipleTargets', {
-                    desc: t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'),
+                toggleDef(t('Exclude text between symbols'), 'enableSymbolExclusion', {
+                    desc: t('When enabled, text between the configured start and end symbols (e.g. { ... }) will not produce virtual links. Separate multiple symbol pairs with commas (e.g. start "{,（" end "},）"). Useful for pandoc citations or other special syntax.'),
+                }),
+                textDef(t('Exclusion start symbol'), 'excludeSymbolStart', {
+                    desc: t('Symbol marking the start of the excluded text. Separate multiple symbols with commas (matched positionally with the end symbols). Each must differ from its corresponding end symbol.'),
+                    visible: () => s.enableSymbolExclusion,
+                }),
+                textDef(t('Exclusion end symbol'), 'excludeSymbolEnd', {
+                    desc: t('Symbol marking the end of the excluded text. Separate multiple symbols with commas (matched positionally with the start symbols). Each must differ from its corresponding start symbol.'),
+                    visible: () => s.enableSymbolExclusion,
                 }),
             ]),
 
@@ -2029,6 +2078,10 @@ class LinkerSettingTab extends PluginSettingTab {
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
                     desc: t('When enabled, FakeLink registers the obsidian://adv-uri protocol and handles line jumping itself, including links fired from external apps (e.g. a browser or a custom obsidianjump:// handler). Obsidian allows only ONE plugin to handle this protocol, so you must NOT enable the Advanced URI plugin at the same time — keep it disabled, otherwise one of the two plugins will fail to load. Generate line links via the right-click menu "Copy line link (adv-uri)".'),
+                }),
+                toggleDef(t('Self-heal line links'), 'lineLinkSelfHeal', {
+                    desc: t('When enabled, copied line links also store the text of the target line. If the note is edited and line numbers drift, the jump re-finds the line by its text instead of landing on the wrong line. Works for both plain and aliased line links. Line links copied before enabling this have no anchor and keep the old behavior.'),
+                    visible: () => s.jumpEnabled,
                 }),
                 numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
                     desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
@@ -2059,6 +2112,28 @@ class LinkerSettingTab extends PluginSettingTab {
                 }),
             ]),
 
+            // ---------- Conversion ----------
+            groupDef(t('Conversion'), [
+                toggleDef(t('Skip links with multiple targets (batch convert)'), 'skipMultipleTargets', {
+                    desc: t('When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.'),
+                }),
+                toggleDef(t('Use default link style for conversion'), 'useDefaultLinkStyleForConversion', {
+                    desc: t('If toggled, the default link style will be used for the conversion of virtual links to real links.'),
+                }),
+                toggleDef(t('Use [[wikilinks]]'), 'useWikilinks', {
+                    desc: t('If toggled, the virtual links will be created as wikilinks instead of Markdown links.'),
+                    visible: () => !s.useDefaultLinkStyleForConversion,
+                }),
+                dropdownDef(t('Link format'), 'linkFormat', {
+                    'shortest': 'Shortest',
+                    'relative': 'Relative',
+                    'absolute': 'Absolute',
+                }, {
+                    desc: t('The format of the generated links.'),
+                    visible: () => !s.useDefaultLinkStyleForConversion,
+                }),
+            ]),
+
             // ---------- Appearance ----------
             groupDef(t('Appearance'), [
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
@@ -2081,21 +2156,6 @@ class LinkerSettingTab extends PluginSettingTab {
                 }),
                 textDef(t('Virtual link suffix for aliases'), 'virtualLinkAliasSuffix', {
                     desc: t('The suffix to add to auto generated virtual links for aliases.'),
-                }),
-                toggleDef(t('Use default link style for conversion'), 'useDefaultLinkStyleForConversion', {
-                    desc: t('If toggled, the default link style will be used for the conversion of virtual links to real links.'),
-                }),
-                toggleDef(t('Use [[wikilinks]]'), 'useWikilinks', {
-                    desc: t('If toggled, the virtual links will be created as wikilinks instead of Markdown links.'),
-                    visible: () => !s.useDefaultLinkStyleForConversion,
-                }),
-                dropdownDef(t('Link format'), 'linkFormat', {
-                    'shortest': 'Shortest',
-                    'relative': 'Relative',
-                    'absolute': 'Absolute',
-                }, {
-                    desc: t('The format of the generated links.'),
-                    visible: () => !s.useDefaultLinkStyleForConversion,
                 }),
             ]),
         ];
