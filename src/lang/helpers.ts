@@ -110,10 +110,12 @@ const zhCN: Record<string, string> = {
     'Excluded file extensions': '排除的文件扩展名',
     'File extensions to exclude from virtual linking (one per line or comma separated)': '要排除的文件扩展名（每行一个或逗号分隔）',
 
-    'Auto-insert symbol into headers': '自动插入标题符号',
+    'Auto-insert heading lock symbol': '自动插入标题锁定符号',
     'When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.': '启用后，将在新建或修改的标题文本前自动插入一个独特符号，防止被正文意外匹配。',
-    'Header marker symbol': '标题标记符号',
+    'Heading lock symbol': '标题锁定符号',
     'The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.': '放置在标题文本前的符号（在 # 之后、内容之前）。使用一个在正文中罕见的字符。',
+    'Heading symbol whitelist': '标题符号白名单',
+    'Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.': '标题中需要从虚拟链接关键词中剔除的符号（逗号分隔）。用于给标题添加标记（如 🔥）而不影响匹配。',
 
     'Color-only display': '纯颜色显示',
     'When enabled, virtual links are shown in a custom text color instead of the default background shadow.': '启用后，虚拟链接以自定义文本颜色显示，而非默认背景阴影。',

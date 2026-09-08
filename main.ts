@@ -548,6 +548,7 @@ export interface LinkerPluginSettings {
     excludedKeywords: string[]; // Keywords to exclude from virtual linking
     headerAutoAppendSuffix: boolean; // Auto-append suffix to new headers
     headerAutoAppendSymbol: string; // Symbol to append to headers
+    headingSymbolWhitelist: string[]; // Symbols stripped from heading keywords
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
@@ -621,6 +622,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludedKeywords: [],
     headerAutoAppendSuffix: false,
     headerAutoAppendSymbol: '☱',
+    headingSymbolWhitelist: [],
     allowLinksInHeaders: false,
     colorOnlyDisplay: true,
     frontmatterExcludeProperty: 'fakelink-exclude',
@@ -1652,6 +1654,8 @@ class LinkerSettingTab extends PluginSettingTab {
                 return s.excludedDirectoriesForLinking.join('\n');
             case 'excludedKeywords':
                 return s.excludedKeywords.join(',');
+            case 'headingSymbolWhitelist':
+                return s.headingSymbolWhitelist.join(',');
             case 'excludedExtensions':
                 return s.excludedExtensions.join('\n');
             default:
@@ -1680,6 +1684,11 @@ class LinkerSettingTab extends PluginSettingTab {
             case 'excludedKeywords':
                 await this.plugin.updateSettings({
                     excludedKeywords: (value as string).split(',').map((x) => x.trim()).filter((x) => x.length > 0),
+                });
+                break;
+            case 'headingSymbolWhitelist':
+                await this.plugin.updateSettings({
+                    headingSymbolWhitelist: (value as string).split(',').map((x) => x.trim()).filter((x) => x.length > 0),
                 });
                 break;
             case 'excludedExtensions':
@@ -1865,12 +1874,15 @@ class LinkerSettingTab extends PluginSettingTab {
                     desc: t('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.'),
                     visible: () => s.headerMatchSymbols,
                 }),
-                toggleDef(t('Auto-insert symbol into headers'), 'headerAutoAppendSuffix', {
+                toggleDef(t('Auto-insert heading lock symbol'), 'headerAutoAppendSuffix', {
                     desc: t('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.'),
                 }),
-                textDef(t('Header marker symbol'), 'headerAutoAppendSymbol', {
+                textDef(t('Heading lock symbol'), 'headerAutoAppendSymbol', {
                     desc: t('The symbol placed at the front of header text (after # but before content). Use a rare character not found in normal text.'),
                     visible: () => s.headerAutoAppendSuffix,
+                }),
+                textAreaDef(t('Heading symbol whitelist'), 'headingSymbolWhitelist', {
+                    desc: t('Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.'),
                 }),
                 numberDef(t('Header jump retry delay (ms)'), 'headerJumpRetryDelay', {
                     desc: t('When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.'),

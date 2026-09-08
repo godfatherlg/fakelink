@@ -494,12 +494,12 @@ export class PrefixTree {
                             // If not restricted, also try plain header match
                             if (!headingMatch && !this.settings.headerMatchOnlyBetweenSymbols) {
                                 headingMatch = metadata.headings.find(h => 
-                                    PrefixTree.stripHeadingNumber(h.heading).toLowerCase() === nodeValue.toLowerCase()
+                                    this.headingKeyword(h.heading).toLowerCase() === nodeValue.toLowerCase()
                                 );
                             }
                         } else {
                             headingMatch = metadata.headings.find(h => 
-                                PrefixTree.stripHeadingNumber(h.heading).toLowerCase() === nodeValue.toLowerCase()
+                                this.headingKeyword(h.heading).toLowerCase() === nodeValue.toLowerCase()
                             );
                         }
                     }
@@ -778,12 +778,12 @@ export class PrefixTree {
                 if (!this.settings.headerMatchOnlyBetweenSymbols) {
                     for (const h of metadata.headings) {
                         if (!symbolKeywords.has(h.heading)) {
-                            headerEntries.push({ keyword: PrefixTree.stripHeadingNumber(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                            headerEntries.push({ keyword: this.headingKeyword(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
                         }
                     }
                 }
             } else {
-                headerEntries = metadata.headings.map(h => ({ keyword: PrefixTree.stripHeadingNumber(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
+                headerEntries = metadata.headings.map(h => ({ keyword: this.headingKeyword(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
             }
         }
 
@@ -1123,6 +1123,23 @@ export class PrefixTree {
         );
         const m = heading.match(re);
         return m ? heading.slice(m[0].length) : heading;
+    }
+
+    /**
+     * Normalize a heading into its keyword form: strip the leading number
+     * (see stripHeadingNumber) and remove every symbol listed in the heading
+     * symbol whitelist. The whitelist lets users decorate headings with
+     * markers (e.g. 🔥) without those markers becoming part of the keyword.
+     */
+    private headingKeyword(heading: string): string {
+        let s = PrefixTree.stripHeadingNumber(heading);
+        const symbols = this.settings.headingSymbolWhitelist;
+        if (symbols && symbols.length > 0) {
+            for (const sym of symbols) {
+                if (sym) s = s.split(sym).join('');
+            }
+        }
+        return s;
     }
 }
 
