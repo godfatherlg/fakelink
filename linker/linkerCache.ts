@@ -494,12 +494,12 @@ export class PrefixTree {
                             // If not restricted, also try plain header match
                             if (!headingMatch && !this.settings.headerMatchOnlyBetweenSymbols) {
                                 headingMatch = metadata.headings.find(h => 
-                                    h.heading.toLowerCase() === nodeValue.toLowerCase()
+                                    PrefixTree.stripHeadingNumber(h.heading).toLowerCase() === nodeValue.toLowerCase()
                                 );
                             }
                         } else {
                             headingMatch = metadata.headings.find(h => 
-                                h.heading.toLowerCase() === nodeValue.toLowerCase()
+                                PrefixTree.stripHeadingNumber(h.heading).toLowerCase() === nodeValue.toLowerCase()
                             );
                         }
                     }
@@ -778,12 +778,12 @@ export class PrefixTree {
                 if (!this.settings.headerMatchOnlyBetweenSymbols) {
                     for (const h of metadata.headings) {
                         if (!symbolKeywords.has(h.heading)) {
-                            headerEntries.push({ keyword: h.heading, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                            headerEntries.push({ keyword: PrefixTree.stripHeadingNumber(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
                         }
                     }
                 }
             } else {
-                headerEntries = metadata.headings.map(h => ({ keyword: h.heading, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
+                headerEntries = metadata.headings.map(h => ({ keyword: PrefixTree.stripHeadingNumber(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
             }
         }
 
@@ -1096,6 +1096,33 @@ export class PrefixTree {
     static isFormattingChar(char: string): boolean {
         const pattern = /[^\p{L}\p{N}]/u;
         return pattern.test(char);
+    }
+
+    /**
+     * Strip a leading heading number so that "### 1. 基础型课程" is indexed
+     * under "基础型课程" instead of "1. 基础型课程". This fixes two problems:
+     *   1) A list item "1. 基础型课程" (list marker "1." + text) was falsely
+     *      matched as the heading, and its decoration swallowed the list marker,
+     *      breaking the line layout (the trailing "视频" got pushed out).
+     *   2) The same heading could not be matched from plain "基础型课程" in
+     *      read mode, where the list marker is rendered separately.
+     *
+     * Recognized forms (Arabic/Chinese numerals, optional wrapping bracket,
+     * optional multi-level, optional trailing whitespace):
+     *   "1. 基础型课程", "1、基础型课程", "1) 基础型课程", "1.1 基础型课程",
+     *   "一、基础型课程", "（一）基础型课程"
+     * A bare number with no separator (e.g. "123") is left untouched.
+     */
+    static stripHeadingNumber(heading: string): string {
+        const num = '(?:[0-9]+|[零一二三四五六七八九十百千]+)';
+        const sep = '[.、)）]';
+        const re = new RegExp(
+            '^[\\s]*[（(]?' + num + sep + '[\\s]*' +
+            '(?:' + num + sep + '[\\s]*)*' +
+            '(?=\\S)'
+        );
+        const m = heading.match(re);
+        return m ? heading.slice(m[0].length) : heading;
     }
 }
 

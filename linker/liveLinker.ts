@@ -787,6 +787,7 @@ class AutoLinkerPlugin implements PluginValue {
                 matches = VirtualMatch.filterAlreadyLinked(matches, alreadyLinkedFiles);
             }
 
+
             // Delete additions that overlap
             // Additions are sorted by from position and after that by length, we want to keep longer additions
             matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce, excludedIntervalTree);
