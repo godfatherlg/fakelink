@@ -642,7 +642,9 @@ class AutoLinkerPlugin implements PluginValue {
                             for (let offset = 0; offset <= maxOffset && !handled; offset++) {
                                 const rawCandidate = rawWord.slice(offset);
                                 // Keep the link range aligned with the trimmed text.
-                                const leadWs = rawCandidate.length - rawCandidate.trimStart().length;
+                                // (Avoid String#trimStart: it needs ES2019, while the
+                                //  project's tsconfig lib only goes up to ES7.)
+                                const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                 const candidate = rawCandidate.trim();
                                 if (!candidate) continue;
                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);

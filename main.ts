@@ -856,7 +856,9 @@ export default class LinkerPlugin extends Plugin {
         // Fall back to the plain target color when either is not a hex color.
         if (!a || !b) return target;
         const mix = (i: number) => Math.round(a[i] * t + b[i] * (1 - t));
-        const toHex = (v: number) => v.toString(16).padStart(2, '0');
+        // (Avoid String#padStart: it needs ES2017, while the project's
+        //  tsconfig lib only goes up to ES7.)
+        const toHex = (v: number) => ('0' + v.toString(16)).slice(-2);
         return `#${toHex(mix(0))}${toHex(mix(1))}${toHex(mix(2))}`;
     }
 
