@@ -48,6 +48,15 @@ export class VirtualMatch {
         return this.type === MatchType.Alias;
     }
 
+    // True when this match has so many targets that NO link is rendered at all
+    // (see the "hide link when references exceed" setting). Such a widget is just
+    // plain text, so a click should place the caret rather than being swallowed —
+    // otherwise that line becomes unclickable, which defeats the threshold.
+    get isHiddenByReferenceLimit(): boolean {
+        return this.settings.maxReferencesToHideLink > 0
+            && this.files.length > this.settings.maxReferencesToHideLink;
+    }
+
     // DOM methods
 
     getCompleteLinkElement(inTableCellEditor = false) {

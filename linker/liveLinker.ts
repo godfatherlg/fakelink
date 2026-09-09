@@ -133,6 +133,12 @@ export class VirtualLinkWidget extends WidgetType {
         const isMouse = event.type === 'mousedown' || event.type === 'mouseup'
             || event.type === 'click' || event.type === 'dblclick';
         if (!isMouse) return true;
+
+        // Too many matches → no link rendered, this widget is plain text. Let the
+        // editor handle the click so the caret can be placed there; there is no
+        // link to open anyway.
+        if (this.match.isHiddenByReferenceLimit) return false;
+
         if (!this.match.settings.virtualLinkRequireModifier) return true;
         const withModifier = (event as MouseEvent).ctrlKey || (event as MouseEvent).metaKey;
         return withModifier;
