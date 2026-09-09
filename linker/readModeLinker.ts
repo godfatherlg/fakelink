@@ -433,7 +433,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             let bestSim = -1;
                                             for (let offset = 0; offset <= maxOffset; offset++) {
                                                 const rawCandidate = rawWord.slice(offset);
-                                                const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                                 const candidate = rawCandidate.trim();
                                                 if (!candidate) continue;
                                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
