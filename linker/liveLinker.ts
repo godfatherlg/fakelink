@@ -120,6 +120,17 @@ export class VirtualLinkWidget extends WidgetType {
         
         return element;
     }
+
+    // WidgetType.ignoreEvent() defaults to true, which makes CodeMirror ignore
+    // every event inside the widget — so clicking the link area would NOT place
+    // the caret (users could only click past the end of the line). Return false
+    // for mouse events so the editor handles them and the caret can land there.
+    // Opening the link is still handled by the anchor's own onclick (plain click
+    // by default, or Ctrl/Cmd+click when that setting is enabled).
+    ignoreEvent(event: Event): boolean {
+        return !(event.type === 'mousedown' || event.type === 'mouseup'
+            || event.type === 'click' || event.type === 'dblclick');
+    }
 }
 
 class AutoLinkerPlugin implements PluginValue {
@@ -610,68 +621,104 @@ class AutoLinkerPlugin implements PluginValue {
                     // fuzzy matching is enabled, normalize the current document
                     // word and link it when similarity >= the configured threshold.
                     if (currentNodes.length === 0 && this.settings.enableStemming) {
-                        const rawWord = text.slice(wordStartRel, i).trim();
-                        if (rawWord.length > 0) {
-                            const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
-                            if (normWord) {
+                        // Skip leading whitespace once — it is the base for the
+                        // sliding window below. A leading space (e.g. after a list
+                        // marker "1. ") must not become part of the link text.
+                        let baseFrom = wordStartRel;
+                        while (baseFrom < i && /\s/.test(text[baseFrom])) {
+                            baseFrom++;
+                        }
+                        const rawWord = text.slice(baseFrom, i);
+                        if (rawWord.trim().length > 0) {
+                            // Sliding window: try the whole run first, then drop one
+                            // leading character at a time. Chinese has no spaces, so a
+                            // term is usually glued to the text before it (e.g. "参见
+                            // 科目冲刺带背3"), and those extra characters dilute the
+                            // similarity below the threshold. Stop at the first hit.
+                            const maxOffset = this.settings.fuzzySlidingWindow
+                                ? Math.min(rawWord.length - 1, 24)
+                                : 0;
+                            let handled = false;
+                            for (let offset = 0; offset <= maxOffset && !handled; offset++) {
+                                const rawCandidate = rawWord.slice(offset);
+                                // Keep the link range aligned with the trimmed text.
+                                const leadWs = rawCandidate.length - rawCandidate.trimStart().length;
+                                const candidate = rawCandidate.trim();
+                                if (!candidate) continue;
+                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
+                                if (!normWord) continue;
                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
-                                for (const fr of fuzzyResults) {
-                                    let fFromRel = wordStartRel;
-                                    const fToRel = i;
-                                    // Trim leading whitespace so the decoration range matches
-                                    // the word exactly. A leading space (e.g. after a list
-                                    // marker "1. ") would otherwise become part of the link
-                                    // text and break list indentation / layout.
-                                    while (fFromRel < fToRel && /\s/.test(text[fFromRel])) {
-                                        fFromRel++;
+                                if (fuzzyResults.length > 0) {
+                                    // Results are sorted best-first. Merge every candidate TIED at the
+                                    // top similarity into one multi-target link instead of arbitrarily
+                                    // picking one — e.g. "科目二冲刺带背" ties across "…带背1".."…带背7",
+                                    // all at 87.5%, so the user gets [1][2]…[7] to choose from.
+                                    const topSim = fuzzyResults[0].similarity;
+                                    const mergedFiles: TFile[] = [];
+                                    const seenPaths = new Set<string>();
+                                    for (const fr of fuzzyResults) {
+                                        if (fr.similarity < topSim) break;
+                                        for (const f of fr.files) {
+                                            if (seenPaths.has(f.path)) continue;
+                                            seenPaths.add(f.path);
+                                            mergedFiles.push(f);
+                                        }
                                     }
+
+                                    const fFromRel = baseFrom + offset + leadWs;
+                                    const fToRel = i;
                                     const fName = text.slice(fFromRel, fToRel);
                                     const aFrom = from + fFromRel;
                                     const aTo = from + fToRel;
 
-                                    const filteredFiles = Array.from(fr.files).filter(file => {
+                                    const filteredFiles = mergedFiles.filter(file => {
                                         return !this.settings.excludedExtensions.some(ext =>
                                             file.path.toLowerCase().endsWith(ext.toLowerCase())
                                         );
                                     });
-                                    if (filteredFiles.length === 0) continue;
+                                    if (filteredFiles.length > 0) {
+                                        // Determine match type from the top result:
+                                        // - if the entry has a headerId, it's a Header match
+                                        // - else if the canonical keyword matches a file basename, it's a Note
+                                        // - otherwise it's an Alias
+                                        const topFr = fuzzyResults[0];
+                                        let fuzzyMatchType = MatchType.Note;
+                                        if (topFr.headerId) {
+                                            fuzzyMatchType = MatchType.Header;
+                                        } else if (topFr.canonical) {
+                                            const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === topFr.canonical!.toLowerCase());
+                                            if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                        }
 
-                                    // Determine match type from the fuzzy result:
-                                    // - if the entry has a headerId, it's a Header match
-                                    // - else if the canonical keyword matches a file basename, it's a Note
-                                    // - otherwise it's an Alias
-                                    let fuzzyMatchType = MatchType.Note;
-                                    if (fr.headerId) {
-                                        fuzzyMatchType = MatchType.Header;
-                                    } else if (fr.canonical) {
-                                        const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === fr.canonical!.toLowerCase());
-                                        if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                        const virtualMatch = new VirtualMatch(
+                                            id++,
+                                            fName,
+                                            aFrom,
+                                            aTo,
+                                            filteredFiles,
+                                            fuzzyMatchType,
+                                            false,
+                                            this.settings,
+                                            this.plugin,
+                                            topFr.headerId
+                                        );
+                                        // Mark as fuzzy so it can be tinted with the fuzzy base color.
+                                        virtualMatch.isFuzzy = true;
+
+                                        if (filteredFiles.length > 1) {
+                                            filteredFiles.forEach((file, index) => {
+                                                if (index === 0) return;
+                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                                if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                                    virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
+                                                }
+                                            });
+                                        }
+
+                                        matches.push(virtualMatch);
+                                        handled = true;
+                                        break;
                                     }
-
-                                    const virtualMatch = new VirtualMatch(
-                                        id++,
-                                        fName,
-                                        aFrom,
-                                        aTo,
-                                        filteredFiles,
-                                        fuzzyMatchType,
-                                        false,
-                                        this.settings,
-                                        this.plugin,
-                                        fr.headerId
-                                    );
-
-                                    if (filteredFiles.length > 1) {
-                                        filteredFiles.forEach((file, index) => {
-                                            if (index === 0) return;
-                                            const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
-                                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
-                                                virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
-                                            }
-                                        });
-                                    }
-
-                                    matches.push(virtualMatch);
                                 }
                             }
                         }

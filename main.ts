@@ -551,17 +551,21 @@ export interface LinkerPluginSettings {
     headingSymbolWhitelist: string[]; // Symbols stripped from heading keywords
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
+    virtualLinkRequireModifier: boolean; // Require Ctrl/Cmd+click to jump; a plain click just places the cursor
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
     frontmatterExcludeListProperty: string; // Frontmatter property for per-note keyword list
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
+    fuzzyBaseColor: string; // Base color mixed into fuzzy-match link colors
+    fuzzyColorMixRatio: number; // How much base color to mix in (0-100)
     headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
     enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
     stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
     fuzzyMinLength: number; // Minimum normalized length of a title/note name to be considered for fuzzy matching (shorter ones are skipped)
+    fuzzySlidingWindow: boolean; // Fuzzy matching also tries shorter suffixes, so terms embedded in Chinese text can match
     skipMultipleTargets: boolean; // In batch conversion, skip virtual links pointing to multiple notes
     enableSymbolExclusion: boolean; // Exclude text between custom start/end symbols from virtual linking
     excludeSymbolStart: string; // Start symbol marking text to exclude from linking
@@ -626,17 +630,21 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headingSymbolWhitelist: [],
     allowLinksInHeaders: false,
     colorOnlyDisplay: true,
+    virtualLinkRequireModifier: false,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
     frontmatterExcludeListProperty: 'fakelink-exclude-keywords',
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
+    fuzzyBaseColor: '#8e44ad',
+    fuzzyColorMixRatio: 50,
     headerJumpRetryDelay: 500,
     enableStemming: false,
-    stemmingLanguage: 'en',
+    stemmingLanguage: 'auto',
     fuzzyMatchThreshold: 80,
     fuzzyMinLength: 6,
+    fuzzySlidingWindow: true,
     skipMultipleTargets: true,
     enableSymbolExclusion: false,
     excludeSymbolStart: '{',
@@ -835,6 +843,38 @@ export default class LinkerPlugin extends Plugin {
         view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, center);
     }
 
+    // Mix two hex colors in sRGB. `t` (0-1) is the weight given to `base`.
+    private mixHexColors(base: string, target: string, t: number): string {
+        const parse = (hex: string): [number, number, number] | null => {
+            const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+            if (!m) return null;
+            const n = parseInt(m[1], 16);
+            return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+        };
+        const a = parse(base);
+        const b = parse(target);
+        // Fall back to the plain target color when either is not a hex color.
+        if (!a || !b) return target;
+        const mix = (i: number) => Math.round(a[i] * t + b[i] * (1 - t));
+        const toHex = (v: number) => v.toString(16).padStart(2, '0');
+        return `#${toHex(mix(0))}${toHex(mix(1))}${toHex(mix(2))}`;
+    }
+
+    // Fuzzy-match links use the base color mixed into the header / note color,
+    // so they read as "same family but fuzzier" instead of an unrelated 4th color.
+    applyFuzzyColors() {
+        const t = Math.min(100, Math.max(0, this.settings.fuzzyColorMixRatio ?? 50)) / 100;
+        const base = this.settings.fuzzyBaseColor;
+        activeWindow.document.body.style.setProperty(
+            '--virtual-link-fuzzy-header-color',
+            this.mixHexColors(base, this.settings.headerVirtualLinkColor, t)
+        );
+        activeWindow.document.body.style.setProperty(
+            '--virtual-link-fuzzy-note-color',
+            this.mixHexColors(base, this.settings.noteVirtualLinkColor, t)
+        );
+    }
+
     settings: LinkerPluginSettings;
     updateManager = new ExternalUpdateManager();
 
@@ -855,6 +895,8 @@ export default class LinkerPlugin extends Plugin {
         activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
         activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
         activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
+        // Fuzzy-match links: base color mixed into the header / note color.
+        this.applyFuzzyColors();
 
         // Listen for view changes
         this.registerEvent(this.app.workspace.on('layout-change', () => { void this.handleLayoutChange(); }));
@@ -1650,28 +1692,38 @@ interface DefOpts {
     aliases?: string[];
 }
 
-function toggleDef(name: string, key: string, opts: DefOpts = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'toggle', key, disabled: opts.disabled } };
+// `id` was added to SettingDefinitionItem in Obsidian 1.14: it gives each setting
+// a stable reference and lets same-named sibling settings be told apart. The
+// bundled obsidian typings are still on 1.13 (no `id` yet), so the field is added
+// here via an intersection type.
+// The id is the settings key: it is language-independent, so it stays stable even
+// when a setting's display name is translated or later renamed.
+type SettingDef = SettingDefinition & { id?: string };
+
+function toggleDef(name: string, key: string, opts: DefOpts = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'toggle', key, disabled: opts.disabled } };
 }
-function textDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'text', key, placeholder: opts.placeholder, disabled: opts.disabled } };
+function textDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'text', key, placeholder: opts.placeholder, disabled: opts.disabled } };
 }
-function textAreaDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'textarea', key, placeholder: opts.placeholder, disabled: opts.disabled } };
+function textAreaDef(name: string, key: string, opts: DefOpts & { placeholder?: string } = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'textarea', key, placeholder: opts.placeholder, disabled: opts.disabled } };
 }
-function dropdownDef(name: string, key: string, options: Record<string, string>, opts: DefOpts = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'dropdown', key, options, disabled: opts.disabled } };
+function dropdownDef(name: string, key: string, options: Record<string, string>, opts: DefOpts = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'dropdown', key, options, disabled: opts.disabled } };
 }
-function sliderDef(name: string, key: string, min: number, max: number, step: number, opts: DefOpts = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'slider', key, min, max, step, disabled: opts.disabled } };
+function sliderDef(name: string, key: string, min: number, max: number, step: number, opts: DefOpts = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'slider', key, min, max, step, disabled: opts.disabled } };
 }
-function numberDef(name: string, key: string, opts: DefOpts & { min?: number; max?: number; step?: number; placeholder?: string } = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'number', key, min: opts.min, max: opts.max, step: opts.step, placeholder: opts.placeholder, disabled: opts.disabled } };
+function numberDef(name: string, key: string, opts: DefOpts & { min?: number; max?: number; step?: number; placeholder?: string } = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'number', key, min: opts.min, max: opts.max, step: opts.step, placeholder: opts.placeholder, disabled: opts.disabled } };
 }
-function colorDef(name: string, key: string, opts: DefOpts = {}): SettingDefinition {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'color', key, disabled: opts.disabled } };
+function colorDef(name: string, key: string, opts: DefOpts = {}): SettingDef {
+    return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'color', key, disabled: opts.disabled } };
 }
-function actionDef(name: string, action: () => void | Promise<void>, opts: DefOpts = {}): SettingDefinition {
+// Buttons have no settings key, and their name is translated (so it is not a
+// stable id) — leave them without one.
+function actionDef(name: string, action: () => void | Promise<void>, opts: DefOpts = {}): SettingDef {
     return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, action: () => { void action(); } };
 }
 function groupDef(heading: string, items: SettingGroupItem[], visible?: () => boolean): SettingDefinitionGroup {
@@ -1776,10 +1828,20 @@ class LinkerSettingTab extends PluginSettingTab {
             case 'headerVirtualLinkColor':
                 await this.plugin.updateSettings({ headerVirtualLinkColor: value as string });
                 this.applyCssVar('--virtual-link-header-color', value as string);
+                this.plugin.applyFuzzyColors();
                 break;
             case 'noteVirtualLinkColor':
                 await this.plugin.updateSettings({ noteVirtualLinkColor: value as string });
                 this.applyCssVar('--virtual-link-note-color', value as string);
+                this.plugin.applyFuzzyColors();
+                break;
+            case 'fuzzyBaseColor':
+                await this.plugin.updateSettings({ fuzzyBaseColor: value as string });
+                this.plugin.applyFuzzyColors();
+                break;
+            case 'fuzzyColorMixRatio':
+                await this.plugin.updateSettings({ fuzzyColorMixRatio: value as number });
+                this.plugin.applyFuzzyColors();
                 break;
             default:
                 await this.plugin.updateSettings({ [key]: value });
@@ -1963,6 +2025,10 @@ class LinkerSettingTab extends PluginSettingTab {
                     desc: t('Titles or note names whose normalized length is longer than this are processed by fuzzy matching; those of this length or shorter are skipped (exact matching still works). This keeps fuzzy matching focused on long titles/notes, where inflected or fuzzy variants are common, and avoids false links on short words. Default 6 (Chinese: only titles longer than 6 characters). Range 1-20.'),
                     disabled: () => !s.enableStemming,
                 }),
+                toggleDef(t('Sliding window for fuzzy matching'), 'fuzzySlidingWindow', {
+                    desc: t('Also try shorter suffixes of the text run, not just the whole run. Chinese has no spaces, so a term is usually glued to the words before it, and those extra characters drag the similarity below the threshold. On by default; turn it off if you notice lag on very long lines.'),
+                    disabled: () => !s.enableStemming,
+                }),
             ]),
 
             // ---------- Case sensitivity ----------
@@ -2139,11 +2205,20 @@ class LinkerSettingTab extends PluginSettingTab {
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
                     desc: t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'),
                 }),
+                toggleDef(t('Require Ctrl/Cmd+click to open virtual links'), 'virtualLinkRequireModifier', {
+                    desc: t('When enabled, a plain click on a virtual link only places the cursor (so you can keep typing in that line) and Ctrl/Cmd+click is needed to jump. Useful because a virtual link covers its text, which otherwise makes that line unclickable.'),
+                }),
                 colorDef(t('Header link color'), 'headerVirtualLinkColor', {
                     desc: t('Color for header virtual links (e.g., #517ea0).'),
                 }),
                 colorDef(t('Note link color'), 'noteVirtualLinkColor', {
                     desc: t('Color for note and alias virtual links (e.g., #c0392b).'),
+                }),
+                colorDef(t('Fuzzy link base color'), 'fuzzyBaseColor', {
+                    desc: t('Base color for fuzzy (词义模糊) matches. It is mixed with the header / note color, so a fuzzy link looks like a tinted version of its exact-match counterpart.'),
+                }),
+                sliderDef(t('Fuzzy color mix'), 'fuzzyColorMixRatio', 0, 100, 5, {
+                    desc: t('How much of the fuzzy base color is mixed in. 0% = fuzzy links use the normal colors (feature off); 100% = fuzzy links use the base color only; 50% = an even blend, keeping the header/note hue while tinting it.'),
                 }),
                 toggleDef(t('Alternative display style'), 'alternativeDisplayStyle', {
                     desc: t('When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.'),

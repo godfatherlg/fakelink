@@ -2,6 +2,7 @@ import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { TFile, getLinkpath } from 'obsidian';
 import { MatchType } from './linkerCache';
+import { t } from '../src/lang/helpers';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -25,7 +26,8 @@ export class VirtualMatch {
         public isHighlightContext: boolean = false,
         public isTripleStarContext: boolean = false,
         public isStrikethroughContext: boolean = false,
-        public isCommentContext: boolean = false
+        public isCommentContext: boolean = false,
+        public isFuzzy: boolean = false
     ) {
         if (headerId) {
             for (const file of files) {
@@ -54,6 +56,13 @@ export class VirtualMatch {
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
             const emptySpan = activeDocument.createElement('span');
             emptySpan.textContent = this.originText;
+            // The term DID match — there are simply too many targets, so no link is
+            // rendered. Keep the line visually quiet (that is the point of the
+            // threshold) but explain it on hover, so it does not look like a bug.
+            const tip = t('Matched {count} notes, over the hide limit ({limit}) — no virtual link is shown');
+            emptySpan.setAttribute('title', tip
+                .replace('{count}', String(this.files.length))
+                .replace('{limit}', String(this.settings.maxReferencesToHideLink)));
             return emptySpan;
         }
 
@@ -138,6 +147,13 @@ export class VirtualMatch {
             event.preventDefault();
             event.stopPropagation();
 
+            // When a modifier is required, a plain click must NOT navigate: the
+            // user is usually trying to place the cursor in that line to keep
+            // typing, and jumping away makes the line impossible to click into.
+            if (this.settings.virtualLinkRequireModifier && !(event.ctrlKey || event.metaKey)) {
+                return false;
+            }
+
             const targetFile = file || (this.files.length > 0 ? this.files[0] : null);
             if (!targetFile) return false;
 
@@ -175,8 +191,13 @@ export class VirtualMatch {
             span.classList.add('virtual-link-default');
         }
 
-        // Add type-specific class for separate color support
-        if (this.type === MatchType.Header) {
+        // Add type-specific class for separate color support. Fuzzy matches get
+        // their own class so they can be tinted with the fuzzy base color.
+        if (this.isFuzzy) {
+            span.classList.add(this.type === MatchType.Header
+                ? 'virtual-link-type-fuzzy-header'
+                : 'virtual-link-type-fuzzy-note');
+        } else if (this.type === MatchType.Header) {
             span.classList.add('virtual-link-type-header');
         }
 

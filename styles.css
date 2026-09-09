@@ -4,6 +4,8 @@
   --settings-box-min-height: 60px;
   --virtual-link-note-color: #c0392b;
   --virtual-link-header-color: #517ea0;
+  --virtual-link-fuzzy-note-color: #a73e6c;
+  --virtual-link-fuzzy-header-color: #6f61a6;
   --virtual-link-highlight-bg: rgba(255, 212, 0, 0.5);
 }
 
@@ -55,6 +57,30 @@ body.virtual-link-color-only .virtual-link-type-header .virtual-link-a,
 body.virtual-link-color-only .virtual-link-type-header a,
 body.virtual-link-color-only .virtual-link-type-header .internal-link {
   color: var(--virtual-link-header-color);
+  filter: none;
+  opacity: 1;
+}
+
+/* Fuzzy links: base color mixed into the header / note color.
+   Each selector mirrors the rule it overrides (keeping the :not(...)) and then
+   appends the fuzzy class. That matters: declaration order alone is NOT enough,
+   because `.virtual-link:not(.virtual-link-type-header) .virtual-link-a` scores
+   (0,4,1) while a plain `.virtual-link-type-fuzzy-* .virtual-link-a` only scores
+   (0,3,1) — the note rule would win and repaint every fuzzy link red. */
+body.virtual-link-color-only .virtual-link-span:not(.virtual-link-type-header).virtual-link-type-fuzzy-header,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-header .virtual-link-a,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-header a,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-header .internal-link {
+  color: var(--virtual-link-fuzzy-header-color);
+  filter: none;
+  opacity: 1;
+}
+
+body.virtual-link-color-only .virtual-link-span:not(.virtual-link-type-header).virtual-link-type-fuzzy-note,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-note .virtual-link-a,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-note a,
+body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtual-link-type-fuzzy-note .internal-link {
+  color: var(--virtual-link-fuzzy-note-color);
   filter: none;
   opacity: 1;
 }

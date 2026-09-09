@@ -327,7 +327,11 @@ export class PrefixTree {
                 }
             }
         }
-        return results;
+        // Best match first. Callers take the top result, and without sorting they
+        // would get whichever entry happened to be indexed first — possibly a
+        // worse match than one further down. Ties keep their relative order so
+        // callers can group them into a single multi-target link.
+        return results.sort((a, b) => b.similarity - a.similarity);
     }
 
     private isExcluded(value: string): boolean {
@@ -609,14 +613,15 @@ export class PrefixTree {
             this.mapFileHeaderIds.set(file.path, existingIds);
         }
 
-        // Register fuzzy (词义模糊) normalized keywords so that words with
-        // similarity >= threshold can still link. Only normalized keywords
-        // (those created from fuzzyNormalize, identified by a canonicalKeyword
-        // that differs from the normalized name) are indexed here.
+        // Register fuzzy (词义模糊) keywords so that words with similarity >=
+        // threshold can still link. Every keyword reaching this point is indexed,
+        // including ones that normalization left unchanged (e.g. "科目二冲刺带背3"
+        // has no function words to strip). Indexing only the "changed" ones meant
+        // any keyword without a function word could never be fuzzy-matched at
+        // all — which excluded most Chinese titles.
         // Short keywords are skipped: fuzzy-matching them is both useless and
-        // error-prone (e.g. 的 -> 地). When the index grows past the fuse limit
-        // we also stop indexing to protect performance on large vaults.
-        if (canonicalKeyword && canonicalKeyword !== name) {
+        // error-prone (e.g. 的 -> 地).
+        if (canonicalKeyword) {
             const key = name.toLowerCase();
             // Only index keywords with at least 2 chars: single-char titles are
             // skipped (fuzzy-matching them is error-prone and useless). Longer
@@ -880,7 +885,11 @@ export class PrefixTree {
                 // leave a 1-char residue (e.g. '下关' → '关', '带下' → '带')
                 // that would enter the exact-match prefix tree and cause
                 // spurious links everywhere that single char appears.
-                if (!fuzzy || fuzzy.length < 2 || fuzzy === name.toLowerCase() || fuzzy === name) {
+                // Note: an unchanged result (`fuzzy === name`) is NOT skipped —
+                // keywords with no function words still need a fuzzy-index entry,
+                // otherwise a near-miss input (e.g. "科目冲刺带背3" for the note
+                // "科目二冲刺带背3") can never match.
+                if (!fuzzy || fuzzy.length < 2) {
                     return;
                 }
                 const headerEntry = headerEntries.find((e) => e.keyword === name);
@@ -1088,8 +1097,11 @@ export class PrefixTree {
     }
 
     static checkWordBoundary(char: string): boolean {
-        // \p{L}: Any kind of letter from any language.
-        let pattern = /[^\p{L}]/u;
+        // \p{L}: any kind of letter; \p{N}: any kind of numeric character.
+        // Digits count as word characters (the same rule isFormattingChar uses),
+        // so a name like "科目二冲刺带背3" stays a single word instead of being
+        // cut off right before the trailing digit.
+        let pattern = /[^\p{L}\p{N}]/u;
         return pattern.test(char);
     }
 
@@ -1172,6 +1184,11 @@ export class LinkerCache {
 
     clearCache() {
         this.cache.clear();
+        // updateCache() skips rebuilding while the active file path is unchanged.
+        // Without clearing it here, a settings change (updateManager calls
+        // clearCache) would wipe the index and leave it EMPTY until the user
+        // switched notes or restarted Obsidian.
+        this.activeFilePath = undefined;
     }
 
     reset() {

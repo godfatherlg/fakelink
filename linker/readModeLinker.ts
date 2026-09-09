@@ -412,56 +412,92 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                     // when no exact match was found, link the normalized word if its
                                     // similarity to a normalized keyword is above the threshold.
                                     if (currentNodes.length === 0 && this.settings.enableStemming) {
-                                        const rawWord = text.slice(wordStart, i).trim();
-                                        if (rawWord.length > 0) {
-                                            const normWord = this.linkerCache.cache.fuzzyNormalize(rawWord, this.settings.stemmingLanguage);
-                                            if (normWord) {
+                                        // Skip leading whitespace once — base for the sliding window.
+                                        let baseFrom = wordStart;
+                                        while (baseFrom < i && /\s/.test(text[baseFrom])) baseFrom++;
+                                        const rawWord = text.slice(baseFrom, i);
+                                        if (rawWord.trim().length > 0) {
+                                            // Sliding window: try the whole run first, then drop one
+                                            // leading character at a time. Chinese has no spaces, so a
+                                            // term is usually glued to the text before it and those extra
+                                            // characters dilute the similarity below the threshold.
+                                            const maxOffset = this.settings.fuzzySlidingWindow
+                                                ? Math.min(rawWord.length - 1, 24)
+                                                : 0;
+                                            let handled = false;
+                                            for (let offset = 0; offset <= maxOffset && !handled; offset++) {
+                                                const rawCandidate = rawWord.slice(offset);
+                                                const leadWs = rawCandidate.length - rawCandidate.trimStart().length;
+                                                const candidate = rawCandidate.trim();
+                                                if (!candidate) continue;
+                                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
+                                                if (!normWord) continue;
                                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
-                                                for (const fr of fuzzyResults) {
-                                                    let fFrom = wordStart;
+                                                if (fuzzyResults.length > 0) {
+                                                    // Results are sorted best-first. Merge every candidate TIED at the
+                                                    // top similarity into one multi-target link instead of arbitrarily
+                                                    // picking one — e.g. "科目二冲刺带背" ties across "…带背1".."…带背7",
+                                                    // all at 87.5%, so the user gets [1][2]…[7] to choose from.
+                                                    const topSim = fuzzyResults[0].similarity;
+                                                    const mergedFiles: TFile[] = [];
+                                                    const seenPaths = new Set<string>();
+                                                    for (const fr of fuzzyResults) {
+                                                        if (fr.similarity < topSim) break;
+                                                        for (const f of fr.files) {
+                                                            if (seenPaths.has(f.path)) continue;
+                                                            seenPaths.add(f.path);
+                                                            mergedFiles.push(f);
+                                                        }
+                                                    }
+
+                                                    const fFrom = baseFrom + offset + leadWs;
                                                     const fTo = i;
-                                                    while (fFrom < fTo && /\s/.test(text[fFrom])) fFrom++;
                                                     const fName = text.slice(fFrom, fTo);
 
-                                                    const filteredFiles = Array.from(fr.files).filter(file => {
+                                                    const filteredFiles = mergedFiles.filter(file => {
                                                         return !this.settings.excludedExtensions.some(ext =>
                                                             file.path.toLowerCase().endsWith(ext.toLowerCase())
                                                         );
                                                     });
-                                                    if (filteredFiles.length === 0) continue;
+                                                    if (filteredFiles.length > 0) {
+                                                        const topFr = fuzzyResults[0];
+                                                        let fuzzyMatchType = MatchType.Note;
+                                                        if (topFr.headerId) {
+                                                            fuzzyMatchType = MatchType.Header;
+                                                        } else if (topFr.canonical) {
+                                                            const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === topFr.canonical!.toLowerCase());
+                                                            if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                                        }
 
-                                                    let fuzzyMatchType = MatchType.Note;
-                                                    if (fr.headerId) {
-                                                        fuzzyMatchType = MatchType.Header;
-                                                    } else if (fr.canonical) {
-                                                        const hasNoteMatch = filteredFiles.some(f => f.basename.toLowerCase() === fr.canonical!.toLowerCase());
-                                                        if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                                        const virtualMatch = new VirtualMatch(
+                                                            id++,
+                                                            fName,
+                                                            fFrom,
+                                                            fTo,
+                                                            filteredFiles,
+                                                            fuzzyMatchType,
+                                                            false,
+                                                            this.settings,
+                                                            this.plugin,
+                                                            topFr.headerId
+                                                        );
+                                                        // Mark as fuzzy so it can be tinted with the fuzzy base color.
+                                                        virtualMatch.isFuzzy = true;
+
+                                                        if (filteredFiles.length > 1) {
+                                                            filteredFiles.forEach((file, index) => {
+                                                                if (index === 0) return;
+                                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                                                if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                                                    virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
+                                                                }
+                                                            });
+                                                        }
+
+                                                        matches.push(virtualMatch);
+                                                        handled = true;
+                                                        break;
                                                     }
-
-                                                    const virtualMatch = new VirtualMatch(
-                                                        id++,
-                                                        fName,
-                                                        fFrom,
-                                                        fTo,
-                                                        filteredFiles,
-                                                        fuzzyMatchType,
-                                                        false,
-                                                        this.settings,
-                                                        this.plugin,
-                                                        fr.headerId
-                                                    );
-
-                                                    if (filteredFiles.length > 1) {
-                                                        filteredFiles.forEach((file, index) => {
-                                                            if (index === 0) return;
-                                                            const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
-                                                            if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
-                                                                virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
-                                                            }
-                                                        });
-                                                    }
-
-                                                    matches.push(virtualMatch);
                                                 }
                                             }
                                         }
