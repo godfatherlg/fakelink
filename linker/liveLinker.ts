@@ -613,6 +613,16 @@ class AutoLinkerPlugin implements PluginValue {
                                     filteredFiles.forEach((file, index) => {
                                         if (index === 0) return;
 
+                                        // Prefer the per-file heading map: it is keyed by
+                                        // file path, so it can never hand back another file's
+                                        // heading. The trie lookup below only sees whatever
+                                        // node happens to come first at this scan position.
+                                        const ownHeaderId = this.linkerCache.cache.getFileHeaderId(file, name);
+                                        if (ownHeaderId) {
+                                            virtualMatch.setFileHeaderId(file, ownHeaderId);
+                                            return;
+                                        }
+
                                         const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(
                                             i,
                                             null,
@@ -696,12 +706,20 @@ class AutoLinkerPlugin implements PluginValue {
                                     const topSim = fuzzyResults[0].similarity;
                                     const mergedFiles: TFile[] = [];
                                     const seenPaths = new Set<string>();
+                                    // Remember each file's OWN heading id. VirtualMatch's
+                                    // constructor stamps the top result's headerId onto every
+                                    // target, so without this the 2nd target inherits the 1st
+                                    // one's heading and its link points at an anchor that does
+                                    // not exist in that file — opening the note but scrolling
+                                    // nowhere.
+                                    const fuzzyFileHeaderIds = new Map<string, string>();
                                     for (const fr of fuzzyResults) {
                                         if (fr.similarity < topSim) break;
                                         for (const f of fr.files) {
                                             if (seenPaths.has(f.path)) continue;
                                             seenPaths.add(f.path);
                                             mergedFiles.push(f);
+                                            if (fr.headerId) fuzzyFileHeaderIds.set(f.path, fr.headerId);
                                         }
                                     }
 
@@ -762,6 +780,17 @@ class AutoLinkerPlugin implements PluginValue {
                                         if (filteredFiles.length > 1) {
                                             filteredFiles.forEach((file, index) => {
                                                 if (index === 0) return;
+                                                // Prefer the heading id that came with this file's own
+                                                // fuzzy index entry. Fall back to the prefix tree only
+                                                // when that entry had none — a fuzzy hit is usually
+                                                // not reachable in the tree at this scan position, so
+                                                // the tree lookup silently fails and the file keeps
+                                                // the first target's (wrong) heading.
+                                                const ownHeaderId = fuzzyFileHeaderIds.get(file.path);
+                                                if (ownHeaderId) {
+                                                    virtualMatch.setFileHeaderId(file, ownHeaderId);
+                                                    return;
+                                                }
                                                 const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
                                                 if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                                     virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);

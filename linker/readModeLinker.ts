@@ -377,6 +377,14 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             // When multiple files match the same keyword, get corresponding heading ID for each file
                                             if (node.files.size > 1) {
                                                 node.files.forEach(file => {
+                                                    // Prefer the per-file heading map (mirror of
+                                                    // liveLinker): keyed by file path, so it can
+                                                    // never return another file's heading.
+                                                    const ownHeaderId = this.linkerCache.cache.getFileHeaderId(file, name);
+                                                    if (ownHeaderId) {
+                                                        match.setFileHeaderId(file, ownHeaderId);
+                                                        return;
+                                                    }
                                                     const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(
                                                         i,
                                                         null, // Do not exclude any files
@@ -469,12 +477,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                     const topSim = fuzzyResults[0].similarity;
                                                     const mergedFiles: TFile[] = [];
                                                     const seenPaths = new Set<string>();
+                                                    // Remember each file's OWN heading id (mirror of
+                                                    // liveLinker). The constructor stamps the top
+                                                    // result's headerId onto every target, which makes
+                                                    // later targets jump to an anchor absent from them.
+                                                    const fuzzyFileHeaderIds = new Map<string, string>();
                                                     for (const fr of fuzzyResults) {
                                                         if (fr.similarity < topSim) break;
                                                         for (const f of fr.files) {
                                                             if (seenPaths.has(f.path)) continue;
                                                             seenPaths.add(f.path);
                                                             mergedFiles.push(f);
+                                                            if (fr.headerId) fuzzyFileHeaderIds.set(f.path, fr.headerId);
                                                         }
                                                     }
 
@@ -529,6 +543,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                         if (filteredFiles.length > 1) {
                                                             filteredFiles.forEach((file, index) => {
                                                                 if (index === 0) return;
+                                                                // Mirror of liveLinker: prefer this file's own
+                                                                // fuzzy heading id, tree lookup only as fallback.
+                                                                const ownHeaderId = fuzzyFileHeaderIds.get(file.path);
+                                                                if (ownHeaderId) {
+                                                                    virtualMatch.setFileHeaderId(file, ownHeaderId);
+                                                                    return;
+                                                                }
                                                                 const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
                                                                 if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                                                     virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
