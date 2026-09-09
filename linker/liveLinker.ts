@@ -121,15 +121,21 @@ export class VirtualLinkWidget extends WidgetType {
         return element;
     }
 
-    // WidgetType.ignoreEvent() defaults to true, which makes CodeMirror ignore
-    // every event inside the widget — so clicking the link area would NOT place
-    // the caret (users could only click past the end of the line). Return false
-    // for mouse events so the editor handles them and the caret can land there.
-    // Opening the link is still handled by the anchor's own onclick (plain click
-    // by default, or Ctrl/Cmd+click when that setting is enabled).
+    // Whether CodeMirror should ignore events inside this widget:
+    //   true  → editor ignores it, so the <a> onclick runs and the link opens
+    //           (but no caret is placed)
+    //   false → editor handles it, so the caret IS placed (but the click is
+    //           consumed and the link does NOT open)
+    // These two goals conflict, so decide per click instead of picking one:
+    //   - default (plain click opens): ignore mouse events → link opens
+    //   - "require modifier" mode: plain click → caret only; Ctrl/Cmd+click → open
     ignoreEvent(event: Event): boolean {
-        return !(event.type === 'mousedown' || event.type === 'mouseup'
-            || event.type === 'click' || event.type === 'dblclick');
+        const isMouse = event.type === 'mousedown' || event.type === 'mouseup'
+            || event.type === 'click' || event.type === 'dblclick';
+        if (!isMouse) return true;
+        if (!this.match.settings.virtualLinkRequireModifier) return true;
+        const withModifier = (event as MouseEvent).ctrlKey || (event as MouseEvent).metaKey;
+        return withModifier;
     }
 }
 
