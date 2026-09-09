@@ -297,7 +297,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                     const childNode = childNodes[childNodeIndex];
 
                     if (childNode.nodeType === Node.TEXT_NODE) {
-                        let text = childNode.textContent || '';
+                        const text = childNode.textContent || '';
                         if (text.length === 0) continue;
 
                         this.linkerCache.reset();
@@ -544,7 +544,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                     const endSym = endSyms[p];
                                     if (!startSym || !endSym || startSym === endSym) continue;
                                     let searchFrom = 0;
-                                    while (true) {
+                                    // for(;;) rather than while(true) — the latter trips no-constant-condition.
+                                    for (;;) {
                                         const startIdx = text.indexOf(startSym, searchFrom);
                                         if (startIdx === -1) break;
                                         const endIdx = text.indexOf(endSym, startIdx + startSym.length);

@@ -275,7 +275,7 @@ export class VirtualMatch {
                 linkText += '|';
             }
 
-            let linkHref = file.path;
+            const linkHref = file.path;
             // Pass file parameter to use file-specific heading ID
             const link = this.getLinkAnchorElement(linkText, linkHref, file);
             spanReferences.appendChild(link);
@@ -319,7 +319,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
-            let icon = activeDocument.createElement('sup');
+            const icon = activeDocument.createElement('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
             return icon;

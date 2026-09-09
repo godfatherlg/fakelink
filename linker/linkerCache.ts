@@ -576,7 +576,7 @@ export class PrefixTree {
         let node = this.root;
 
         // For each character in the name, add a node to the trie
-        for (let char of name) {
+        for (const char of name) {
             // char = char.toLowerCase();
             let child = node.children.get(char);
             if (!child) {
@@ -792,8 +792,8 @@ export class PrefixTree {
             }
         }
 
-        let aliasesWithMatchCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToMatchCase] as string[]) ?? []);
-        let aliasesWithIgnoreCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToIgnoreCase] as string[]) ?? []);
+        const aliasesWithMatchCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToMatchCase] as string[]) ?? []);
+        const aliasesWithIgnoreCase: Set<string> = new Set((metadata?.frontmatter?.[this.settings.propertyNameToIgnoreCase] as string[]) ?? []);
 
         // If aliases is not an array, convert it to an array
         if (!Array.isArray(aliases)) {
@@ -1101,7 +1101,7 @@ export class PrefixTree {
         // Digits count as word characters (the same rule isFormattingChar uses),
         // so a name like "科目二冲刺带背3" stays a single word instead of being
         // cut off right before the trailing digit.
-        let pattern = /[^\p{L}\p{N}]/u;
+        const pattern = /[^\p{L}\p{N}]/u;
         return pattern.test(char);
     }
 

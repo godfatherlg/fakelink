@@ -508,7 +508,7 @@ class AutoLinkerPlugin implements PluginValue {
         // Set to exclude files that are already linked by a virtual link
         const alreadyLinkedFiles = new Set<TFile>();
 
-        for (let { from, to } of view.visibleRanges) {
+        for (const { from, to } of view.visibleRanges) {
             this.linkerCache.reset();
             const text = view.state.doc.sliceString(from, to);
 
@@ -755,7 +755,7 @@ class AutoLinkerPlugin implements PluginValue {
             // We want to exclude some syntax nodes from being decorated,
             // such as code blocks and manually added links
             const excludedIntervalTree = new IntervalTree();
-            let excludedTypes = ['codeblock', 'code-block', 'inline-code', 'internal-link', 'link', 'url', 'hashtag'];
+            const excludedTypes = ['codeblock', 'code-block', 'inline-code', 'internal-link', 'link', 'url', 'hashtag'];
             if (!this.settings.allowLinksInHeaders) {
                 excludedTypes.push('header-');
             }
@@ -807,7 +807,8 @@ class AutoLinkerPlugin implements PluginValue {
                     const endSym = endSyms[p];
                     if (!startSym || !endSym || startSym === endSym) continue;
                     let searchFrom = 0;
-                    while (true) {
+                    // for(;;) rather than while(true) — the latter trips no-constant-condition.
+                    for (;;) {
                         const startIdx = text.indexOf(startSym, searchFrom);
                         if (startIdx === -1) break;
                         const endIdx = text.indexOf(endSym, startIdx + startSym.length);
@@ -972,8 +973,8 @@ class AutoLinkerPlugin implements PluginValue {
                 if (fixIMEProblem) {
                     needImeFix = true;
                     if (additionIsInCurrentLine && cursorPos > to) {
-                        let gapString = view.state.sliceDoc(to, cursorPos);
-                        let strBeforeAdd = view.state.sliceDoc(lineStart, from);
+                        const gapString = view.state.sliceDoc(to, cursorPos);
+                        const strBeforeAdd = view.state.sliceDoc(lineStart, from);
 
                         // Regex to check if a part of a word is at the line start, because IME problem only occurs at line start
                         // Regex matches parts that:
