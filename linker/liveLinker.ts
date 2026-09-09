@@ -650,8 +650,35 @@ class AutoLinkerPlugin implements PluginValue {
                             const maxOffset = this.settings.fuzzySlidingWindow
                                 ? Math.min(rawWord.length - 1, 24)
                                 : 0;
+                            // Score EVERY window position first and keep the most similar
+                            // one. "Stop at the first hit" used to pick the LONGEST
+                            // candidate (offset 0) rather than the best one: "被苏霍姆
+                            // 林斯" (71%) would win over "苏霍姆林斯" (83%), padding the
+                            // link with an unrelated leading character.
+                            let bestOffset = -1;
+                            let bestSim = -1;
+                            for (let offset = 0; offset <= maxOffset; offset++) {
+                                const rawCandidate = rawWord.slice(offset);
+                                const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
+                                const candidate = rawCandidate.trim();
+                                if (!candidate) continue;
+                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
+                                if (!normWord) continue;
+                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
+                                if (fuzzyResults.length > 0) {
+                                    const sim = fuzzyResults[0].similarity;
+                                    if (sim > bestSim) {
+                                        bestSim = sim;
+                                        bestOffset = offset;
+                                        // Already perfect — a shorter window cannot beat it.
+                                        if (sim >= 0.9999) break;
+                                    }
+                                }
+                            }
+
+                            // Emit only for the winning window position.
                             let handled = false;
-                            for (let offset = 0; offset <= maxOffset && !handled; offset++) {
+                            for (let offset = bestOffset; bestOffset >= 0 && offset <= bestOffset && !handled; offset++) {
                                 const rawCandidate = rawWord.slice(offset);
                                 // Keep the link range aligned with the trimmed text.
                                 // (Avoid String#trimStart: it needs ES2019, while the
@@ -684,6 +711,20 @@ class AutoLinkerPlugin implements PluginValue {
                                     const fName = text.slice(fFromRel, fToRel);
                                     const aFrom = from + fFromRel;
                                     const aTo = from + fToRel;
+
+                                    // A fuzzy match must not cover a range an exact match
+                                    // already claimed. "被苏霍姆林斯基之女" (fuzzy) starts
+                                    // one char before the exact "苏霍姆林斯基", so
+                                    // filterOverlapping — which keeps whichever match
+                                    // starts first — would delete the exact match.
+                                    let coveredByExact = false;
+                                    for (let k = matches.length - 1; k >= 0; k--) {
+                                        const prev = matches[k];
+                                        if (prev.isFuzzy) continue;
+                                        if (prev.to <= aFrom) break;
+                                        if (prev.from < aTo) { coveredByExact = true; break; }
+                                    }
+                                    if (coveredByExact) continue;
 
                                     const filteredFiles = mergedFiles.filter(file => {
                                         return !this.settings.excludedExtensions.some(ext =>

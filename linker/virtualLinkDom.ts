@@ -342,6 +342,14 @@ export class VirtualMatch {
 
     static compare(a: VirtualMatch, b: VirtualMatch): number {
         if (a.from === b.from) {
+            // An exact match starting at the same position outranks a fuzzy
+            // (similarity) match, even when the fuzzy one is longer. Without
+            // this, "教育教学负" (fuzzy, 5 chars) would sort ahead of the exact
+            // "教育教学" (4 chars) and — because filterOverlapping keeps the
+            // first of an overlapping run — delete the exact match entirely.
+            if (a.isFuzzy !== b.isFuzzy) {
+                return a.isFuzzy ? 1 : -1;
+            }
             if (b.to == a.to) {
                 return b.files.length - a.files.length;
             }
@@ -379,6 +387,25 @@ export class VirtualMatch {
             if (excludedIntervalTree) {
                 const overlaps = excludedIntervalTree.search([addition.from, addition.to]);
                 if (overlaps.length > 0) {
+                    matchesToDelete.set(addition.id, true);
+                    continue;
+                }
+            }
+
+            // A fuzzy match must always yield to an exact match it overlaps.
+            // The exact "苏霍姆林斯基" is only discovered when scanning reaches
+            // "基", one char AFTER the fuzzy "被苏霍姆林斯" was produced — so the
+            // fuzzy one starts a char earlier and, being first, would win here
+            // and delete the exact match. Exact is what the user actually wrote,
+            // so it must survive regardless of scanning order.
+            if (addition.isFuzzy) {
+                let yieldsToExact = false;
+                for (let j = i + 1; j < matches.length; j++) {
+                    const other = matches[j];
+                    if (other.from >= addition.to) break;
+                    if (!other.isFuzzy) { yieldsToExact = true; break; }
+                }
+                if (yieldsToExact) {
                     matchesToDelete.set(addition.id, true);
                     continue;
                 }

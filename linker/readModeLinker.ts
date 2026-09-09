@@ -424,8 +424,35 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             const maxOffset = this.settings.fuzzySlidingWindow
                                                 ? Math.min(rawWord.length - 1, 24)
                                                 : 0;
+                                            // Score EVERY window position first and keep the most
+                                            // similar one (mirror of liveLinker). "Stop at the first
+                                            // hit" picks the LONGEST candidate instead of the best
+                                            // one, e.g. "被苏霍姆林斯" (71%) over "苏霍姆林斯" (83%),
+                                            // padding the link with an unrelated leading character.
+                                            let bestOffset = -1;
+                                            let bestSim = -1;
+                                            for (let offset = 0; offset <= maxOffset; offset++) {
+                                                const rawCandidate = rawWord.slice(offset);
+                                                const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
+                                                const candidate = rawCandidate.trim();
+                                                if (!candidate) continue;
+                                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
+                                                if (!normWord) continue;
+                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
+                                                if (fuzzyResults.length > 0) {
+                                                    const sim = fuzzyResults[0].similarity;
+                                                    if (sim > bestSim) {
+                                                        bestSim = sim;
+                                                        bestOffset = offset;
+                                                        // Already perfect — a shorter window cannot beat it.
+                                                        if (sim >= 0.9999) break;
+                                                    }
+                                                }
+                                            }
+
+                                            // Emit only for the winning window position.
                                             let handled = false;
-                                            for (let offset = 0; offset <= maxOffset && !handled; offset++) {
+                                            for (let offset = bestOffset; bestOffset >= 0 && offset <= bestOffset && !handled; offset++) {
                                                 const rawCandidate = rawWord.slice(offset);
                                                 // (Avoid String#trimStart: it needs ES2019, while the
                                                 //  project's tsconfig lib only goes up to ES7.)
@@ -455,6 +482,20 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                     const fFrom = baseFrom + offset + leadWs;
                                                     const fTo = i;
                                                     const fName = text.slice(fFrom, fTo);
+
+                                                    // Mirror of liveLinker's guard: a fuzzy
+                                                    // match must not cover a range an exact
+                                                    // match already claimed, otherwise the
+                                                    // exact "苏霍姆林斯基" gets swallowed by
+                                                    // the longer fuzzy "被苏霍姆林斯基之女".
+                                                    let coveredByExact = false;
+                                                    for (let k = matches.length - 1; k >= 0; k--) {
+                                                        const prev = matches[k];
+                                                        if (prev.isFuzzy) continue;
+                                                        if (prev.to <= fFrom) break;
+                                                        if (prev.from < fTo) { coveredByExact = true; break; }
+                                                    }
+                                                    if (coveredByExact) continue;
 
                                                     const filteredFiles = mergedFiles.filter(file => {
                                                         return !this.settings.excludedExtensions.some(ext =>
