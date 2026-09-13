@@ -444,6 +444,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 const candidate = rawCandidate.trim();
                                                 if (!candidate) continue;
                                                 if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
+                                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
                                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                                 if (!normWord) continue;
                                                 // Length short-circuit (mirror of liveLinker): a query
@@ -472,6 +473,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 const candidate = rawCandidate.trim();
                                                 if (!candidate) continue;
                                                 if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
+                                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
                                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                                 if (!normWord) continue;
                                                 // Length short-circuit (mirror of liveLinker): a query

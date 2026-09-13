@@ -239,6 +239,12 @@ export class PrefixTree {
     // sliding window can skip candidates shorter than this minus the max length
     // diff (2) without even running fuzzyNormalize.
     public minFuzzyKeywordLen = Infinity;
+    // Maximum normalized length among indexed fuzzy keywords. Exposed so the
+    // sliding window can skip overly long candidates (e.g. inside long paragraphs)
+    // without running fuzzyNormalize. Since normalization only strips stopwords
+    // (never grows), a candidate more than 2x this length cannot shrink enough to
+    // match.
+    public maxFuzzyKeywordLen = 0;
     // Minimum length (characters) of a normalized keyword to be indexed for fuzzy
     // matching. Shorter titles/notes are skipped — fuzzy-matching them is useless
     // and error-prone. Set from settings.fuzzyMinLength at tree build time.
@@ -267,6 +273,7 @@ export class PrefixTree {
         this.fuzzyBuckets.clear();
         this.fuzzyKeywordLengths.clear();
         this.minFuzzyKeywordLen = Infinity;
+        this.maxFuzzyKeywordLen = 0;
     }
 
     // Levenshtein edit distance between two strings.
@@ -648,6 +655,7 @@ export class PrefixTree {
             if (key.length >= 2) {
                 this.fuzzyKeywordLengths.add(key.length);
                 if (key.length < this.minFuzzyKeywordLen) this.minFuzzyKeywordLen = key.length;
+                if (key.length > this.maxFuzzyKeywordLen) this.maxFuzzyKeywordLen = key.length;
                 const entry = { files: node.files, headerId, canonical: canonicalKeyword };
                 const list = this.fuzzyKeywordMap.get(key);
                 if (list) {

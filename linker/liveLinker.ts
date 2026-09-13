@@ -203,7 +203,11 @@ class AutoLinkerPlugin implements PluginValue {
                     if (pending) {
                         this.linkerCache.updateCache(force);
                         this.decorations = this.buildDecorations(pending.view, pending.viewIsActive);
-                        pending.view.requestMeasure();
+                        // Dispatch an empty transaction so CodeMirror re-reads the
+                        // decorations. requestMeasure() alone does NOT recalc plugin
+                        // decorations, which is why the new links needed a cursor
+                        // click (a real update) before they appeared.
+                        pending.view.dispatch({});
                     }
                 }, 150);
                 return;
@@ -659,6 +663,11 @@ class AutoLinkerPlugin implements PluginValue {
                                 const candidate = rawCandidate.trim();
                                 if (!candidate) continue;
                                 if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
+                                // Right-side short-circuit: a candidate more than 2x the
+                                // longest indexed keyword can never shrink enough (via
+                                // stopword stripping) to match. Skips the fuzzyNormalize
+                                // cost on long-paragraph candidates.
+                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                 if (!normWord) continue;
                                 // Length short-circuit: a query whose normalized length
@@ -689,6 +698,11 @@ class AutoLinkerPlugin implements PluginValue {
                                 const candidate = rawCandidate.trim();
                                 if (!candidate) continue;
                                 if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
+                                // Right-side short-circuit: a candidate more than 2x the
+                                // longest indexed keyword can never shrink enough (via
+                                // stopword stripping) to match. Skips the fuzzyNormalize
+                                // cost on long-paragraph candidates.
+                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                 if (!normWord) continue;
                                 // Length short-circuit: a query whose normalized length
