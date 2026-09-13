@@ -117,6 +117,10 @@ const zhCN: Record<string, string> = {
     'Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.': '要排除的关键词（逗号分隔）。匹配这些关键词的文件、别名或标题不会被链接。',
     'Excluded file extensions': '排除的文件扩展名',
     'File extensions to exclude from virtual linking (one per line or comma separated)': '要排除的文件扩展名（每行一个或逗号分隔）',
+    'Auto-exclude renamed duplicates': '自动排除重命名副本',
+    'When enabled, if one note\'s file name fully contains another note\'s file name (e.g. "教育教学" and "教育教学附件") and both notes start with the same first sentence, the longer-named note is automatically excluded from virtual linking (treated like a linker-exclude note). This keeps a copied-and-renamed duplicate from producing links. Off by default.': '启用后，若某笔记的文件名完整包含另一个笔记的文件名（如「教育教学」与「教育教学附件」），且两篇笔记的第一句相同，则自动将文件名更长的那个笔记排除出虚拟链接（等同于为其添加 linker-exclude）。这样复制并重命名的副本就不会再产生链接。默认关闭。',
+    'Exclude by file name prefix/suffix': '按文件名首尾排除',
+    'Notes whose file name starts or ends with any of these words or symbols (comma separated) are excluded from virtual linking, like a linker-exclude note.': '文件名以这些字词或符号开头或结尾的笔记将被排除出虚拟链接（逗号分隔），等同于为其添加 linker-exclude。',
 
     'Auto-insert heading lock symbol': '自动插入标题锁定符号',
     'When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.': '启用后，将在新建或修改的标题文本前自动插入一个独特符号，防止被正文意外匹配。',

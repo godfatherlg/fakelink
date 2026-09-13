@@ -223,6 +223,16 @@ export class PrefixTree {
     mapFilePathToLeaveNodes: Map<string, PrefixNode[]> = new Map();
     mapFileHeaderIds: Map<string, Map<string, string>> = new Map();
 
+    // Auto-exclude renamed duplicates: paths of notes that are automatically
+    // treated as excluded (longer-named note whose name contains another note's
+    // name and shares the same first sentence). Consulted by shouldExcludeFile.
+    autoExcludedPaths: Set<string> = new Set();
+    // Cache of each file's first sentence (keyed by path, invalidated by mtime).
+    private firstSentenceCache: Map<string, { mtime: number; sentence: string }> = new Map();
+    // Signature of the last file set used for auto-exclude, so the O(n^2)
+    // containment scan only runs when the vault's files actually change.
+    private lastAutoExcludeSignature: string = '';
+
     // Fuzzy-match index: normalized keyword (lowercased) -> candidate entries.
     // Built alongside the prefix tree when fuzzy (词义模糊) matching is enabled.
     fuzzyKeywordMap: Map<string, { files: Set<TFile>; headerId?: string; canonical?: string }[]> = new Map();
@@ -274,6 +284,13 @@ export class PrefixTree {
         this.fuzzyKeywordLengths.clear();
         this.minFuzzyKeywordLen = Infinity;
         this.maxFuzzyKeywordLen = 0;
+        // NOTE: autoExcludedPaths / firstSentenceCache / lastAutoExcludeSignature
+        // are intentionally NOT cleared here. clearCache() is called on every
+        // updateManager.update() (including the onIndexChanged refresh triggered
+        // by auto-exclude itself). Clearing them would re-index the just-excluded
+        // note and re-trigger onIndexChanged forever. The auto-exclude result is
+        // therefore sticky until a full plugin reload; turning the setting off
+        // simply stops shouldExcludeFile from consulting it.
     }
 
     // Levenshtein edit distance between two strings.
@@ -730,6 +747,22 @@ export class PrefixTree {
     private shouldExcludeFile(file: TFile): boolean {
         const path = file.path;
 
+        // Auto-excluded renamed duplicate (longer-named note sharing the first
+        // sentence of a shorter-named note). Equivalent to a linker-exclude tag.
+        if (this.settings.autoExcludeContainedCopies && this.autoExcludedPaths.has(path)) {
+            return true;
+        }
+
+        // Exclude notes whose file name starts or ends with a configured
+        // word/symbol (e.g. a "副本" suffix or a "_" prefix on draft notes).
+        const affixes = this.settings.filenameAffixExclusions;
+        if (affixes && affixes.length > 0) {
+            const name = file.basename;
+            if (affixes.some((a) => a && (name.startsWith(a) || name.endsWith(a)))) {
+                return true;
+            }
+        }
+
         // Check if file extension is excluded
         if (this.settings.excludedExtensions.some(ext =>
             path.toLowerCase().endsWith(ext.toLowerCase())
@@ -1100,6 +1133,119 @@ export class PrefixTree {
         filesToRemove.forEach((f) => this.removeFileFromTree(f));
     }
 
+    // Extract the "first sentence" of a note's body: the first non-empty line
+    // after the YAML frontmatter, with leading Markdown markers (# / - / * / + /
+    // > / numbered-list) and surrounding whitespace stripped. Used by
+    // auto-exclude to decide whether two notes are renamed duplicates.
+    private static extractFirstSentence(content: string): string {
+        if (!content) return '';
+
+        let body = content;
+        // Strip YAML frontmatter if present.
+        const fm = body.match(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n?/);
+        if (fm) {
+            body = body.slice(fm[0].length);
+        }
+
+        for (const rawLine of body.split(/\r?\n/)) {
+            let line = rawLine.trim();
+            if (!line) continue;
+
+            // Strip leading Markdown block markers. The (?:...)+ repeats to handle
+            // nesting like "- # heading" or "1. - item". A bare "-" is kept (it
+            // needs a following space to be a list marker).
+            line = line.replace(/^(?:#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)、]\s*)+/, '').trim();
+
+            if (line) return line;
+        }
+
+        return '';
+    }
+
+    // Read a file's first sentence, caching it by path and invalidating on mtime
+    // change so edits are picked up.
+    private async getFirstSentence(file: TFile): Promise<string> {
+        const cached = this.firstSentenceCache.get(file.path);
+        if (cached && cached.mtime === file.stat.mtime) {
+            return cached.sentence;
+        }
+
+        let content = '';
+        try {
+            content = await this.app.vault.cachedRead(file);
+        } catch {
+            try {
+                content = await this.app.vault.read(file);
+            } catch {
+                content = '';
+            }
+        }
+
+        const sentence = PrefixTree.extractFirstSentence(content);
+        this.firstSentenceCache.set(file.path, { mtime: file.stat.mtime, sentence });
+        return sentence;
+    }
+
+    // Auto-exclude renamed duplicates: find note pairs where one file name fully
+    // contains another (shorter ⊂ longer) AND both notes share the same first
+    // sentence, then exclude the longer-named note. Runs asynchronously because
+    // the first sentence requires reading file content. Returns true when the
+    // index changed so the caller can refresh decorations.
+    async computeAutoExclude(): Promise<boolean> {
+        if (!this.settings.autoExcludeContainedCopies) return false;
+
+        const allFiles = this.app.vault.getFiles().filter((file): file is TFile =>
+            PrefixTree.SUPPORTED_EXTENSIONS.includes(file.extension.toLowerCase())
+        );
+
+        // Signature over path+mtime so the O(n^2) containment scan only reruns
+        // when the vault's files actually change (not on every update/scroll).
+        const signature = allFiles.map((f) => `${f.path}:${f.stat.mtime}`).sort().join('|');
+        if (signature === this.lastAutoExcludeSignature) return false;
+        this.lastAutoExcludeSignature = signature;
+
+        // Candidates: notes that are currently indexed (not already excluded).
+        const candidates: { file: TFile; name: string }[] = [];
+        for (const file of allFiles) {
+            if (this.shouldExcludeFile(file)) continue;
+            const name = file.basename;
+            if (name && name.length >= 2) candidates.push({ file, name });
+        }
+
+        // Sort by name length ascending so the shorter name is the outer loop.
+        candidates.sort((a, b) => a.name.length - b.name.length);
+
+        // Pass 1 (sync): collect containment pairs. The shorter name must be a
+        // strict substring of a longer name (equal-length names are skipped).
+        const pairs: { shorter: TFile; longer: TFile }[] = [];
+        for (let i = 0; i < candidates.length; i++) {
+            const shorter = candidates[i];
+            for (let j = i + 1; j < candidates.length; j++) {
+                const longer = candidates[j];
+                if (longer.name.length === shorter.name.length) continue;
+                if (longer.name.includes(shorter.name)) {
+                    pairs.push({ shorter: shorter.file, longer: longer.file });
+                }
+            }
+        }
+
+        // Pass 2 (async): read first sentences only for the (few) containment pairs.
+        let changed = false;
+        for (const pair of pairs) {
+            const shortSentence = await this.getFirstSentence(pair.shorter);
+            const longSentence = await this.getFirstSentence(pair.longer);
+            if (shortSentence && longSentence && shortSentence === longSentence) {
+                if (!this.autoExcludedPaths.has(pair.longer.path)) {
+                    this.autoExcludedPaths.add(pair.longer.path);
+                    this.removeFileFromTree(pair.longer);
+                    changed = true;
+                }
+            }
+        }
+
+        return changed;
+    }
+
     findFiles(prefix: string): Set<TFile> {
         let node: PrefixNode | undefined = this.root;
         for (const char of prefix) {
@@ -1213,6 +1359,9 @@ export class LinkerCache {
     // linkEntries: Map<string, CachedFile[]> = new Map();
     vault: Vault;
     cache: PrefixTree;
+    // Invoked after an async re-index (e.g. auto-excluding a renamed duplicate)
+    // changes the tree, so the caller can refresh its decorations.
+    onIndexChanged?: () => void;
 
     constructor(public app: App, public settings: LinkerPluginSettings) {
         const { vault } = app;
@@ -1258,5 +1407,14 @@ export class LinkerCache {
         this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath]);
 
         this.activeFilePath = activeFile;
+
+        // Auto-exclude renamed duplicates (async, only when enabled). Runs after
+        // the tree is built; once the longer-named duplicates are removed, notify
+        // the caller to refresh so the excluded notes stop producing links.
+        if (this.settings.autoExcludeContainedCopies) {
+            void this.cache.computeAutoExclude().then((changed) => {
+                if (changed) this.onIndexChanged?.();
+            });
+        }
     }
 }

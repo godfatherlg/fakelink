@@ -577,6 +577,8 @@ export interface LinkerPluginSettings {
     jumpDelayMs: number; // Delay (ms) to wait for the target file to render before jumping to the line
     jumpOpenInNewTab: boolean; // When the target file is not open, open it in a new tab
     lineLinkSelfHeal: boolean; // Self-heal line links when target line numbers drift
+    autoExcludeContainedCopies: boolean; // Auto-exclude a note whose name fully contains another note's name AND shares the same first sentence (e.g. a renamed duplicate)
+    filenameAffixExclusions: string[]; // Notes whose file name starts or ends with any of these words/symbols are excluded
     // wordBoundaryRegex: string;
     // conversionFormat
 }
@@ -657,6 +659,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     jumpDelayMs: 8000,
     jumpOpenInNewTab: true,
     lineLinkSelfHeal: false,
+    autoExcludeContainedCopies: false,
+    filenameAffixExclusions: [],
     // wordBoundaryRegex: '/[\t- !-/:-@\[-`{-~\p{Emoji_Presentation}\p{Extended_Pictographic}]/u',
 };
 
@@ -910,6 +914,10 @@ export default class LinkerPlugin extends Plugin {
         this.updateManager.registerCallback(() => {
             LinkerCache.getInstance(this.app, this.settings).clearCache();
         });
+
+        // When auto-exclude (renamed duplicates) re-indexes asynchronously,
+        // refresh the decorations so the newly excluded note stops linking.
+        LinkerCache.getInstance(this.app, this.settings).onIndexChanged = () => this.updateManager.update();
 
         // Register the glossary linker for the read mode
         this.registerMarkdownPostProcessor((element, context) => {
@@ -1766,6 +1774,8 @@ class LinkerSettingTab extends PluginSettingTab {
                 return s.headingSymbolWhitelist.join(',');
             case 'excludedExtensions':
                 return s.excludedExtensions.join('\n');
+            case 'filenameAffixExclusions':
+                return s.filenameAffixExclusions.join(',');
             default:
                 return (s as unknown as Record<string, unknown>)[key];
         }
@@ -1806,6 +1816,14 @@ class LinkerSettingTab extends PluginSettingTab {
                         .map((x) => x.trim())
                         .filter((x) => x.length > 0)
                         .map((x) => (x.startsWith('.') ? x : `.${x}`)),
+                });
+                break;
+            case 'filenameAffixExclusions':
+                await this.plugin.updateSettings({
+                    filenameAffixExclusions: (value as string)
+                        .split(',')
+                        .map((x) => x.trim())
+                        .filter((x) => x.length > 0),
                 });
                 break;
             case 'allowLinksInHeaders':
@@ -2105,6 +2123,15 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // ---------- Exclusions ----------
             groupDef(t('Exclusions'), [
+                toggleDef(t('Auto-exclude renamed duplicates'), 'autoExcludeContainedCopies', {
+                    desc: t('When enabled, if one note\'s file name fully contains another note\'s file name (e.g. "教育教学" and "教育教学附件") and both notes start with the same first sentence, the longer-named note is automatically excluded from virtual linking (treated like a linker-exclude note). This keeps a copied-and-renamed duplicate from producing links. Off by default.'),
+                    visible: adv,
+                }),
+                textAreaDef(t('Exclude by file name prefix/suffix'), 'filenameAffixExclusions', {
+                    desc: t('Notes whose file name starts or ends with any of these words or symbols (comma separated) are excluded from virtual linking, like a linker-exclude note.'),
+                    placeholder: 'e.g. 副本, 草稿, _',
+                    visible: adv,
+                }),
                 textAreaDef(t('Excluded keywords'), 'excludedKeywords', {
                     desc: t('Keywords to exclude from virtual linking (comma separated). Files/aliases or headings matching these keywords will not be linked.'),
                     visible: adv,
