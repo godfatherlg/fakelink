@@ -194,7 +194,7 @@ class AutoLinkerPlugin implements PluginValue {
                 this.pendingScrollBuild = { view: update.view, viewIsActive: updateIsOnActiveView };
                 this.lastViewUpdate = update;
                 if (this.scrollDebounceTimer !== null) {
-                    clearTimeout(this.scrollDebounceTimer);
+                    window.clearTimeout(this.scrollDebounceTimer);
                 }
                 this.scrollDebounceTimer = window.setTimeout(() => {
                     this.scrollDebounceTimer = null;
@@ -215,7 +215,7 @@ class AutoLinkerPlugin implements PluginValue {
 
             // Non-scroll change: cancel any pending scroll build, then rebuild now.
             if (this.scrollDebounceTimer !== null) {
-                clearTimeout(this.scrollDebounceTimer);
+                window.clearTimeout(this.scrollDebounceTimer);
                 this.scrollDebounceTimer = null;
                 this.pendingScrollBuild = null;
             }
@@ -230,7 +230,7 @@ class AutoLinkerPlugin implements PluginValue {
 
     destroy() {
         if (this.scrollDebounceTimer !== null) {
-            clearTimeout(this.scrollDebounceTimer);
+            window.clearTimeout(this.scrollDebounceTimer);
             this.scrollDebounceTimer = null;
             this.pendingScrollBuild = null;
         }
