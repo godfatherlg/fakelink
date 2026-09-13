@@ -645,7 +645,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     stemmingLanguage: 'auto',
     fuzzyMatchThreshold: 80,
     fuzzyMinLength: 6,
-    fuzzySlidingWindow: true,
+    fuzzySlidingWindow: false,
     fuzzySlidingWindowMaxOffset: 10,
     skipMultipleTargets: true,
     enableSymbolExclusion: false,
@@ -2030,7 +2030,7 @@ class LinkerSettingTab extends PluginSettingTab {
                     disabled: () => !s.enableStemming,
                 }),
                 toggleDef(t('Sliding window for fuzzy matching'), 'fuzzySlidingWindow', {
-                    desc: t('Also try shorter suffixes of the text run, not just the whole run. Chinese has no spaces, so a term is usually glued to the words before it, and those extra characters drag the similarity below the threshold. On by default; turn it off if you notice lag on very long lines.'),
+                    desc: t('Also try shorter suffixes of the text run, not just the whole run. Chinese has no spaces, so a term is usually glued to the words before it, and those extra characters drag the similarity below the threshold. Off by default; turn it on if you need terms embedded in Chinese text to match, at the cost of slower scrolling on long lines.'),
                     disabled: () => !s.enableStemming,
                 }),
                 sliderDef(t('Sliding window max offset'), 'fuzzySlidingWindowMaxOffset', 2, 24, 1, {

@@ -38,63 +38,8 @@ export class VirtualLinkWidget extends WidgetType {
         // Create link element
         const element = this.match.getCompleteLinkElement(inTableCellEditor);
         
-        // Check current format context with precise range checking
-        let inBoldContext = false;
-        let inItalicContext = false;
-        let inHighlightContext = false;
-        let inStrikethroughContext = false;
-        let inCommentContext = false;
-        let inHeaderContext = false;
-        
-        // Get the exact text range of the virtual link
-        const linkRange = { from: this.match.from, to: this.match.to };
-        
-        // Expand the search range to capture format nodes that may contain the virtual link
-        // Format markers like ==, **, ~~ are typically 2 characters on each side
-        const expandRange = 10;
-        const searchFrom = Math.max(0, this.match.from - expandRange);
-        const searchTo = Math.min(view.state.doc.length, this.match.to + expandRange);
-        
-        syntaxTree(view.state).iterate({
-            from: searchFrom,
-            to: searchTo,
-            enter(node) {
-                const type = node.type.name;
-                const nodeRange = { from: node.from, to: node.to };
-                
-                // Only set context if virtual link is fully contained within the format node
-                if (linkRange.from >= nodeRange.from && linkRange.to <= nodeRange.to) {
-                    if (type.includes('strong')) {
-                        inBoldContext = true;
-                    }
-                    if (type.includes('em')) {
-                        inItalicContext = true;
-                    }
-                    // Support both 'highlight' and 'mark' as highlight node type names
-                    if (type.includes('highlight') || type.includes('mark')) {
-                        inHighlightContext = true;
-                    }
-                    if (type.includes('strikethrough') || type.includes('strike') || type.includes('del')) {
-                        inStrikethroughContext = true;
-                    }
-                    if (type.includes('comment')) {
-                        inCommentContext = true;
-                    }
-                    if (type.includes('header')) {
-                        inHeaderContext = true;
-                    }
-                }
-            }
-        });
-        
-        // Set context flags on the match
-        this.match.isBoldContext = inBoldContext || this.match.isBoldContext;
-        this.match.isItalicContext = inItalicContext;
-        this.match.isHighlightContext = inHighlightContext;
-        this.match.isStrikethroughContext = inStrikethroughContext;
-        this.match.isCommentContext = inCommentContext;
-        this.match.isTripleStarContext = inBoldContext && inItalicContext;
-        
+        // Format context flags were pre-computed in buildDecorations from a single
+        // syntax-tree walk, so no per-widget walk is needed here.
         // Add corresponding CSS classes
         if (this.match.isBoldContext) {
             element.classList.add('cm-strong');
@@ -111,7 +56,7 @@ export class VirtualLinkWidget extends WidgetType {
         if (this.match.isCommentContext) {
             element.classList.add('virtual-link-in-comment');
         }
-        if (inHeaderContext) {
+        if (this.match.isInHeaderContext) {
             element.classList.add('virtual-link-in-header');
         }
         if (this.match.isTripleStarContext) {
@@ -157,6 +102,11 @@ class AutoLinkerPlugin implements PluginValue {
     private lastCursorPos: number = 0;
     private lastActiveFile: string = '';
     private lastViewUpdate: ViewUpdate | null = null;
+    // Debounce state for pure scrolling: hold off rebuilding until scrolling stops,
+    // so links appear "a bit later" once instead of being rebuilt on every scroll
+    // tick (which is what caused the jitter).
+    private scrollDebounceTimer: number | null = null;
+    private pendingScrollBuild: { view: EditorView; viewIsActive: boolean } | null = null;
 
     // Cache the active Markdown view so we don't call getActiveViewOfType()
     // on every cursor move. Invalidated on active-leaf-change.
@@ -234,6 +184,37 @@ class AutoLinkerPlugin implements PluginValue {
         const fileChanged = activeFile != this.lastActiveFile;
 
         if (force || this.lastCursorPos != cursorPos || update.docChanged || fileChanged || update.viewportChanged) {
+            // Pure scroll (viewport change with no doc/cursor/file change): debounce
+            // so the rebuild happens once after scrolling stops, not on every tick.
+            // Links then appear "a bit later" but without the per-tick DOM churn that
+            // read as jitter.
+            const isPureScroll = update.viewportChanged && !update.docChanged && !fileChanged && !force
+                && this.lastCursorPos === cursorPos;
+            if (isPureScroll) {
+                this.pendingScrollBuild = { view: update.view, viewIsActive: updateIsOnActiveView };
+                this.lastViewUpdate = update;
+                if (this.scrollDebounceTimer !== null) {
+                    clearTimeout(this.scrollDebounceTimer);
+                }
+                this.scrollDebounceTimer = window.setTimeout(() => {
+                    this.scrollDebounceTimer = null;
+                    const pending = this.pendingScrollBuild;
+                    this.pendingScrollBuild = null;
+                    if (pending) {
+                        this.linkerCache.updateCache(force);
+                        this.decorations = this.buildDecorations(pending.view, pending.viewIsActive);
+                        pending.view.requestMeasure();
+                    }
+                }, 150);
+                return;
+            }
+
+            // Non-scroll change: cancel any pending scroll build, then rebuild now.
+            if (this.scrollDebounceTimer !== null) {
+                clearTimeout(this.scrollDebounceTimer);
+                this.scrollDebounceTimer = null;
+                this.pendingScrollBuild = null;
+            }
             this.lastCursorPos = cursorPos;
             this.linkerCache.updateCache(force);
             this.decorations = this.buildDecorations(update.view, updateIsOnActiveView);
@@ -243,7 +224,13 @@ class AutoLinkerPlugin implements PluginValue {
         this.lastViewUpdate = update;
     }
 
-    destroy() {}
+    destroy() {
+        if (this.scrollDebounceTimer !== null) {
+            clearTimeout(this.scrollDebounceTimer);
+            this.scrollDebounceTimer = null;
+            this.pendingScrollBuild = null;
+        }
+    }
 
     /**
      * Get information about parent elements for debugging
@@ -855,6 +842,11 @@ class AutoLinkerPlugin implements PluginValue {
 
             // We also want to exclude links to files that are already linked by a real link
             const app = this.app;
+            // Collect format-node ranges (bold/italic/highlight/strikethrough/
+            // comment/header) in this single walk, so links can read pre-computed
+            // flags instead of re-walking the tree per widget — the main source of
+            // scroll lag / flicker.
+            const formatRanges: { from: number; to: number; kind: string }[] = [];
             syntaxTree(view.state).iterate({
                 from,
                 to,
@@ -883,6 +875,19 @@ class AutoLinkerPlugin implements PluginValue {
                             });
                         }
                     }
+
+                    // Format context: record ranges so links inside them get the
+                    // right CSS class without a per-widget syntax walk. NOTE: use
+                    // independent ifs (not else-if) — a node can carry several
+                    // combined marks (e.g. strong + highlight), and each must be
+                    // recorded so their CSS classes coexist.
+                    const ft = node.type.name;
+                    if (ft.includes('strong')) formatRanges.push({ from: node.from, to: node.to, kind: 'strong' });
+                    if (ft.includes('em')) formatRanges.push({ from: node.from, to: node.to, kind: 'em' });
+                    if (ft.includes('highlight') || ft.includes('mark')) formatRanges.push({ from: node.from, to: node.to, kind: 'highlight' });
+                    if (ft.includes('strikethrough') || ft.includes('strike') || ft.includes('del')) formatRanges.push({ from: node.from, to: node.to, kind: 'strikethrough' });
+                    if (ft.includes('comment')) formatRanges.push({ from: node.from, to: node.to, kind: 'comment' });
+                    if (ft.includes('header')) formatRanges.push({ from: node.from, to: node.to, kind: 'header' });
                 },
             });
 
@@ -1047,18 +1052,30 @@ class AutoLinkerPlugin implements PluginValue {
 
                 const additionIsInCurrentLine = from >= lineStart && to <= lineEnd;
 
-                // Check if the addition is inside a comment node
+                // Format context: apply the ranges collected in the single syntax
+                // walk above, instead of re-walking the tree per link.
+                for (const fr of formatRanges) {
+                    if (from >= fr.from && to <= fr.to) {
+                        if (fr.kind === 'strong') addition.isBoldContext = true;
+                        else if (fr.kind === 'em') addition.isItalicContext = true;
+                        else if (fr.kind === 'highlight') addition.isHighlightContext = true;
+                        else if (fr.kind === 'strikethrough') addition.isStrikethroughContext = true;
+                        else if (fr.kind === 'comment') addition.isCommentContext = true;
+                        else if (fr.kind === 'header') addition.isInHeaderContext = true;
+                    }
+                }
+                addition.isTripleStarContext = addition.isBoldContext && addition.isItalicContext;
+
+                // Whether the addition sits inside a comment node (used below to
+                // exempt it from the "exclude current line" rule, as before).
                 let additionIsInComment = false;
                 if (additionIsInCurrentLine) {
-                    syntaxTree(view.state).iterate({
-                        from: from,
-                        to: to,
-                        enter(node) {
-                            if (node.name.contains('comment')) {
-                                additionIsInComment = true;
-                            }
+                    for (const fr of formatRanges) {
+                        if (fr.kind === 'comment' && from < fr.to && fr.from < to) {
+                            additionIsInComment = true;
+                            break;
                         }
-                    });
+                    }
                 }
                 
 

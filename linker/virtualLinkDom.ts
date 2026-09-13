@@ -27,6 +27,7 @@ export class VirtualMatch {
         public isTripleStarContext: boolean = false,
         public isStrikethroughContext: boolean = false,
         public isCommentContext: boolean = false,
+        public isInHeaderContext: boolean = false,
         public isFuzzy: boolean = false
     ) {
         if (headerId) {
