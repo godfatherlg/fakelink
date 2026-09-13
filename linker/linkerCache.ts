@@ -130,6 +130,13 @@ const FUZZY_ZH_STOPWORDS: string[] = [
     '我们', '你们', '他们', '自己', '什么', '怎么', '怎样', '如何', '为何', '因为', '所以', '如果', '虽然',
 ];
 
+// Pre-built regex testing whether a string contains ANY Chinese stopword. Used
+// as a fast path in fuzzyNormalize: most candidates contain no stopword, so the
+// per-stopword split/join loop is skipped entirely when this test is negative.
+const FUZZY_ZH_STOPWORD_TEST = new RegExp(
+    FUZZY_ZH_STOPWORDS.map((sw) => sw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
+);
+
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
     registeredCallbacks: Set<() => void> = new Set();
@@ -223,6 +230,15 @@ export class PrefixTree {
     // of normalized keywords. Lets findFuzzyMatches only scan the relevant bucket
     // instead of the entire map (the main source of the earlier performance lag).
     private fuzzyBuckets: Map<string, string[]> = new Map();
+    // Distinct lengths of every normalized keyword in the fuzzy index. Used to
+    // short-circuit the sliding window: a query whose length is more than 2 away
+    // from every indexed length can never reach the >=80% similarity threshold,
+    // so it can be skipped without running fuzzyNormalize / similarity at all.
+    private fuzzyKeywordLengths: Set<number> = new Set();
+    // Minimum normalized length among indexed fuzzy keywords. Exposed so the
+    // sliding window can skip candidates shorter than this minus the max length
+    // diff (2) without even running fuzzyNormalize.
+    public minFuzzyKeywordLen = Infinity;
     // Minimum length (characters) of a normalized keyword to be indexed for fuzzy
     // matching. Shorter titles/notes are skipped — fuzzy-matching them is useless
     // and error-prone. Set from settings.fuzzyMinLength at tree build time.
@@ -249,6 +265,8 @@ export class PrefixTree {
         this.mapFilePathToLeaveNodes.clear();
         this.fuzzyKeywordMap.clear();
         this.fuzzyBuckets.clear();
+        this.fuzzyKeywordLengths.clear();
+        this.minFuzzyKeywordLen = Infinity;
     }
 
     // Levenshtein edit distance between two strings.
@@ -628,6 +646,8 @@ export class PrefixTree {
             // titles (including the long Chinese titles the user cares about) are
             // always indexed so that dropping one character still matches.
             if (key.length >= 2) {
+                this.fuzzyKeywordLengths.add(key.length);
+                if (key.length < this.minFuzzyKeywordLen) this.minFuzzyKeywordLen = key.length;
                 const entry = { files: node.files, headerId, canonical: canonicalKeyword };
                 const list = this.fuzzyKeywordMap.get(key);
                 if (list) {
@@ -651,6 +671,18 @@ export class PrefixTree {
     // Get the header ID for a file and keyword, used for heading highlight on jump
     getFileHeaderId(file: TFile, keyword: string): string | undefined {
         return this.mapFileHeaderIds.get(file.path)?.get(keyword);
+    }
+
+    // True when a query of the given normalized length could possibly reach the
+    // similarity threshold against some indexed fuzzy keyword. The threshold is
+    // always >= 80 (see fuzzyMatchThreshold slider), so the maximum length
+    // difference that can still hit is 2. This is a pure short-circuit: calling
+    // it never changes which keywords get matched, it only skips work.
+    couldMatchFuzzyLength(length: number): boolean {
+        for (const len of this.fuzzyKeywordLengths) {
+            if (Math.abs(len - length) <= 2) return true;
+        }
+        return false;
     }
 
     // Reconstruct full string by walking parent chain — replaces stored node.value
@@ -960,6 +992,12 @@ export class PrefixTree {
 
         // Pure Chinese keyword: strip common function words / particles.
         if (wantZh && hasCJK && !hasLatin) {
+            // Fast path: no stopword present, nothing to strip. Most candidates
+            // hit this — the per-stopword split/join loop below is what made
+            // scrolling lag, so avoid it whenever possible.
+            if (!FUZZY_ZH_STOPWORD_TEST.test(name)) {
+                return name.trim() || '';
+            }
             let s = name;
             for (const sw of FUZZY_ZH_STOPWORDS) {
                 s = s.split(sw).join('');

@@ -430,7 +430,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             // term is usually glued to the text before it and those extra
                                             // characters dilute the similarity below the threshold.
                                             const maxOffset = this.settings.fuzzySlidingWindow
-                                                ? Math.min(rawWord.length - 1, 24)
+                                                ? Math.min(rawWord.length - 1, this.settings.fuzzySlidingWindowMaxOffset)
                                                 : 0;
                                             // Score EVERY window position first and keep the most
                                             // similar one (mirror of liveLinker). "Stop at the first
@@ -443,8 +443,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 const rawCandidate = rawWord.slice(offset);
                                                 const candidate = rawCandidate.trim();
                                                 if (!candidate) continue;
+                                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
                                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                                 if (!normWord) continue;
+                                                // Length short-circuit (mirror of liveLinker): a query
+                                                // whose normalized length is >2 away from every indexed
+                                                // fuzzy keyword can never reach the >=80% threshold.
+                                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
                                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
                                                 if (fuzzyResults.length > 0) {
                                                     const sim = fuzzyResults[0].similarity;
@@ -466,8 +471,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                                 const candidate = rawCandidate.trim();
                                                 if (!candidate) continue;
+                                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
                                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                                 if (!normWord) continue;
+                                                // Length short-circuit (mirror of liveLinker): a query
+                                                // whose normalized length is >2 away from every indexed
+                                                // fuzzy keyword can never reach the >=80% threshold.
+                                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
                                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
                                                 if (fuzzyResults.length > 0) {
                                                     // Results are sorted best-first. Merge every candidate TIED at the

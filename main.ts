@@ -566,6 +566,7 @@ export interface LinkerPluginSettings {
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
     fuzzyMinLength: number; // Minimum normalized length of a title/note name to be considered for fuzzy matching (shorter ones are skipped)
     fuzzySlidingWindow: boolean; // Fuzzy matching also tries shorter suffixes, so terms embedded in Chinese text can match
+    fuzzySlidingWindowMaxOffset: number; // Max chars stripped from the front of a text run by the fuzzy sliding window (lower = faster but misses terms buried behind a long prefix)
     skipMultipleTargets: boolean; // In batch conversion, skip virtual links pointing to multiple notes
     enableSymbolExclusion: boolean; // Exclude text between custom start/end symbols from virtual linking
     excludeSymbolStart: string; // Start symbol marking text to exclude from linking
@@ -645,6 +646,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     fuzzyMatchThreshold: 80,
     fuzzyMinLength: 6,
     fuzzySlidingWindow: true,
+    fuzzySlidingWindowMaxOffset: 10,
     skipMultipleTargets: true,
     enableSymbolExclusion: false,
     excludeSymbolStart: '{',
@@ -2030,6 +2032,10 @@ class LinkerSettingTab extends PluginSettingTab {
                 toggleDef(t('Sliding window for fuzzy matching'), 'fuzzySlidingWindow', {
                     desc: t('Also try shorter suffixes of the text run, not just the whole run. Chinese has no spaces, so a term is usually glued to the words before it, and those extra characters drag the similarity below the threshold. On by default; turn it off if you notice lag on very long lines.'),
                     disabled: () => !s.enableStemming,
+                }),
+                sliderDef(t('Sliding window max offset'), 'fuzzySlidingWindowMaxOffset', 2, 24, 1, {
+                    desc: t('Maximum number of characters stripped from the front of a text run while searching for a fuzzy match. Lower values are faster but may miss a term buried more than this many characters after the last punctuation/space. Default 10.'),
+                    disabled: () => !s.enableStemming || !s.fuzzySlidingWindow,
                 }),
             ]),
 

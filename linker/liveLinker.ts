@@ -658,7 +658,7 @@ class AutoLinkerPlugin implements PluginValue {
                             // 科目冲刺带背3"), and those extra characters dilute the
                             // similarity below the threshold. Stop at the first hit.
                             const maxOffset = this.settings.fuzzySlidingWindow
-                                ? Math.min(rawWord.length - 1, 24)
+                                ? Math.min(rawWord.length - 1, this.settings.fuzzySlidingWindowMaxOffset)
                                 : 0;
                             // Score EVERY window position first and keep the most similar
                             // one. "Stop at the first hit" used to pick the LONGEST
@@ -671,8 +671,14 @@ class AutoLinkerPlugin implements PluginValue {
                                 const rawCandidate = rawWord.slice(offset);
                                 const candidate = rawCandidate.trim();
                                 if (!candidate) continue;
+                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                 if (!normWord) continue;
+                                // Length short-circuit: a query whose normalized length
+                                // is >2 away from every indexed fuzzy keyword can never
+                                // reach the >=80% threshold. Skipping here avoids the
+                                // bucket scan + edit-distance cost of findFuzzyMatches.
+                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
                                 if (fuzzyResults.length > 0) {
                                     const sim = fuzzyResults[0].similarity;
@@ -695,8 +701,14 @@ class AutoLinkerPlugin implements PluginValue {
                                 const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                 const candidate = rawCandidate.trim();
                                 if (!candidate) continue;
+                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
                                 const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
                                 if (!normWord) continue;
+                                // Length short-circuit: a query whose normalized length
+                                // is >2 away from every indexed fuzzy keyword can never
+                                // reach the >=80% threshold. Skipping here avoids the
+                                // bucket scan + edit-distance cost of findFuzzyMatches.
+                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
                                 const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
                                 if (fuzzyResults.length > 0) {
                                     // Results are sorted best-first. Merge every candidate TIED at the
