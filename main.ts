@@ -1882,11 +1882,11 @@ class LinkerSettingTab extends PluginSettingTab {
     const pm = app.plugins;
 
     try {
-        if (pm.plugins[id]) {
-            await pm.disablePlugin(id);
+        if (pm.enabledPlugins.has(id)) {
+            await pm.disablePluginAndSave(id);
             new Notice('Fake Link: OFF');
         } else {
-            await pm.enablePlugin(id);
+            await pm.enablePluginAndSave(id);
             new Notice('Fake Link: ON');
         }
 
