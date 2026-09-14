@@ -847,6 +847,38 @@ export default class LinkerPlugin extends Plugin {
         // current viewport).
         const center = safeLine >= 15;
         view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, center);
+        // scrollIntoView alone cannot frame a line taller than the viewport (an
+        // image embed): center=true slices it and center=false only reveals its
+        // lower edge. Top-align such lines instead.
+        this.alignTallLine(view, safeLine);
+    }
+
+    // A line that renders as a tall block (an image embed, a wide table) cannot be
+    // framed by scrollIntoView: its `center` flag only offers "middle of the screen"
+    // or "nearest visible", so a line taller than the viewport ends up either
+    // bottom-aligned (only its lower edge shows) or sliced in half. When the line is
+    // taller than the viewport - or its head ended up above it - align the top edge
+    // instead, which is what a jump should show. No-op for ordinary lines.
+    //
+    // Note: BlockInfo.top is in document coordinates and scroller.scrollTop is a
+    // scroll offset; they share the same origin up to CodeMirror's content padding,
+    // so the alignment can be off by a few pixels - invisible for "show me the head
+    // of this line". Runs twice because images keep reflowing while they load.
+    private alignTallLine(view: MarkdownView, line: number, pass = 0) {
+        const cmEl = view.contentEl.querySelector('.cm-editor');
+        const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
+        if (!cm) return;                                  // 拿不到视图就保持原行为
+        const scroller = cm.scrollDOM;
+        try {
+            const block = cm.lineBlockAt(cm.state.doc.line(line + 1).from);
+            const tooTall = block.height > scroller.clientHeight * 0.8;
+            const headHidden = block.top < scroller.scrollTop;
+            if (!tooTall && !headHidden) return;           // 普通行：不干预
+            scroller.scrollTop = block.top - 16;
+        } catch {
+            return;
+        }
+        if (pass < 1) window.setTimeout(() => this.alignTallLine(view, line, pass + 1), 250);
     }
 
     // Mix two hex colors in sRGB. `t` (0-1) is the weight given to `base`.
