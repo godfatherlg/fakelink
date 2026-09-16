@@ -153,6 +153,15 @@ export class VirtualMatch {
         link.setAttribute('origin-text', this.originText);
         link.classList.add('internal-link', 'virtual-link-a');
 
+        // Show which note this link opens, so the numbered candidates of a
+        // multi-file heading match ([1|2|3]) can be told apart before clicking.
+        // Obsidian's own hover preview shows the same heading content for every
+        // candidate, so it cannot distinguish them - a title tooltip can.
+        const titleFile = file || (this.files.length > 0 ? this.files[0] : undefined);
+        if (titleFile) {
+            link.title = t('Open note: {name}').replace('{name}', titleFile.basename);
+        }
+
         link.onclick = (event: MouseEvent) => {
             event.preventDefault();
             event.stopPropagation();

@@ -122,6 +122,8 @@ const zhCN: Record<string, string> = {
     'Exclude by file name prefix/suffix': '按文件名首尾排除',
     'Notes whose file name starts or ends with any of these words or symbols (comma separated) are excluded from virtual linking, like a linker-exclude note.': '文件名以这些字词或符号开头或结尾的笔记将被排除出虚拟链接（逗号分隔），等同于为其添加 linker-exclude。',
 
+    'Open note: {name}': '打开笔记：{name}',
+
     'Auto-insert heading lock symbol': '自动插入标题锁定符号',
     'When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.': '启用后，将在新建或修改的标题文本前自动插入一个独特符号，防止被正文意外匹配。',
     'Heading lock symbol': '标题锁定符号',

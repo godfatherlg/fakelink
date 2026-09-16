@@ -39,6 +39,10 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          # Human-written summary of this release, kept in RELEASE_NOTES.md and
+          # updated before tagging. GitHub's auto-generated "What's Changed"
+          # commit list is appended below it via generate_release_notes.
+          body_path: RELEASE_NOTES.md
           files: |
             main.js
             manifest.json
