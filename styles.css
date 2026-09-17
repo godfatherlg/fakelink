@@ -85,14 +85,19 @@ body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtua
   opacity: 1;
 }
 
-/* Color-only mode: highlight context keeps yellow background (方案Q) */
+/* Color-only mode: inside a highlight, the link must NOT paint a background of
+   its own. Verified on-device (2026-09-17): the native highlight already shows
+   through the link widget, so any tint painted here stacks a second translucent
+   layer and makes the run look darker than the text around it. Keep the link
+   transparent in both live preview and reading view - only its text colour
+   should differ from ordinary highlighted text. */
 body.virtual-link-color-only .virtual-link.cm-highlight,
 body.virtual-link-color-only .cm-highlight .virtual-link,
 body.virtual-link-color-only .virtual-link-in-highlight,
 body.virtual-link-color-only .virtual-link-span.virtual-link-in-highlight,
 body.virtual-link-color-only .markdown-preview-view mark .virtual-link,
 body.virtual-link-color-only .markdown-preview-view mark .virtual-link-span {
-  background-color: var(--virtual-link-highlight-bg);
+  background-color: transparent;
 }
 
 /* Preserve strikethrough in virtual links */

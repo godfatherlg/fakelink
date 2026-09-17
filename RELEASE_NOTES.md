@@ -1,17 +1,11 @@
-# 1.23.21
+# 1.23.22
 
 ## 中文
 
-- **悬停显示目标笔记名**：多篇笔记存在同名标题时，候选 `[1|2|3]` 悬停后会显示各自指向的文件名（如「打开笔记：test2」），点击前即可分辨，不必再靠点进去试。
-- 普通虚拟链接悬停时，同样显示目标笔记名。
-- 编辑模式与阅读模式同时生效。
-
-> 对应 issue #15，感谢 @frogmonger 的反馈。
+- **修复：高亮内的虚拟链接不再加深背景**。此前虚拟链接会在原生高亮之上自己再刷一层底色，两层半透明色叠加，让被 `==高亮==` 包住的链接看起来比周围文字更浓、更深。现在链接不再绘制自己的背景，完全由原生高亮透出——**背景与周围完全一致，只有字体颜色不同**。
+- 编辑模式与阅读模式使用同一条规则，行为统一。
 
 ## English
 
-- **Hover shows the target note name**: when several notes share the same heading, hovering a numbered candidate (`[1|2|3]`) now shows which note it opens (e.g. `Open note: test2`), so you can tell them apart before clicking.
-- Plain virtual links also show the target note name on hover.
-- Works in both live preview and reading mode.
-
-> Fixes issue #15 — thanks @frogmonger!
+- **Fix: links inside a highlight no longer look darker**. A virtual link used to paint a background of its own on top of the native highlight; the two translucent layers stacked, making the link look darker than the text around it. The link now paints nothing and lets the native highlight show through, so the background matches the surrounding text exactly — only the text colour differs.
+- The same rule now applies to both live preview and reading view.
