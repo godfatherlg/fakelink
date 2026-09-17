@@ -85,16 +85,23 @@ body.virtual-link-color-only .virtual-link:not(.virtual-link-type-header).virtua
   opacity: 1;
 }
 
-/* Color-only mode: inside a highlight, the link must NOT paint a background of
-   its own. Verified on-device (2026-09-17): the native highlight already shows
-   through the link widget, so any tint painted here stacks a second translucent
-   layer and makes the run look darker than the text around it. Keep the link
-   transparent in both live preview and reading view - only its text colour
-   should differ from ordinary highlighted text. */
+/* Color-only mode: inside a highlight, the link must not double up the native
+   highlight. Two DOM shapes occur, and they need opposite treatment:
+   (a) the widget sits INSIDE the native .cm-highlight span (plain "==text==").
+       The highlight already shows through, so the link must stay transparent -
+       otherwise the two translucent layers stack and the run looks darker.
+   (b) the widget is flagged as highlighted (FakeLink adds .cm-highlight to it)
+       but is NOT inside the native span - e.g. "==...**bold**...==", where the
+       bold run breaks the nesting. Nothing shows through there, so the link
+       must paint the highlight colour itself or it looks colourless.
+   Order matters: the (a) rule comes last so it wins whenever both match. */
 body.virtual-link-color-only .virtual-link.cm-highlight,
-body.virtual-link-color-only .cm-highlight .virtual-link,
 body.virtual-link-color-only .virtual-link-in-highlight,
-body.virtual-link-color-only .virtual-link-span.virtual-link-in-highlight,
+body.virtual-link-color-only .virtual-link-span.virtual-link-in-highlight {
+  background-color: var(--highlight-background, var(--text-highlight-bg, rgba(255, 255, 0, 0.5)));
+}
+
+body.virtual-link-color-only .cm-highlight .virtual-link,
 body.virtual-link-color-only .markdown-preview-view mark .virtual-link,
 body.virtual-link-color-only .markdown-preview-view mark .virtual-link-span {
   background-color: transparent;
