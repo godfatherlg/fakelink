@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownRenderer, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf, getLinkpath } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -9,6 +9,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
+import { keepScrolledHeadingAligned, resolveHeadingTarget } from './linker/virtualLinkDom';
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -552,6 +553,7 @@ export interface LinkerPluginSettings {
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
     virtualLinkRequireModifier: boolean; // Require Ctrl/Cmd+click to jump; a plain click just places the cursor
+    disableVirtualLinkPreview: boolean; // Do not let virtual links trigger the page preview / Hover Editor popover
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
@@ -560,7 +562,7 @@ export interface LinkerPluginSettings {
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     fuzzyBaseColor: string; // Base color mixed into fuzzy-match link colors
     fuzzyColorMixRatio: number; // How much base color to mix in (0-100)
-    headerJumpRetryDelay: number; // Base delay (ms) for repeated header-jump retries to fix position drift
+    headerJumpRetryDelay: number; // Base delay (ms) for the heading alignment watch window
     enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
     stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
@@ -634,6 +636,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     allowLinksInHeaders: false,
     colorOnlyDisplay: true,
     virtualLinkRequireModifier: false,
+    disableVirtualLinkPreview: false,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
@@ -881,6 +884,142 @@ export default class LinkerPlugin extends Plugin {
         if (pass < 1) window.setTimeout(() => this.alignTallLine(view, line, pass + 1), 250);
     }
 
+    /**
+     * Keep a heading centred in the editor showing it, while the content above
+     * finishes laying out.
+     *
+     * Two things make this reliable where a one-shot scroll is not:
+     *   - the loop MEASURES where the line actually is (lineBlockAt) and only
+     *     acts on readings that hold still, so a "did it work" is known rather
+     *     than assumed - and CodeMirror's estimates for not-yet-rendered regions
+     *     are never chased;
+     *   - the correction is a plain scrollTop write, NOT cm.dispatch(): a
+     *     transaction goes through the view's update cycle and issuing one
+     *     mid-measure makes CodeMirror restart its measure loop until it gives
+     *     up rendering the document entirely.
+     */
+    public centerHeadingLine(view: MarkdownView, line: number, maxMs = 10000): void {
+        const cmEl = view.contentEl.querySelector('.cm-editor');
+        const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
+        if (cm) this.centerCmLine(cm, line, maxMs);
+    }
+
+    /**
+     * Centre the line a rendered heading element lives on, using the element's
+     * OWN editor. This is what makes a hover popover work: Hover Editor hosts a
+     * real view that is not part of the workspace's leaf list, so resolving the
+     * view through the workspace fails there - but the element itself still
+     * knows its editor (EditorView.findFromDOM) and its own position
+     * (posAtDOM), which is exact and needs no metadata lookup at all.
+     */
+    public centerHeadingElement(el: HTMLElement, maxMs = 8000): boolean {
+        const cmEl = el.closest('.cm-editor');
+        const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
+        if (!cm) return false;
+        let line: number;
+        try {
+            line = cm.state.doc.lineAt(cm.posAtDOM(el)).number - 1;
+        } catch {
+            return false;
+        }
+        this.centerCmLine(cm, line, maxMs);
+        return true;
+    }
+
+    private centerCmLine(cm: EditorView, line: number, maxMs: number): void {
+        const scroller = cm.scrollDOM;
+
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
+        window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
+        window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
+
+        const startedAt = Date.now();
+        let passes = 0;
+        let lastCurrent = Number.NaN;
+        let lastPassAt = 0;
+        // Minimal intervention, because the experiment was unambiguous: without
+        // this code the editor kept rendering but the heading was pushed out of
+        // place, with it the view could stop rendering altogether. So: give the
+        // view time to recover from the jump, wait for the page to stop moving,
+        // and then write ONCE - never touching the scroll again afterwards.
+        const MIN_FIRST_WRITE_MS = 2000;
+        // The page can move more than once after the first correction: a PDF
+        // embed releases its reserved height seconds later, which shrinks
+        // everything above the heading and pushes it off the top. Each write
+        // goes through requestMeasure (no transaction), so correcting again is
+        // safe - the loop keeps the heading in place until the window ends.
+        const MAX_WRITES = 8;
+
+        const tick = () => {
+            if (controller.signal.aborted) return;
+            if (Date.now() - startedAt > maxMs || passes > 6) return;
+            let block;
+            try {
+                const pos = cm.state.doc.line(line + 1).from;
+                block = cm.lineBlockAt(pos);
+            } catch {
+                return;                                  // the document changed under us
+            }
+            const target = Math.max(6, Math.round((scroller.clientHeight - block.height) / 2));
+            const current = Math.round(block.top - scroller.scrollTop);
+            // A tight tolerance, but only readings that HOLD STILL are acted on:
+            // while CodeMirror is still measuring a region its line positions
+            // are estimates that change from tick to tick (chasing those flung
+            // the view thousands of pixels away), whereas a settled reading is
+            // exact - and a settled offset of half a heading is exactly what
+            // needs correcting. A generous tolerance simply declared that
+            // half-heading offset "close enough" and left it alone.
+            const tolerance = Math.max(6, Math.round(scroller.clientHeight * 0.04));
+            const unreliable = current < -scroller.clientHeight;   // CM6 mid-remit
+            const stillLoading = Array.from(scroller.querySelectorAll('img'))
+                .some((img) => !(img as HTMLImageElement).complete);
+            const settled = current === lastCurrent && !stillLoading;
+            lastCurrent = current;
+            const miss = Math.abs(current - target);
+            // Safety valve: a surface that never settles (something animating
+            // above) would otherwise never be corrected at all.
+            const impatient = Date.now() - startedAt > 4000 && miss > 60;
+            const shouldAct = miss > tolerance && (settled || impatient);
+            const oldEnough = Date.now() - startedAt >= MIN_FIRST_WRITE_MS;
+            if (!unreliable && shouldAct && oldEnough && passes < MAX_WRITES) {
+                // requestMeasure is CodeMirror's own hook for adjusting the
+                // scroll from inside its measure cycle, and it is the only one
+                // that works here:
+                //   - a plain scrollTop write is re-applied-over by the view's
+                //     next measure (the log showed the same offset again and
+                //     again - the write simply did not stick);
+                //   - a transaction (dispatch) does stick, but issuing one while
+                //     the view is measuring makes it restart its measure loop
+                //     until it gives up laying the document out.
+                // requestMeasure does neither: it runs in the measure cycle, so
+                // the position is applied after the view has decided its own.
+                try {
+                    cm.requestMeasure({
+                        read: (view) => {
+                            const block = view.lineBlockAt(view.state.doc.line(line + 1).from);
+                            return { top: block.top, height: block.height };
+                        },
+                        write: (m, view) => {
+                            const want = m.top - Math.max(6, Math.round((view.scrollDOM.clientHeight - m.height) / 2));
+                            view.scrollDOM.scrollTop = Math.max(0, want);
+                        },
+                    });
+                } catch { return; }
+                passes++;
+                lastPassAt = Date.now();
+            }
+            // Keep watching for the whole window even after the position looks
+            // right: CodeMirror can STALL (its measure-restart limit), which
+            // makes the page hold still while nothing is rendered - so "it looks
+            // settled" is not proof that it is finished, and the position has to
+            // be re-checked when rendering resumes.
+            window.setTimeout(tick, 700);
+        };
+        window.setTimeout(tick, 400);
+    }
+
     // Mix two hex colors in sRGB. `t` (0-1) is the weight given to `base`.
     private mixHexColors(base: string, target: string, t: number): string {
         const parse = (hex: string): [number, number, number] | null => {
@@ -1090,6 +1229,7 @@ export default class LinkerPlugin extends Plugin {
         // line directly. FakeLink does NOT register the protocol handler, so
         // the Advanced URI plugin stays fully functional. This handler only
         // catches links rendered as real <a> elements.
+        //
         this.registerDomEvent(this.app.workspace.containerEl, 'click', (evt) => {
             if (!this.settings.jumpEnabled) return;
             const a = (evt.target as HTMLElement).closest('a');
@@ -1105,6 +1245,532 @@ export default class LinkerPlugin extends Plugin {
             evt.stopImmediatePropagation();
             void this.jumpToLine(filepath, line, anchor);
         }, true);
+
+
+        // ------------------------------------------------------------------
+        // Persist the measured sizes. Without this every session starts cold:
+        // the first render of each note re-reads every image header (Obsidian
+        // has no partial-read API, so that is a full file read each) and
+        // re-measures every block embed - which is the "takes a while before it
+        // settles, previews do not even open" behaviour. With it, the work is
+        // done once ever and later sessions (including the very first preview
+        // after a restart) hit the cache straight away.
+        // ------------------------------------------------------------------
+        const CACHE_KEY = '__fakelinkSizeCache';
+        const SIZE_CACHE_LIMIT = 1500;
+        let sizeCacheSaveTimer: number | null = null;
+        const persistSizeCache = () => {
+            if (sizeCacheSaveTimer !== null) window.clearTimeout(sizeCacheSaveTimer);
+            sizeCacheSaveTimer = window.setTimeout(() => {
+                sizeCacheSaveTimer = null;
+                void (async () => {
+                    try {
+                        const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+                        const capMap = <V>(m: Map<string, V>, n: number) =>
+                            Object.fromEntries(Array.from(m.entries()).slice(-n));
+                        stored[CACHE_KEY] = {
+                            images: capMap(this.imageSizes, SIZE_CACHE_LIMIT),
+                            pdf: capMap(this.pdfHeights, 300),
+                            embeds: capMap(this.embedHeights, 300),
+                            widths: Object.fromEntries(Array.from(this.pdfWidthHeights.entries()).slice(-50)),
+                            scales: Object.fromEntries(Array.from(this.pdfScaleSamples.entries()).slice(-50)),
+                        };
+                        await this.saveData(stored);
+                    } catch { /* cache persistence is best-effort */ }
+                })();
+            }, 3000);
+        };
+        void (async () => {
+            try {
+                const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+                const c = stored[CACHE_KEY] as
+                    | {
+                        images?: Record<string, { w: number; h: number }>;
+                        pdf?: Record<string, { w: number; h: number }[]>;
+                        embeds?: Record<string, { w: number; h: number }[]>;
+                        widths?: Record<string, unknown>;
+                        scales?: Record<string, unknown>;
+                    }
+                    | undefined;
+                if (!c) return;
+                for (const [k, v] of Object.entries(c.images ?? {})) if (v?.w > 0) this.imageSizes.set(k, v);
+                for (const [k, v] of Object.entries(c.pdf ?? {})) if (Array.isArray(v)) this.pdfHeights.set(k, v);
+                for (const [k, v] of Object.entries(c.embeds ?? {})) if (Array.isArray(v)) this.embedHeights.set(k, v);
+                for (const [k, v] of Object.entries(c.scales ?? {})) {
+                    if (Array.isArray(v)) this.pdfScaleSamples.set(Number(k), v as { c: number; h: number }[]);
+                }
+                for (const [k, v] of Object.entries(c.widths ?? {})) {
+                    const e = v as { h?: number; r?: number } | null;
+                    // Older cache entries were a bare number (no ratio) - skip
+                    // them, since they cannot prove the crop shapes match.
+                    if (e && typeof e.h === 'number' && e.h > 0 && typeof e.r === 'number' && e.r > 0) {
+                        this.pdfWidthHeights.set(Number(k), { h: e.h, r: e.r });
+                    }
+                }
+            } catch { /* a missing/broken cache is not fatal */ }
+        })();
+
+        // PDF++ cropped page embeds are created as an EMPTY box and grow to the
+        // real page size seconds later (PDF.js renders them), reflowing every-
+        // thing below them. That is why a hover preview loses the heading it
+        // just jumped to. Reserve the final size up front, from the rect= in the
+        // embed's own src, so the layout never changes in the first place - this
+        // fixes hover previews, the reading view and embeds alike.
+        const pdfBucket = (w: number): number => (w > 0 ? Math.round(w / 20) * 20 : 0);
+        const rememberPdfHeight = (src: string, width: number, height: number) => {
+            const bucket = pdfBucket(width);
+            if (bucket <= 0) return;
+            const list = this.pdfHeights.get(src) ?? [];
+            const found = list.find((e) => e.w === bucket);
+            if (found) found.h = height; else list.push({ w: bucket, h: height });
+            while (list.length > 4) list.shift();
+            this.pdfHeights.set(src, list);
+            persistSizeCache();
+        };
+        // The shared-height shortcut is only valid for embeds whose crop has the
+        // same SHAPE: the stored crop ratio is compared with the requested one,
+        // so a differently cropped PDF in the same article is not handed the
+        // wrong height (it falls back to its own ratio instead).
+        const rememberPdfFallback = (width: number, height: number, ratio: number) => {
+            const bucket = pdfBucket(width);
+            if (bucket > 0) this.pdfWidthHeights.set(bucket, { h: height, r: ratio });
+        };
+        const recallPdfFallback = (width: number, ratio: number): number | null => {
+            const bucket = pdfBucket(width);
+            if (bucket <= 0) return null;
+            const entry = this.pdfWidthHeights.get(bucket);
+            if (!entry || !(entry.r > 0) || !(ratio > 0)) return null;
+            return Math.abs(entry.r - ratio) / ratio <= 0.06 ? entry.h : null;
+        };
+        const SCALE_SAMPLES_MAX = 8;
+        const rememberPdfSample = (width: number, cropHeightPt: number, renderedHeight: number) => {
+            const bucket = pdfBucket(width);
+            if (bucket <= 0 || !(cropHeightPt > 0) || !(renderedHeight > 0)) return;
+            const list = this.pdfScaleSamples.get(bucket) ?? [];
+            list.push({ c: Math.round(cropHeightPt), h: renderedHeight });
+            while (list.length > SCALE_SAMPLES_MAX) list.shift();
+            this.pdfScaleSamples.set(bucket, list);
+            persistSizeCache();
+        };
+        const learnedPdfScale = (width: number): number | null => {
+            const bucket = pdfBucket(width);
+            const list = bucket > 0 ? this.pdfScaleSamples.get(bucket) : undefined;
+            if (!list || list.length < 2) return null;
+            const scales = list.filter((s) => s.c > 0).map((s) => s.h / s.c).sort((a, b) => a - b);
+            if (scales.length < 2) return null;
+            const median = scales[Math.floor(scales.length / 2)];
+            const spread = scales[scales.length - 1] - scales[0];
+            // Samples must agree, otherwise the model does not describe how
+            // PDF++ renders here and must not be used for predictions.
+            return spread <= median * 0.12 ? median : null;
+        };
+        const predictPdfHeight = (width: number, cropHeightPt: number): number | null => {
+            const scale = learnedPdfScale(width);
+            if (!scale || !(cropHeightPt > 0)) return null;
+            return Math.round(scale * cropHeightPt);
+        };
+        const recallPdfHeight = (src: string, width: number): number | null => {
+            const list = this.pdfHeights.get(src);
+            if (!list || list.length === 0) return null;
+            const bucket = pdfBucket(width);
+            if (bucket <= 0) return list[list.length - 1].h;
+            let best = list[0];
+            for (const e of list) {
+                if (Math.abs(e.w - bucket) < Math.abs(best.w - bucket)) best = e;
+            }
+            return Math.abs(best.w - bucket) <= 80 ? best.h : null;
+        };
+        const reserveEmbedHeight = (el: HTMLElement) => {
+            if (el.dataset.fkReserved) return;
+            const src = el.getAttribute('src') || '';
+            const m = /rect=([0-9.]+),([0-9.]+),([0-9.]+),([0-9.]+)/.exec(src);
+            if (!m) return;
+            const w = Math.abs(parseFloat(m[3]) - parseFloat(m[1]));
+            const h = Math.abs(parseFloat(m[4]) - parseFloat(m[2]));
+            if (!(w > 0 && h > 0)) return;
+            el.dataset.fkReserved = '1';
+            const apply = () => {
+                if (!el.isConnected) return;
+                // Prefer this embed's own measured height, then any PDF measured
+                // at the same width (embeds in one article share it), and only
+                // fall back to the crop's ratio when nothing has been measured.
+                const width = el.getBoundingClientRect().width;
+                const cropRatio = w / h;
+                const known = recallPdfHeight(src, width)
+                    ?? predictPdfHeight(width, h)
+                    ?? recallPdfFallback(width, cropRatio);
+                if (known) el.style.minHeight = known + 'px';
+                else el.style.aspectRatio = w + ' / ' + h;
+            };
+            apply();
+            window.requestAnimationFrame(apply);
+            // Release as soon as the render settles. Keeping the ratio-based guess
+            // forever left the box taller than the real crop, which is what pushed
+            // adjacent PDF embeds far apart - the guess is only meant to cover the
+            // pre-render window.
+            const release = () => {
+                el.style.aspectRatio = '';
+                el.style.minHeight = '';
+                delete el.dataset.fkReserved;
+            };
+            let timer: number | null = null;
+            const ro = new ResizeObserver(() => {
+                if (timer !== null) window.clearTimeout(timer);
+                timer = window.setTimeout(() => {
+                    timer = null;
+                    const rect = el.getBoundingClientRect();
+                    if (el.isConnected && rect.height > 0) {
+                        rememberPdfHeight(src, rect.width, Math.round(rect.height));
+                        rememberPdfFallback(rect.width, Math.round(rect.height), w / h);
+                        rememberPdfSample(rect.width, h, Math.round(rect.height));
+                    }
+                    release();
+                    ro.disconnect();
+                }, 700);
+            });
+            ro.observe(el);
+            // Hard cap in case the element never resizes at all.
+            window.setTimeout(release, 6000);
+        };
+        const RESERVE_SEL = '.internal-embed[src*="rect="]';
+        const pdfReserveObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of Array.from(mutation.addedNodes)) {
+                    if (!(node instanceof HTMLElement)) continue;
+                    if (node.matches(RESERVE_SEL)) reserveEmbedHeight(node);
+                    for (const el of Array.from(node.querySelectorAll(RESERVE_SEL)) as HTMLElement[]) {
+                        reserveEmbedHeight(el);
+                    }
+                }
+            }
+        });
+        pdfReserveObserver.observe(document.body, { childList: true, subtree: true });
+        for (const el of Array.from(document.querySelectorAll(RESERVE_SEL)) as HTMLElement[]) {
+            reserveEmbedHeight(el);
+        }
+        this.pdfReserveObserver = pdfReserveObserver;
+
+        // Image embeds: unlike PDF++ crops there is no rect= to read, so the real
+        // dimensions are parsed straight out of the file header (PNG / JPEG /
+        // GIF / WebP) and cached per path. Reserving the aspect ratio up front
+        // stops an image from reflowing everything below it. The reservation is
+        // dropped again as soon as the image has loaded, so a mis-parsed header
+        // can never distort anything - the worst case is simply "no help".
+        // ------------------------------------------------------------------
+        const IMG_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+
+        // EXIF orientation (JPEG APP1). Orientations 5..8 rotate the image when
+        // the browser renders it, so the ratio that will actually be shown is the
+        // parsed one with its axes swapped.
+        const readExifOrientation = (d: DataView, u: Uint8Array, start: number, len: number): number => {
+            if (len < 14) return 0;
+            if (!(u[start] === 0x45 && u[start + 1] === 0x78 && u[start + 2] === 0x69 && u[start + 3] === 0x66)) return 0;
+            const tiff = start + 6;
+            const le = u[tiff] === 0x49 && u[tiff + 1] === 0x49;
+            const rd16 = (p: number) => (le ? d.getUint16(p, true) : d.getUint16(p, false));
+            const rd32 = (p: number) => (le ? d.getUint32(p, true) : d.getUint32(p, false));
+            const ifd = tiff + rd32(tiff + 4);
+            if (ifd + 2 > start + len) return 0;
+            const count = rd16(ifd);
+            for (let i = 0; i < count; i++) {
+                const e = ifd + 2 + i * 12;
+                if (e + 12 > start + len) return 0;
+                if (rd16(e) === 0x0112) return rd16(e + 8);
+            }
+            return 0;
+        };
+
+        // SVG: real size from width/height, otherwise the viewBox ratio.
+        const parseSvgSize = (text: string): { w: number; h: number } | null => {
+            const head = text.slice(0, 4000);
+            const attr = (name: string) => {
+                const m = new RegExp('\\s' + name + '\\s*=\\s*["\']([^"\']*)["\']', 'i').exec(head);
+                return m ? parseFloat(m[1]) : NaN;
+            };
+            const w = attr('width');
+            const h = attr('height');
+            if (w > 0 && h > 0) return { w, h };
+            const vb = /\sviewBox\s*=\s*["']([^"']+)["']/i.exec(head);
+            if (vb) {
+                const p = vb[1].trim().split(/[\s,]+/).map(parseFloat);
+                if (p.length === 4 && p[2] > 0 && p[3] > 0) return { w: p[2], h: p[3] };
+            }
+            return null;
+        };
+
+        const parseImageSize = (buf: ArrayBuffer): { w: number; h: number } | null => {
+            if (buf.byteLength < 32) return null;
+            const d = new DataView(buf);
+            const u = new Uint8Array(buf);
+            if (u[0] === 0x89 && u[1] === 0x50 && u[2] === 0x4e && u[3] === 0x47) {           // PNG
+                return { w: d.getUint32(16, false), h: d.getUint32(20, false) };
+            }
+            if (u[0] === 0x47 && u[1] === 0x49 && u[2] === 0x46) {                            // GIF
+                return { w: d.getUint16(6, true), h: d.getUint16(8, true) };
+            }
+            if (u[0] === 0xff && u[1] === 0xd8) {                                            // JPEG
+                let o = 2;
+                let exifOrientation = 0;
+                while (o + 9 < buf.byteLength) {
+                    if (u[o] !== 0xff) { o++; continue; }
+                    const marker = u[o + 1];
+                    const len = d.getUint16(o + 2, false);
+                    if (len < 2) return null;
+                    if (marker === 0xe1) {
+                        exifOrientation = readExifOrientation(d, u, o + 4, len - 2);
+                    }
+                    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+                        const w = d.getUint16(o + 7, false);
+                        const h = d.getUint16(o + 5, false);
+                        return exifOrientation >= 5 ? { w: h, h: w } : { w, h };
+                    }
+                    o += 2 + len;
+                }
+                return null;
+            }
+            if (u[8] === 0x57 && u[9] === 0x45 && u[10] === 0x42 && u[11] === 0x50) {         // WebP
+                const fourcc = String.fromCharCode(u[12], u[13], u[14], u[15]);
+                if (fourcc === 'VP8X') {
+                    return {
+                        w: (u[24] | (u[25] << 8) | (u[26] << 16)) + 1,
+                        h: (u[27] | (u[28] << 8) | (u[29] << 16)) + 1,
+                    };
+                }
+                if (fourcc === 'VP8 ') {
+                    return { w: d.getUint16(26, true) & 0x3fff, h: d.getUint16(28, true) & 0x3fff };
+                }
+            }
+            return null;
+        };
+
+        const vaultPathOfImage = (img: HTMLImageElement): string | null => {
+            // Wiki embeds wrap the img: <span class="internal-embed" src="a.png">
+            const wrapper = img.closest('.internal-embed');
+            const raw = wrapper?.getAttribute('src') || '';
+            if (raw) return raw.split('#')[0].split('|')[0];
+            // Markdown embeds render a bare <img src="app://<id>/<vault path>">
+            const src = img.getAttribute('src') || '';
+            const m = /^app:\/\/[^/]+\/(.+)$/.exec(src);
+            if (!m) return null;
+            try { return decodeURIComponent(m[1]); } catch { return m[1]; }
+        };
+
+        const applyImageSize = (img: HTMLImageElement, dim: { w: number; h: number }) => {
+            if (img.dataset.fkSized) return;
+            img.dataset.fkSized = '1';
+            img.style.aspectRatio = dim.w + ' / ' + dim.h;
+            // Hand the element back to its natural ratio once it has loaded.
+            img.addEventListener('load', () => { img.style.aspectRatio = ''; }, { once: true });
+        };
+
+        const reserveImage = (img: HTMLImageElement) => {
+            if (img.dataset.fkSized) return;
+            if (img.complete && img.naturalWidth > 0) return;      // already laid out
+            const path = vaultPathOfImage(img);
+            if (!path) return;
+            const ext = path.split('.').pop()?.toLowerCase() ?? '';
+            if (!IMG_EXT.includes(ext)) return;
+            const file = this.app.vault.getAbstractFileByPath(path);
+            if (!(file instanceof TFile)) return;
+            // Keyed by mtime too, so editing/replacing an image re-reads it.
+            const key = path + '\u0000' + file.stat.mtime;
+            const known = this.imageSizes.get(key);
+            if (known) { applyImageSize(img, known); return; }
+            const pending = this.imageSizeInflight.get(key);
+            if (pending) { void pending.then((dim) => { if (dim) applyImageSize(img, dim); }); return; }
+            const read = (ext === 'svg'
+                ? this.app.vault.adapter.read(path).then((text) => parseSvgSize(text))
+                : this.app.vault.adapter.readBinary(path).then((buf) => parseImageSize(buf)))
+                .then((dim) => {
+                    if (dim) { this.imageSizes.set(key, dim); persistSizeCache(); }
+                    return dim;
+                })
+                .catch(() => null)
+                .then((dim) => { this.imageSizeInflight.delete(key); return dim; });
+            this.imageSizeInflight.set(key, read);
+            void read.then((dim) => { if (dim) applyImageSize(img, dim); });
+        };
+
+        const imageReserveObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of Array.from(mutation.addedNodes)) {
+                    if (!(node instanceof HTMLElement)) continue;
+                    if (node instanceof HTMLImageElement) reserveImage(node);
+                    for (const img of Array.from(node.querySelectorAll('img')) as HTMLImageElement[]) {
+                        reserveImage(img);
+                    }
+                }
+            }
+        });
+        imageReserveObserver.observe(document.body, { childList: true, subtree: true });
+        for (const img of Array.from(document.querySelectorAll('img')) as HTMLImageElement[]) {
+            reserveImage(img);
+        }
+        this.imageReserveObserver = imageReserveObserver;
+
+        // ------------------------------------------------------------------
+        // Markdown embeds (![[note#^block]] and ![[note]]) render EMPTY first and
+        // fill in afterwards, so anything below them - e.g. the heading a hover
+        // preview just jumped to - gets pushed down by their whole height.
+        // Their height cannot be read from the file (it depends on the container
+        // width and on the rendering), but it CAN be remembered: measure once,
+        // then reserve that height on every later render. The first render of a
+        // given block still shifts; everything after it does not.
+        // ------------------------------------------------------------------
+        const EMBED_SEL = '.internal-embed.markdown-embed';
+        // Width matters: the same block is taller in a narrow hover preview than
+        // in a wide pane. Heights are therefore stored per width bucket and
+        // looked up by NEAREST bucket - an exact key could never work, because
+        // right after insertion the element has no width yet (0), while the
+        // value was measured later at the real width.
+        const WIDTH_BUCKET = 20;
+        const bucketOf = (w: number): number => (w > 0 ? Math.round(w / WIDTH_BUCKET) * WIDTH_BUCKET : 0);
+        const rememberEmbedHeight = (src: string, width: number, height: number) => {
+            const bucket = bucketOf(width);
+            if (bucket <= 0) return;
+            const list = this.embedHeights.get(src) ?? [];
+            const found = list.find((e) => e.w === bucket);
+            if (found) found.h = height; else list.push({ w: bucket, h: height });
+            while (list.length > 6) list.shift();
+            this.embedHeights.set(src, list);
+            persistSizeCache();
+        };
+        const recallEmbedHeight = (src: string, width: number): number | null => {
+            const list = this.embedHeights.get(src);
+            if (!list || list.length === 0) return null;
+            const bucket = bucketOf(width);
+            // Width not measured yet: the most recent value is the best guess.
+            if (bucket <= 0) return list[list.length - 1].h;
+            let best = list[0];
+            for (const e of list) {
+                if (Math.abs(e.w - bucket) < Math.abs(best.w - bucket)) best = e;
+            }
+            return Math.abs(best.w - bucket) <= 80 ? best.h : null;
+        };
+        const reserveEmbed = (el: HTMLElement) => {
+            if (el.dataset.fkEmbedSeen) return;
+            el.dataset.fkEmbedSeen = '1';
+            const src = el.getAttribute('src');
+            const apply = () => {
+                if (!src || !el.isConnected) return;
+                if (el.dataset.fkEmbedReserved) return;
+                const known = recallEmbedHeight(src, el.getBoundingClientRect().width);
+                if (known && known > 0) {
+                    el.style.minHeight = known + 'px';
+                    el.dataset.fkEmbedReserved = '1';
+                }
+            };
+            apply();
+            // Try again next frame: at insertion time the width is still 0, so the
+            // lookup above can only fall back to the last known value.
+            window.requestAnimationFrame(apply);
+            // Measure once the height has stopped changing, then hand the size
+            // back to the real content so a stale value can never leave a gap.
+            let timer: number | null = null;
+            let waited = 0;
+            const measure = () => {
+                timer = null;
+                const rect = el.getBoundingClientRect();
+                if (!el.isConnected || rect.height <= 0) { ro.disconnect(); return; }
+                // Do not trust a measurement taken while the embed is still
+                // filling in: blocks with nested content keep growing, and a
+                // partial height poisons the cache (the same block was being
+                // remembered as 1641px, then 1341px, then 1305px).
+                if (!el.classList.contains('is-loaded') && waited < 4000) {
+                    waited += 400;
+                    timer = window.setTimeout(measure, 400);
+                    return;
+                }
+                if (src) rememberEmbedHeight(src, rect.width, Math.round(rect.height));
+                if (el.dataset.fkEmbedReserved) {
+                    el.style.minHeight = '';
+                    delete el.dataset.fkEmbedReserved;
+                }
+                ro.disconnect();
+            };
+            const ro = new ResizeObserver(() => {
+                if (timer !== null) window.clearTimeout(timer);
+                timer = window.setTimeout(measure, 400);
+            });
+            ro.observe(el);
+        };
+        const embedReserveObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of Array.from(mutation.addedNodes)) {
+                    if (!(node instanceof HTMLElement)) continue;
+                    if (node.matches(EMBED_SEL)) reserveEmbed(node);
+                    for (const el of Array.from(node.querySelectorAll(EMBED_SEL)) as HTMLElement[]) {
+                        reserveEmbed(el);
+                    }
+                }
+            }
+        });
+        embedReserveObserver.observe(document.body, { childList: true, subtree: true });
+        for (const el of Array.from(document.querySelectorAll(EMBED_SEL)) as HTMLElement[]) {
+            reserveEmbed(el);
+        }
+        this.embedReserveObserver = embedReserveObserver;
+
+
+        // The alignment watch window, in ms. Derived from the existing "Header
+        // jump retry delay" setting (500ms => 12s) so slow notes can be given
+        // more time without a new setting.
+        const alignWindow = () => Math.max(12000, (this.settings.headerJumpRetryDelay || 500) * 24);
+
+        // Inside a CodeMirror editor the view owns the scroll position, so the
+        // move is handed to the editor itself - resolved to a line through the
+        // metadata cache and then kept centred by MEASURING it (the same
+        // treatment as a click on a heading link). Writing scrollTop into a
+        // cm-scroller instead gets overwritten by the view's next measurement,
+        // which is what left a preview popover showing half a heading.
+        const scrollEditor = (el: HTMLElement, headingText: string): boolean => {
+            // The element's own editor first: it works for a hover popover,
+            // whose view is not in the workspace's leaf list at all.
+            if (this.centerHeadingElement(el, 8000)) return true;
+            // Otherwise resolve through the workspace + metadata cache.
+            const target = resolveHeadingTarget(this.app, el, headingText, null);
+            if (!target) return false;
+            this.centerHeadingLine(target.view, target.line, 8000);
+            return true;
+        };
+
+        // Hover previews (Ctrl+hover a virtual link) open a popover that is
+        // already scrolled to the link's heading. There is no click and no
+        // workspace leaf involved, so nothing about that navigation can be
+        // hooked - attach to the POPOVER instead. The alignment then works off
+        // the DOM state alone (whichever heading sits at the top), which needs
+        // no Obsidian event name and no link parsing, and therefore cannot
+        // silently do nothing.
+        const popoverObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of Array.from(mutation.addedNodes)) {
+                    if (!(node instanceof HTMLElement)) continue;
+                    const pops = node.matches('.hover-popover')
+                        ? [node]
+                        : Array.from(node.querySelectorAll('.hover-popover')) as HTMLElement[];
+                    // No editor handler here on purpose: for a hover popover the
+                    // direct scroll (below) is the approach that was verified to
+                    // centre it correctly. Handing it to the editor looked
+                    // tidier but left the preview showing half a heading.
+                    for (const pop of pops) keepScrolledHeadingAligned(pop, 'popover', alignWindow());
+                }
+            }
+        });
+        popoverObserver.observe(document.body, { childList: true, subtree: true });
+        this.register(() => popoverObserver.disconnect());
+
+        // Rendered-DOM clicks (reading view, popovers rendered as HTML) have no
+        // widget and therefore no onclick of their own - navigation is done by
+        // Obsidian. Watch those surfaces the same way: no href parsing, nothing
+        // prevented or stopped, only the alignment afterwards.
+        this.registerDomEvent(document, 'click', (evt) => {
+            const el = evt.target as HTMLElement | null;
+            if (!el || el.closest('.cm-editor')) return;      // editor: the widget owns it
+            if (!el.closest('.virtual-link, a.virtual-link-a')) return;
+            const scope = el.closest('.hover-popover, .workspace-leaf') as HTMLElement | null;
+            window.setTimeout(() => keepScrolledHeadingAligned(scope, 'dom-click', alignWindow(), scrollEditor), 60);
+        }, true);
+
 
         // Take over the obsidian://adv-uri protocol so line links (including
         // those fired from an external browser/handler) are jumped by FakeLink.
@@ -1672,7 +2338,35 @@ export default class LinkerPlugin extends Plugin {
         multipleRefs.forEach(ref => ref.remove());
     }
 
+    // Reserves the final height of PDF++ cropped page embeds (see onload).
+    private pdfReserveObserver: MutationObserver | null = null;
+    // Image embeds: reserve their real size before they load, so they stop
+    // reflowing everything below them. Dimensions come from the file header and
+    // are cached per path, so each image is read at most once.
+    private imageReserveObserver: MutationObserver | null = null;
+    private imageSizes = new Map<string, { w: number; h: number }>();
+    private imageSizeInflight = new Map<string, Promise<{ w: number; h: number } | null>>();
+    // Markdown embeds (block references, whole-note embeds): their height cannot
+    // be derived from the file - it depends on the container width and on the
+    // rendering - but it can be REMEMBERED: measure once, reserve on every later
+    // render. Keyed by src + width, since the same block differs per container.
+    private pdfHeights = new Map<string, { w: number; h: number }[]>();
+    // Last measured PDF embed height per container width. Embeds of one article
+    // share the width, and in most vaults they also share the crop shape, so one
+    // measurement can reserve all of them - including the ones not seen yet.
+    private pdfWidthHeights = new Map<number, { h: number; r: number }>();
+    // Learned px-per-point scale per container width: the rendered height is
+    // assumed to be scale × cropHeight, which is independent of the crop SHAPE,
+    // so it can predict a crop that has never been rendered. Only trusted once
+    // at least two samples agree - a full-width render (where height also
+    // depends on the crop width) scatters those ratios and disables the model.
+    private pdfScaleSamples = new Map<number, { c: number; h: number }[]>();
+    private embedReserveObserver: MutationObserver | null = null;
+    private embedHeights = new Map<string, { w: number; h: number }[]>();
     onunload() {
+        this.pdfReserveObserver?.disconnect();
+        this.imageReserveObserver?.disconnect();
+        this.embedReserveObserver?.disconnect();
         this.cleanupVirtualLinks();
     }
 
@@ -2052,10 +2746,11 @@ class LinkerSettingTab extends PluginSettingTab {
                 textAreaDef(t('Heading symbol whitelist'), 'headingSymbolWhitelist', {
                     desc: t('Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.'),
                 }),
-                numberDef(t('Header jump retry delay (ms)'), 'headerJumpRetryDelay', {
-                    desc: t('When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.'),
+                numberDef(t('Heading align watch window (ms)'), 'headerJumpRetryDelay', {
+                    desc: t('How long (base value, in milliseconds) a jumped-to heading keeps being re-aligned while the content above it settles - images, PDFs and formulas above a heading can keep changing its height for seconds. The watch window is 24x this value, minimum 8 seconds, so 500 => 12s. Increase it for very slow notes.'),
                     min: 100,
                 }),
+
             ]),
 
             // ---------- Fuzzy matching ----------
@@ -2274,6 +2969,9 @@ class LinkerSettingTab extends PluginSettingTab {
                 }),
                 toggleDef(t('Require Ctrl/Cmd+click to open virtual links'), 'virtualLinkRequireModifier', {
                     desc: t('When enabled, a plain click on a virtual link only places the cursor (so you can keep typing in that line) and Ctrl/Cmd+click is needed to jump. Useful because a virtual link covers its text, which otherwise makes that line unclickable.'),
+                }),
+                toggleDef(t('No hover preview for virtual links'), 'disableVirtualLinkPreview', {
+                    desc: t('When enabled, hovering a virtual link no longer opens a page preview / Hover Editor popover. Virtual links are rendered by this plugin rather than written in the note, so the popover can be unwanted while reading; clicking still opens the note. Off by default. Tip: to keep previews but only when you ask for them, turn on "Require Ctrl/Cmd to trigger" in the core Page preview plugin settings instead.'),
                 }),
                 colorDef(t('Header link color'), 'headerVirtualLinkColor', {
                     desc: t('Color for header virtual links (e.g., #517ea0).'),

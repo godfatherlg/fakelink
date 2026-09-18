@@ -1124,7 +1124,19 @@ export class PrefixTree {
             try {
                 this.addFileToTree(file);
             } catch {
-                // Error adding file to tree
+                // A failure here is not harmless: addFileToTree removes the
+                // file's existing entries FIRST, so an error in the middle
+                // leaves the file unindexed - and every link pointing at it
+                // degrades to fuzzy matching (its heading ids are gone too).
+                // That is exactly what a hover preview used to trigger, because
+                // previewing a note re-indexes that note. The usual cause is a
+                // metadata cache that is mid-update, so give it one more go
+                // before reporting it.
+                try {
+                    this.addFileToTree(file);
+                } catch (err) {
+                    console.error('[fakelink] failed to index', file.path, err);
+                }
             }
         }
 

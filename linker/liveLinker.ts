@@ -66,6 +66,24 @@ export class VirtualLinkWidget extends WidgetType {
         return element;
     }
 
+    // CodeMirror calls eq() to decide whether an existing widget's DOM may be
+    // reused, and its default implementation returns false — so every decoration
+    // rebuild used to destroy and recreate every virtual link's DOM.
+    //
+    // That is what made hover previews lag and fail: the widget set is rebuilt on
+    // every cursor move, scroll and doc change, so the <a> under the pointer kept
+    // being replaced. Obsidian's "require Mod key" hover path remembers the
+    // hovered element when the hover starts, then refuses to show the preview once
+    // that element has left the document (`body.contains(el)` is false) — so
+    // pressing Ctrl after a rebuild did nothing at all.
+    //
+    // Comparing render signatures keeps the DOM alive whenever the rendered result
+    // would be identical, which is the common case.
+    eq(other: WidgetType): boolean {
+        if (!(other instanceof VirtualLinkWidget)) return false;
+        return other.match.renderKey() === this.match.renderKey();
+    }
+
     // Whether CodeMirror should ignore events inside this widget:
     //   true  → editor ignores it, so the <a> onclick runs and the link opens
     //           (but no caret is placed)
@@ -90,6 +108,16 @@ export class VirtualLinkWidget extends WidgetType {
     }
 }
 
+/**
+ * True when the element lives inside a hover preview popover.
+ * Hover Editor opens a REAL MarkdownView in its popover (and auto-focuses it), so it
+ * shows up in workspace.getActiveViewOfType(MarkdownView) as well; core page preview
+ * renders plain HTML and never reaches the editor plugin below.
+ */
+function isInHoverPopover(el: HTMLElement | null | undefined): boolean {
+    return Boolean(el?.closest('.hover-popover'));
+}
+
 class AutoLinkerPlugin implements PluginValue {
     decorations: DecorationSet;
     app: App;
@@ -111,6 +139,12 @@ class AutoLinkerPlugin implements PluginValue {
     // Cache the active Markdown view so we don't call getActiveViewOfType()
     // on every cursor move. Invalidated on active-leaf-change.
     private cachedActiveView: MarkdownView | null | undefined = undefined;
+
+    // Last MarkdownView that was active AND is not inside a hover popover. A popover
+    // stealing focus must not demote it to "inactive": that flipped every gate in
+    // update()/buildDecorations, rebuilt all links of the editor underneath (visible
+    // flash) and lost its mappedFile — which also made the popover close itself.
+    private lastRealActiveView: MarkdownView | null = null;
 
     viewUpdateDomToFileMap: Map<HTMLElement, TFile | undefined | null> = new Map();
 
@@ -145,7 +179,13 @@ class AutoLinkerPlugin implements PluginValue {
 
     update(update: ViewUpdate, force: boolean = false) {
         if (this.cachedActiveView === undefined) {
-            this.cachedActiveView = this.app.workspace.getActiveViewOfType(MarkdownView) ?? null;
+            const v = this.app.workspace.getActiveViewOfType(MarkdownView) ?? null;
+            this.cachedActiveView = v;
+            // Remember the last non-popover view: hover popovers host a real
+            // MarkdownView and auto-focus it, and they must not demote the real one.
+            if (v && !isInHoverPopover(v.containerEl)) {
+                this.lastRealActiveView = v;
+            }
         }
         const activeView = this.cachedActiveView;
 
@@ -163,6 +203,17 @@ class AutoLinkerPlugin implements PluginValue {
             const domFromUpdate = update.view.dom;
             const domFromWorkspace = activeView?.contentEl;
             updateIsOnActiveView = domFromWorkspace ? isDescendant(domFromWorkspace, domFromUpdate, 3) : false;
+
+            // The active view is a hover popover: it keeps normal preview behaviour for
+            // itself, but the editor underneath must stay "active" as well. Otherwise
+            // every gate below flips off there, all of its links get rebuilt (visible
+            // flash) and its mappedFile is lost — the DOM churn that also made the
+            // popover close on its own.
+            let activeViewForUpdate = activeView;
+            if (!updateIsOnActiveView && activeView && isInHoverPopover(activeView.containerEl) && this.lastRealActiveView) {
+                updateIsOnActiveView = isDescendant(this.lastRealActiveView.contentEl, domFromUpdate, 3);
+                if (updateIsOnActiveView) activeViewForUpdate = this.lastRealActiveView;
+            }
             
             // Additional check for table environments - pragmatic approach
             if (!updateIsOnActiveView && inTableCellEditor) {
@@ -175,12 +226,14 @@ class AutoLinkerPlugin implements PluginValue {
 
             // We store this information to be able to map the view updates to a obsidian file
             if (updateIsOnActiveView) {
-                this.viewUpdateDomToFileMap.set(domFromUpdate, activeView?.file);
+                this.viewUpdateDomToFileMap.set(domFromUpdate, activeViewForUpdate?.file);
             }
         }
 
         const cursorPos = update.view.state.selection.main.from;
-        const activeFile = this.app.workspace.getActiveFile()?.path;
+        // Prefer the last real (non-popover) view's file: a hover popover taking focus
+        // changes workspace.getActiveFile() and would otherwise force a rebuild here.
+        const activeFile = (this.lastRealActiveView?.file ?? this.app.workspace.getActiveFile())?.path;
         const fileChanged = activeFile != this.lastActiveFile;
 
         if (force || this.lastCursorPos != cursorPos || update.docChanged || fileChanged || update.viewportChanged) {
