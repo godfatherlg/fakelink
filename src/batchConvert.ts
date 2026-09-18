@@ -421,12 +421,10 @@ export class BatchConvertModal extends Modal {
             return;
         }
 
-        const listEl = contentEl.createEl('div');
-        listEl.addClass('batch-convert-list');
+        const listEl = contentEl.createEl('div', { cls: 'batch-convert-list' });
 
         this.items.forEach((item, idx) => {
-            const row = listEl.createEl('div');
-            row.addClass('batch-convert-row');
+            const row = listEl.createEl('div', { cls: 'batch-convert-row' });
 
             const toggle = new Setting(row)
                 .setName(item.displayText)
@@ -444,11 +442,9 @@ export class BatchConvertModal extends Modal {
             this.enabled[idx] = defaultOn;
         });
 
-        const buttonBar = contentEl.createEl('div');
-        buttonBar.addClass('batch-convert-buttons');
+        const buttonBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
 
-        const convertBtn = buttonBar.createEl('button', { text: '转换' });
-        convertBtn.addClass('mod-cta');
+        const convertBtn = buttonBar.createEl('button', { text: '转换', cls: 'mod-cta' });
         convertBtn.onclick = () => this.convert();
 
         const cancelBtn = buttonBar.createEl('button', { text: '取消' });
@@ -506,11 +502,9 @@ export class BatchConvertFilesModal extends Modal {
             text: '使用步骤：1) 点击「选择笔记…」；2) 在弹出的搜索框中逐个点击要处理的笔记（可多次点选，已选笔记会列在下方）；3) 选好后点击「扫描并转换」，插件会一次性把每个笔记里的虚拟链接固化为真实链接（表格内的虚拟链接不会被处理）。',
         });
 
-        const pickerBar = contentEl.createEl('div');
-        pickerBar.addClass('batch-convert-buttons');
+        const pickerBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
 
-        const pickBtn = pickerBar.createEl('button', { text: '选择笔记…' });
-        pickBtn.addClass('mod-cta');
+        const pickBtn = pickerBar.createEl('button', { text: '选择笔记…', cls: 'mod-cta' });
         pickBtn.onclick = () => {
             const picker = new FileMultiSuggestModal(this.app);
             picker.onChoose((files) => {
@@ -528,8 +522,7 @@ export class BatchConvertFilesModal extends Modal {
         const existing = contentEl.querySelector('.batch-selected-files');
         if (existing) existing.remove();
 
-        const box = contentEl.createEl('div');
-        box.addClass('batch-selected-files');
+        const box = contentEl.createEl('div', { cls: 'batch-selected-files' });
         box.createEl('p', { text: `已选择 ${this.selectedFiles.length} 个笔记：` });
         const list = box.createEl('ul');
         for (const f of this.selectedFiles) {

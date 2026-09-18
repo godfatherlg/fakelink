@@ -1,13 +1,11 @@
-# 1.23.26
+# 1.23.27
 
 ## 中文
 
-- **移除：「按 Ctrl/Cmd+点击才打开虚拟链接」设置**。这个开关已删掉（界面、代码、翻译一起清掉），**单击虚拟链接即跳转**，不会再检查任何修饰键。想在链接所在行放光标依旧由「当前行不显示链接」负责。
-- **内部整理（来自社区插件审核反馈）**：内联样式改写为 `setCssStyles`、修正类型并去掉多余断言、删除不再使用的变量与导入、字符类正则改为范围写法。
-- 除上述移除的开关外，**行为没有变化** —— 跳转、悬停预览、尺寸预留、标题对齐都与 1.23.25 一致。
+- **内部整理（社区插件审核反馈，第二轮）**：元素创建统一改用 Obsidian 的 `createEl`；类名在创建时一并传入（不再用 `addClass`）；尺寸缓存的读写不再依赖 `Object.fromEntries` / `Object.entries`（审核环境的 TypeScript 库不含这两个 API，会被判为 `any`）。
+- **本版本没有功能变化** —— 跳转、悬停预览、尺寸预留、标题对齐、批量转换的行为都与 1.23.26 一致。如果你没有遇到问题，可以跳过它。
 
 ## English
 
-- **Removed: the "Require Ctrl/Cmd+click to open virtual links" setting.** The toggle is gone (UI, code and translations), and a plain click on a virtual link opens it again - no modifier is checked any more. Placing the caret in a link's line is still handled by "Avoid linking in current line".
-- **Internal cleanup from the community-plugin review**: inline styles now go through `setCssStyles`, tightened types and dropped redundant assertions, removed unused variables/imports, and a character class rewritten as a range.
-- **No behaviour changes** beyond the removed toggle - jumps, hover previews, size reservation and heading alignment are identical to 1.23.25.
+- **Internal cleanup from the second community-plugin review pass**: elements are now created through Obsidian's `createEl`, classes are passed at creation time instead of via `addClass`, and the size cache no longer uses `Object.fromEntries` / `Object.entries` (the reviewer's TypeScript lib does not include them, which made their results `any`).
+- **No functional changes** - jumps, hover previews, size reservation, heading alignment and batch conversion all behave exactly as in 1.23.26. Skip this one unless you are curious.

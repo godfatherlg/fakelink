@@ -1263,14 +1263,22 @@ export default class LinkerPlugin extends Plugin {
                     try {
                         const loaded: unknown = await this.loadData();
                         const stored = (loaded ?? {}) as Record<string, unknown>;
-                        const capMap = <V>(m: Map<string, V>, n: number): Record<string, V> =>
-                            Object.fromEntries(Array.from(m.entries()).slice(-n));
+                        const capMap = <V>(m: Map<string, V>, n: number): Record<string, V> => {
+                            const out: Record<string, V> = {};
+                            for (const [k, v] of Array.from(m.entries()).slice(-n)) out[k] = v;
+                            return out;
+                        };
+                        const tailMap = <V>(m: Map<number, V>, n: number): Record<string, V> => {
+                            const out: Record<string, V> = {};
+                            for (const [k, v] of Array.from(m.entries()).slice(-n)) out[String(k)] = v;
+                            return out;
+                        };
                         stored[CACHE_KEY] = {
                             images: capMap(this.imageSizes, SIZE_CACHE_LIMIT),
                             pdf: capMap(this.pdfHeights, 300),
                             embeds: capMap(this.embedHeights, 300),
-                            widths: Object.fromEntries(Array.from(this.pdfWidthHeights.entries()).slice(-50)),
-                            scales: Object.fromEntries(Array.from(this.pdfScaleSamples.entries()).slice(-50)),
+                            widths: tailMap(this.pdfWidthHeights, 50),
+                            scales: tailMap(this.pdfScaleSamples, 50),
                         };
                         await this.saveData(stored);
                     } catch { /* cache persistence is best-effort */ }
@@ -1291,22 +1299,30 @@ export default class LinkerPlugin extends Plugin {
                     }
                     | undefined;
                 if (!c) return;
-                for (const [k, v] of Object.entries(c.images ?? {})) if (v?.w > 0) this.imageSizes.set(k, v);
                 const asList = <T>(v: unknown): T[] | null => (Array.isArray(v) ? (v as T[]) : null);
-                for (const [k, v] of Object.entries(c.pdf ?? {})) {
-                    const list = asList<{ w: number; h: number }>(v);
+                const images = c.images ?? {};
+                for (const k of Object.keys(images)) {
+                    const v = images[k];
+                    if (v && v.w > 0) this.imageSizes.set(k, v);
+                }
+                const pdf = c.pdf ?? {};
+                for (const k of Object.keys(pdf)) {
+                    const list = asList<{ w: number; h: number }>(pdf[k]);
                     if (list) this.pdfHeights.set(k, list);
                 }
-                for (const [k, v] of Object.entries(c.embeds ?? {})) {
-                    const list = asList<{ w: number; h: number }>(v);
+                const embeds = c.embeds ?? {};
+                for (const k of Object.keys(embeds)) {
+                    const list = asList<{ w: number; h: number }>(embeds[k]);
                     if (list) this.embedHeights.set(k, list);
                 }
-                for (const [k, v] of Object.entries(c.scales ?? {})) {
-                    const list = asList<{ c: number; h: number }>(v);
+                const scales = c.scales ?? {};
+                for (const k of Object.keys(scales)) {
+                    const list = asList<{ c: number; h: number }>(scales[k]);
                     if (list) this.pdfScaleSamples.set(Number(k), list);
                 }
-                for (const [k, v] of Object.entries(c.widths ?? {})) {
-                    const e = v as { h?: number; r?: number } | null;
+                const widths = c.widths ?? {};
+                for (const k of Object.keys(widths)) {
+                    const e = widths[k] as { h?: number; r?: number } | null;
                     // Older cache entries were a bare number (no ratio) - skip
                     // them, since they cannot prove the crop shapes match.
                     if (e && typeof e.h === 'number' && e.h > 0 && typeof e.r === 'number' && e.r > 0) {

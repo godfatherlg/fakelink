@@ -582,7 +582,7 @@ export class VirtualMatch {
         // Hide the link entirely when the total number of matches exceeds the
         // configured threshold (too noisy to be useful).
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
-            const emptySpan = activeDocument.createElement('span');
+            const emptySpan = activeDocument.createEl('span');
             emptySpan.textContent = this.originText;
             // The term DID match — there are simply too many targets, so no link is
             // rendered. Keep the line visually quiet (that is the point of the
@@ -644,7 +644,7 @@ export class VirtualMatch {
 
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
-        const link = activeDocument.createElement('a');
+        const link = activeDocument.createEl('a');
 
         let headerIdToUse: string | undefined;
         if (file) {
@@ -776,7 +776,7 @@ export class VirtualMatch {
     }
 
     getLinkRootSpan(inTableCellEditor = false) {
-        const span = activeDocument.createElement('span');
+        const span = activeDocument.createEl('span');
         span.classList.add('virtual-link', 'virtual-link-span');
         
         if (this.settings.applyDefaultLinkStyling) {
@@ -844,7 +844,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesSpan(files?: TFile[], overflowCount: number = 0) {
-        const spanReferences = activeDocument.createElement('span');
+        const spanReferences = activeDocument.createEl('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
         }
@@ -857,7 +857,7 @@ export class VirtualMatch {
 
         fileList.forEach((file, index) => {
             if (index === 0) {
-                const bracket = activeDocument.createElement('span');
+                const bracket = activeDocument.createEl('span');
                 bracket.textContent = '[';
                 spanReferences.appendChild(bracket);
             }
@@ -874,12 +874,12 @@ export class VirtualMatch {
 
             if (index == fileList.length - 1) {
                 if (overflowCount > 0) {
-                    const overflow = activeDocument.createElement('span');
+                    const overflow = activeDocument.createEl('span');
                     overflow.textContent = '|...';
                     overflow.setAttribute('title', `${overflowCount} more reference(s)`);
                     spanReferences.appendChild(overflow);
                 }
-                const bracket = activeDocument.createElement('span');
+                const bracket = activeDocument.createEl('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
             }
@@ -889,14 +889,14 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesIndicatorSpan() {
-        const spanIndicator = activeDocument.createElement('span');
+        const spanIndicator = activeDocument.createEl('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
         return spanIndicator;
     }
 
     getOverflowIndicatorSpan(hiddenCount: number) {
-        const spanIndicator = activeDocument.createElement('span');
+        const spanIndicator = activeDocument.createEl('span');
         spanIndicator.textContent = ' [...]';
         // Reuse the same class as the reference list so it shows/hides together
         // (visible on hover, or always visible when alwaysShowMultipleReferences
@@ -911,7 +911,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
-            const icon = activeDocument.createElement('sup');
+            const icon = activeDocument.createEl('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
             return icon;
