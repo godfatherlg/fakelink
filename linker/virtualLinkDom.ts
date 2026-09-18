@@ -181,14 +181,7 @@ export function resolveHeadingTarget(
     return pick ? { view: pick.view, line: pick.line } : null;
 }
 
-/** One-shot version: used for surfaces where no persistent loop runs. */
-export function scrollEditorHeadingIntoView(app: App, el: HTMLElement | null, headingText: string, file?: TFile | null): boolean {
-    const target = resolveHeadingTarget(app, el, headingText, file);
-    if (!target) return false;
-    const edge = target.view.editor.getLine(target.line).length;
-    target.view.editor.scrollIntoView({ from: { line: target.line, ch: 0 }, to: { line: target.line, ch: edge } }, true);
-    return true;
-}
+
 
 /**
  * Centre a heading through the editor itself, waiting for the document to
@@ -274,29 +267,6 @@ export function findHeadingAtTop(scope: HTMLElement | null): HTMLElement | null 
 const HEADING_SEL = 'h1, h2, h3, h4, h5, h6, [data-heading], [class*="HyperMD-header"]';
 
 /**
- * What a surface actually contains, for the diagnostics. If the alignment ever
- * reports "nothing", these counts say which markup to match instead of leaving
- * it to guesswork.
- */
-function describeSurface(scope: HTMLElement | null): string {
-    const root: ParentNode = scope && scope.isConnected ? scope : document.body;
-    const n = (sel: string) => root.querySelectorAll(sel).length;
-    return (scope ? String(scope.className || '').split(' ')[0] : 'document') + ' ' + JSON.stringify({
-        h: n('h1,h2,h3,h4,h5,h6'),
-        dataHeading: n('[data-heading]'),
-        hypermd: n('[class*="HyperMD-header"]'),
-        cmLine: n('.cm-line'),
-        preview: n('.markdown-preview-view'),
-        scroller: n('.cm-scroller'),
-        // The first few heading texts actually present - so "found nothing"
-        // says WHY instead of leaving it to guesswork.
-        texts: Array.from(root.querySelectorAll(HEADING_SEL))
-            .slice(0, 3)
-            .map((el) => normalizeHeading(el.getAttribute('data-heading') ?? el.textContent ?? '').slice(0, 24)),
-    });
-}
-
-/**
  * Pin the heading returned by `resolve` just below the top of its scroller,
  * for as long as the surface keeps settling.
  *
@@ -311,7 +281,6 @@ function keepAligned(
     resolve: () => HTMLElement | null,
     label: string,
     maxMs: number,
-    describe: () => string,
     alive: () => boolean,
     scrollEditor?: (el: HTMLElement, headingText: string) => boolean,
 ): void {
@@ -327,6 +296,11 @@ function keepAligned(
     let stableSince = Date.now();
     let settledInMs = -1;
     let domWrites = 0;
+    // "Are all images in this surface loaded?" must not turn every check into a
+    // full scan: these notes hold hundreds of embeds, so the list is re-read at
+    // most every second and a half.
+    let imgs: HTMLImageElement[] = [];
+    let imgsAt = 0;
 
     // Watching is EVENT-DRIVEN: a ResizeObserver fires the moment the content
     // around the heading changes height - a PDF embed landing seconds late, an
@@ -432,8 +406,11 @@ function keepAligned(
                 // "Rendered" = the content height has held still AND every image
                 // in this surface has finished loading. Only then is the first
                 // scroll issued, so it lands on a page that has stopped moving.
-                const stillLoading = Array.from(scroller.querySelectorAll('img'))
-                    .some((img) => !img.complete);
+                if (Date.now() - imgsAt > 1500) {
+                    imgs = Array.from(scroller.querySelectorAll('img'));
+                    imgsAt = Date.now();
+                }
+                const stillLoading = imgs.some((img) => !img.complete);
                 const settleReady = !stillLoading && Date.now() - stableSince >= ALIGN_STABLE_MS;
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
@@ -477,27 +454,6 @@ function keepAligned(
 }
 
 /**
- * Align the heading a link points at, in the surface it was clicked in - or
- * wherever the heading turns up, if the file opened in another leaf.
- */
-export function keepHeadingAligned(scope: HTMLElement | null, headingId: string, label = '', maxMs = ALIGN_MAX_MS): void {
-    if (!headingId) return;
-    let cached: HTMLElement | null = null;
-    keepAligned(
-        () => {
-            if (cached && cached.isConnected) return cached;
-            cached = (scope && scope.isConnected ? findHeadingElement(scope, headingId) : null)
-                ?? findHeadingElement(document.body, headingId);
-            return cached;
-        },
-        label,
-        maxMs,
-        () => 'heading=' + headingId,
-        () => !scope || scope.isConnected,
-    );
-}
-
-/**
  * Align whichever heading the surface is currently scrolled to, without
  * knowing its name. Needed because some navigations cannot be observed at all:
  * a hover preview popover creates itself - already scrolled to the heading -
@@ -530,7 +486,7 @@ export function keepScrolledHeadingAligned(
         },
         label,
         maxMs,
-        () => describeSurface(scope),
+
         () => !scope || scope.isConnected,
         scrollEditor,
     );
@@ -849,6 +805,12 @@ export class VirtualMatch {
                             window.setTimeout(() => {
                                 if (abort.signal.aborted) return;
                                 if (alreadyFramed()) return;
+                                // The measured alignment is already running. If it
+                                // can find the heading it will correct the position,
+                                // so a re-navigation would only re-render the whole
+                                // note and fight it. Re-navigate only when the
+                                // alignment has nothing to work with.
+                                if (findHeadingElement(document.body, headerIdToUse)) return;
                                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
                             }, delay);
                         }

@@ -1459,11 +1459,10 @@ export default class LinkerPlugin extends Plugin {
                     timer = null;
                     if (el.dataset.fkReserved) {
                         // Drop the reservation first: the release resizes the box to
-                        // its real height, and that resize is what gets measured.
-                        // A late second look covers the case where the reserved
-                        // height happened to be correct (so nothing resized).
+                        // its real height, and that resize is what gets measured. If
+                        // nothing resized, the reserved height was already correct and
+                        // there is nothing new to learn.
                         release();
-                        window.setTimeout(measureReal, 800);
                         return;
                     }
                     measureReal();
@@ -1474,23 +1473,31 @@ export default class LinkerPlugin extends Plugin {
             // Hard cap in case the element never resizes at all.
             window.setTimeout(release, 6000);
         };
-        const RESERVE_SEL = '.internal-embed[src*="rect="]';
-        const pdfReserveObserver = new MutationObserver((mutations) => {
+        // One observer serves everything that has to react to inserted nodes.
+        // Four separate ones (PDF crops, images, note embeds, hover popovers)
+        // would run four callbacks for every DOM change anywhere in the app -
+        // the only always-on cost this plugin has - so they share one instead.
+        const onInsert: ((node: HTMLElement) => void)[] = [];
+        const insertObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of Array.from(mutation.addedNodes)) {
                     if (!node.instanceOf(HTMLElement)) continue;
-                    if (node.matches(RESERVE_SEL)) reserveEmbedHeight(node);
-                    for (const el of Array.from(node.querySelectorAll<HTMLElement>(RESERVE_SEL))) {
-                        reserveEmbedHeight(el);
-                    }
+                    for (const handler of onInsert) handler(node);
                 }
             }
         });
-        pdfReserveObserver.observe(document.body, { childList: true, subtree: true });
+        this.register(() => insertObserver.disconnect());
+
+        const RESERVE_SEL = '.internal-embed[src*="rect="]';
+        onInsert.push((node) => {
+            if (node.matches(RESERVE_SEL)) reserveEmbedHeight(node);
+            for (const el of Array.from(node.querySelectorAll<HTMLElement>(RESERVE_SEL))) {
+                reserveEmbedHeight(el);
+            }
+        });
         for (const el of Array.from(document.querySelectorAll<HTMLElement>(RESERVE_SEL))) {
             reserveEmbedHeight(el);
         }
-        this.pdfReserveObserver = pdfReserveObserver;
 
         // Image embeds: unlike PDF++ crops there is no rect= to read, so the real
         // dimensions are parsed straight out of the file header (PNG / JPEG /
@@ -1633,22 +1640,15 @@ export default class LinkerPlugin extends Plugin {
             void read.then((dim) => { if (dim) applyImageSize(img, dim); });
         };
 
-        const imageReserveObserver = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                for (const node of Array.from(mutation.addedNodes)) {
-                    if (!node.instanceOf(HTMLElement)) continue;
-                    if (node.instanceOf(HTMLImageElement)) reserveImage(node);
-                    for (const img of Array.from(node.querySelectorAll('img'))) {
-                        reserveImage(img);
-                    }
-                }
+        onInsert.push((node) => {
+            if (node.instanceOf(HTMLImageElement)) reserveImage(node);
+            for (const img of Array.from(node.querySelectorAll('img'))) {
+                reserveImage(img);
             }
         });
-        imageReserveObserver.observe(document.body, { childList: true, subtree: true });
         for (const img of Array.from(document.querySelectorAll('img'))) {
             reserveImage(img);
         }
-        this.imageReserveObserver = imageReserveObserver;
 
         // ------------------------------------------------------------------
         // Markdown embeds (![[note#^block]] and ![[note]]) render EMPTY first and
@@ -1744,22 +1744,15 @@ export default class LinkerPlugin extends Plugin {
             });
             ro.observe(el);
         };
-        const embedReserveObserver = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                for (const node of Array.from(mutation.addedNodes)) {
-                    if (!node.instanceOf(HTMLElement)) continue;
-                    if (node.matches(EMBED_SEL)) reserveEmbed(node);
-                    for (const el of Array.from(node.querySelectorAll<HTMLElement>(EMBED_SEL))) {
-                        reserveEmbed(el);
-                    }
-                }
+        onInsert.push((node) => {
+            if (node.matches(EMBED_SEL)) reserveEmbed(node);
+            for (const el of Array.from(node.querySelectorAll<HTMLElement>(EMBED_SEL))) {
+                reserveEmbed(el);
             }
         });
-        embedReserveObserver.observe(document.body, { childList: true, subtree: true });
         for (const el of Array.from(document.querySelectorAll<HTMLElement>(EMBED_SEL))) {
             reserveEmbed(el);
         }
-        this.embedReserveObserver = embedReserveObserver;
 
 
         // The alignment watch window, in ms. The setting is stored in SECONDS -
@@ -1792,23 +1785,19 @@ export default class LinkerPlugin extends Plugin {
         // the DOM state alone (whichever heading sits at the top), which needs
         // no Obsidian event name and no link parsing, and therefore cannot
         // silently do nothing.
-        const popoverObserver = new MutationObserver((mutations) => {
-            for (const mutation of mutations) {
-                for (const node of Array.from(mutation.addedNodes)) {
-                    if (!node.instanceOf(HTMLElement)) continue;
-                    const pops = node.matches('.hover-popover')
-                        ? [node]
-                        : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
-                    // No editor handler here on purpose: for a hover popover the
-                    // direct scroll (below) is the approach that was verified to
-                    // centre it correctly. Handing it to the editor looked
-                    // tidier but left the preview showing half a heading.
-                    for (const pop of pops) keepScrolledHeadingAligned(pop, 'popover', alignWindow());
-                }
-            }
+        onInsert.push((node) => {
+            const pops = node.matches('.hover-popover')
+                ? [node]
+                : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
+            // No editor handler here on purpose: for a hover popover the
+            // direct scroll (below) is the approach that was verified to
+            // centre it correctly. Handing it to the editor looked
+            // tidier but left the preview showing half a heading.
+            for (const pop of pops) keepScrolledHeadingAligned(pop, 'popover', alignWindow());
         });
-        popoverObserver.observe(document.body, { childList: true, subtree: true });
-        this.register(() => popoverObserver.disconnect());
+        // Everything has registered by now, so start watching: starting earlier
+        // would run an incomplete handler list for the first insertions.
+        insertObserver.observe(document.body, { childList: true, subtree: true });
 
         // Rendered-DOM clicks (reading view, popovers rendered as HTML) have no
         // widget and therefore no onclick of their own - navigation is done by
