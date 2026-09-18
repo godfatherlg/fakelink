@@ -89,9 +89,9 @@ export class VirtualLinkWidget extends WidgetType {
     //           (but no caret is placed)
     //   false → editor handles it, so the caret IS placed (but the click is
     //           consumed and the link does NOT open)
-    // These two goals conflict, so decide per click instead of picking one:
-    //   - default (plain click opens): ignore mouse events → link opens
-    //   - "require modifier" mode: plain click → caret only; Ctrl/Cmd+click → open
+    // A plain click opens the link. The only exception is a widget that renders
+    // no link at all (too many matches): there the editor must handle the click
+    // so the caret can still be placed.
     ignoreEvent(event: Event): boolean {
         const isMouse = event.type === 'mousedown' || event.type === 'mouseup'
             || event.type === 'click' || event.type === 'dblclick';
@@ -102,9 +102,7 @@ export class VirtualLinkWidget extends WidgetType {
         // link to open anyway.
         if (this.match.isHiddenByReferenceLimit) return false;
 
-        if (!this.match.settings.virtualLinkRequireModifier) return true;
-        const withModifier = (event as MouseEvent).ctrlKey || (event as MouseEvent).metaKey;
-        return withModifier;
+        return true;
     }
 }
 

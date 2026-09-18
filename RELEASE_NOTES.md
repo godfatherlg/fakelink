@@ -1,11 +1,13 @@
-# 1.23.25
+# 1.23.26
 
 ## 中文
 
-- **内部维护：新增一键发布脚本 `release.ps1`**（开发者工具，不进入插件运行逻辑，不影响任何行为）。发布流程固定为：更新本文件 → 升版 → 提交 → 打标签 → 推送，随后由 GitHub Actions 自动构建并发布。
-- **本版本无功能变化**，不需要重新配置任何设置；如果你没有遇到问题，可以跳过它。
+- **移除：「按 Ctrl/Cmd+点击才打开虚拟链接」设置**。这个开关已删掉（界面、代码、翻译一起清掉），**单击虚拟链接即跳转**，不会再检查任何修饰键。想在链接所在行放光标依旧由「当前行不显示链接」负责。
+- **内部整理（来自社区插件审核反馈）**：内联样式改写为 `setCssStyles`、修正类型并去掉多余断言、删除不再使用的变量与导入、字符类正则改为范围写法。
+- 除上述移除的开关外，**行为没有变化** —— 跳转、悬停预览、尺寸预留、标题对齐都与 1.23.25 一致。
 
 ## English
 
-- **Internal: a one-command release script (`release.ps1`) was added.** It is a developer tool and is not part of the plugin's runtime behaviour. The flow is now: update this file, bump, commit, tag, push - GitHub Actions then builds and publishes.
-- **No functional changes** in this version; no settings need to be touched. Skip it unless you are curious.
+- **Removed: the "Require Ctrl/Cmd+click to open virtual links" setting.** The toggle is gone (UI, code and translations), and a plain click on a virtual link opens it again - no modifier is checked any more. Placing the caret in a link's line is still handled by "Avoid linking in current line".
+- **Internal cleanup from the community-plugin review**: inline styles now go through `setCssStyles`, tightened types and dropped redundant assertions, removed unused variables/imports, and a character class rewritten as a range.
+- **No behaviour changes** beyond the removed toggle - jumps, hover previews, size reservation and heading alignment are identical to 1.23.25.

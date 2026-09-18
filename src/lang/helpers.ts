@@ -132,8 +132,6 @@ const zhCN: Record<string, string> = {
     'Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.': '标题中需要从虚拟链接关键词中剔除的符号（逗号分隔）。用于给标题添加标记（如 🔥）而不影响匹配。',
 
     'Color-only display': '纯颜色显示',
-    'Require Ctrl/Cmd+click to open virtual links': '按 Ctrl/Cmd+点击才打开虚拟链接',
-    'When enabled, a plain click on a virtual link only places the cursor (so you can keep typing in that line) and Ctrl/Cmd+click is needed to jump. Useful because a virtual link covers its text, which otherwise makes that line unclickable.': '启用后，普通点击虚拟链接只会定位光标（可继续在该行输入），需按 Ctrl/Cmd+点击才会跳转。适用于虚拟链接覆盖了文字、导致该行无法点击定位光标的情况。',
     'No hover preview for virtual links': '虚拟链接不触发悬停预览',
     'When enabled, hovering a virtual link no longer opens a page preview / Hover Editor popover. Virtual links are rendered by this plugin rather than written in the note, so the popover can be unwanted while reading; clicking still opens the note. Off by default. Tip: to keep previews but only when you ask for them, turn on "Require Ctrl/Cmd to trigger" in the core Page preview plugin settings instead.': '启用后，悬停虚拟链接不再弹出页面预览 / Hover Editor 浮窗。虚拟链接是本插件渲染的、并非笔记里真实存在的链接，阅读时弹窗可能造成打扰；点击跳转不受影响。默认关闭。提示：若你想保留预览、但只在需要时才出现，可以改为在核心插件「页面预览」的设置里打开「需要按住 Ctrl/Cmd 才触发」。',
     'When enabled, virtual links are shown in a custom text color instead of the default background shadow.': '启用后，虚拟链接以自定义文本颜色显示，而非默认背景阴影。',

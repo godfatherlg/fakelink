@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, MarkdownRenderer, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf, getLinkpath } from 'obsidian';
+import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
 import { EditorView } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -552,7 +552,6 @@ export interface LinkerPluginSettings {
     headingSymbolWhitelist: string[]; // Symbols stripped from heading keywords
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
-    virtualLinkRequireModifier: boolean; // Require Ctrl/Cmd+click to jump; a plain click just places the cursor
     disableVirtualLinkPreview: boolean; // Do not let virtual links trigger the page preview / Hover Editor popover
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
@@ -635,7 +634,6 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     headingSymbolWhitelist: [],
     allowLinksInHeaders: false,
     colorOnlyDisplay: true,
-    virtualLinkRequireModifier: false,
     disableVirtualLinkPreview: false,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
@@ -938,7 +936,6 @@ export default class LinkerPlugin extends Plugin {
         const startedAt = Date.now();
         let passes = 0;
         let lastCurrent = Number.NaN;
-        let lastPassAt = 0;
         // Minimal intervention, because the experiment was unambiguous: without
         // this code the editor kept rendering but the heading was pushed out of
         // place, with it the view could stop rendering altogether. So: give the
@@ -974,7 +971,7 @@ export default class LinkerPlugin extends Plugin {
             const tolerance = Math.max(6, Math.round(scroller.clientHeight * 0.04));
             const unreliable = current < -scroller.clientHeight;   // CM6 mid-remit
             const stillLoading = Array.from(scroller.querySelectorAll('img'))
-                .some((img) => !(img as HTMLImageElement).complete);
+                .some((img) => !img.complete);
             const settled = current === lastCurrent && !stillLoading;
             lastCurrent = current;
             const miss = Math.abs(current - target);
@@ -1008,7 +1005,6 @@ export default class LinkerPlugin extends Plugin {
                     });
                 } catch { return; }
                 passes++;
-                lastPassAt = Date.now();
             }
             // Keep watching for the whole window even after the position looks
             // right: CodeMirror can STALL (its measure-restart limit), which
@@ -1265,8 +1261,9 @@ export default class LinkerPlugin extends Plugin {
                 sizeCacheSaveTimer = null;
                 void (async () => {
                     try {
-                        const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
-                        const capMap = <V>(m: Map<string, V>, n: number) =>
+                        const loaded: unknown = await this.loadData();
+                        const stored = (loaded ?? {}) as Record<string, unknown>;
+                        const capMap = <V>(m: Map<string, V>, n: number): Record<string, V> =>
                             Object.fromEntries(Array.from(m.entries()).slice(-n));
                         stored[CACHE_KEY] = {
                             images: capMap(this.imageSizes, SIZE_CACHE_LIMIT),
@@ -1282,7 +1279,8 @@ export default class LinkerPlugin extends Plugin {
         };
         void (async () => {
             try {
-                const stored = ((await this.loadData()) ?? {}) as Record<string, unknown>;
+                const loaded: unknown = await this.loadData();
+                const stored = (loaded ?? {}) as Record<string, unknown>;
                 const c = stored[CACHE_KEY] as
                     | {
                         images?: Record<string, { w: number; h: number }>;
@@ -1294,10 +1292,18 @@ export default class LinkerPlugin extends Plugin {
                     | undefined;
                 if (!c) return;
                 for (const [k, v] of Object.entries(c.images ?? {})) if (v?.w > 0) this.imageSizes.set(k, v);
-                for (const [k, v] of Object.entries(c.pdf ?? {})) if (Array.isArray(v)) this.pdfHeights.set(k, v);
-                for (const [k, v] of Object.entries(c.embeds ?? {})) if (Array.isArray(v)) this.embedHeights.set(k, v);
+                const asList = <T>(v: unknown): T[] | null => (Array.isArray(v) ? (v as T[]) : null);
+                for (const [k, v] of Object.entries(c.pdf ?? {})) {
+                    const list = asList<{ w: number; h: number }>(v);
+                    if (list) this.pdfHeights.set(k, list);
+                }
+                for (const [k, v] of Object.entries(c.embeds ?? {})) {
+                    const list = asList<{ w: number; h: number }>(v);
+                    if (list) this.embedHeights.set(k, list);
+                }
                 for (const [k, v] of Object.entries(c.scales ?? {})) {
-                    if (Array.isArray(v)) this.pdfScaleSamples.set(Number(k), v as { c: number; h: number }[]);
+                    const list = asList<{ c: number; h: number }>(v);
+                    if (list) this.pdfScaleSamples.set(Number(k), list);
                 }
                 for (const [k, v] of Object.entries(c.widths ?? {})) {
                     const e = v as { h?: number; r?: number } | null;
@@ -1399,8 +1405,8 @@ export default class LinkerPlugin extends Plugin {
                 const known = recallPdfHeight(src, width)
                     ?? predictPdfHeight(width, h)
                     ?? recallPdfFallback(width, cropRatio);
-                if (known) el.style.minHeight = known + 'px';
-                else el.style.aspectRatio = w + ' / ' + h;
+                if (known) el.setCssStyles({ minHeight: known + 'px' });
+                else el.setCssStyles({ aspectRatio: w + ' / ' + h });
             };
             apply();
             window.requestAnimationFrame(apply);
@@ -1409,8 +1415,7 @@ export default class LinkerPlugin extends Plugin {
             // adjacent PDF embeds far apart - the guess is only meant to cover the
             // pre-render window.
             const release = () => {
-                el.style.aspectRatio = '';
-                el.style.minHeight = '';
+                el.setCssStyles({ aspectRatio: '', minHeight: '' });
                 delete el.dataset.fkReserved;
             };
             let timer: number | null = null;
@@ -1436,16 +1441,16 @@ export default class LinkerPlugin extends Plugin {
         const pdfReserveObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of Array.from(mutation.addedNodes)) {
-                    if (!(node instanceof HTMLElement)) continue;
+                    if (!node.instanceOf(HTMLElement)) continue;
                     if (node.matches(RESERVE_SEL)) reserveEmbedHeight(node);
-                    for (const el of Array.from(node.querySelectorAll(RESERVE_SEL)) as HTMLElement[]) {
+                    for (const el of Array.from(node.querySelectorAll<HTMLElement>(RESERVE_SEL))) {
                         reserveEmbedHeight(el);
                     }
                 }
             }
         });
         pdfReserveObserver.observe(document.body, { childList: true, subtree: true });
-        for (const el of Array.from(document.querySelectorAll(RESERVE_SEL)) as HTMLElement[]) {
+        for (const el of Array.from(document.querySelectorAll<HTMLElement>(RESERVE_SEL))) {
             reserveEmbedHeight(el);
         }
         this.pdfReserveObserver = pdfReserveObserver;
@@ -1558,9 +1563,9 @@ export default class LinkerPlugin extends Plugin {
         const applyImageSize = (img: HTMLImageElement, dim: { w: number; h: number }) => {
             if (img.dataset.fkSized) return;
             img.dataset.fkSized = '1';
-            img.style.aspectRatio = dim.w + ' / ' + dim.h;
+            img.setCssStyles({ aspectRatio: dim.w + ' / ' + dim.h });
             // Hand the element back to its natural ratio once it has loaded.
-            img.addEventListener('load', () => { img.style.aspectRatio = ''; }, { once: true });
+            img.addEventListener('load', () => { img.setCssStyles({ aspectRatio: '' }); }, { once: true });
         };
 
         const reserveImage = (img: HTMLImageElement) => {
@@ -1594,16 +1599,16 @@ export default class LinkerPlugin extends Plugin {
         const imageReserveObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of Array.from(mutation.addedNodes)) {
-                    if (!(node instanceof HTMLElement)) continue;
-                    if (node instanceof HTMLImageElement) reserveImage(node);
-                    for (const img of Array.from(node.querySelectorAll('img')) as HTMLImageElement[]) {
+                    if (!node.instanceOf(HTMLElement)) continue;
+                    if (node.instanceOf(HTMLImageElement)) reserveImage(node);
+                    for (const img of Array.from(node.querySelectorAll('img'))) {
                         reserveImage(img);
                     }
                 }
             }
         });
         imageReserveObserver.observe(document.body, { childList: true, subtree: true });
-        for (const img of Array.from(document.querySelectorAll('img')) as HTMLImageElement[]) {
+        for (const img of Array.from(document.querySelectorAll('img'))) {
             reserveImage(img);
         }
         this.imageReserveObserver = imageReserveObserver;
@@ -1656,7 +1661,7 @@ export default class LinkerPlugin extends Plugin {
                 if (el.dataset.fkEmbedReserved) return;
                 const known = recallEmbedHeight(src, el.getBoundingClientRect().width);
                 if (known && known > 0) {
-                    el.style.minHeight = known + 'px';
+                    el.setCssStyles({ minHeight: known + 'px' });
                     el.dataset.fkEmbedReserved = '1';
                 }
             };
@@ -1683,7 +1688,7 @@ export default class LinkerPlugin extends Plugin {
                 }
                 if (src) rememberEmbedHeight(src, rect.width, Math.round(rect.height));
                 if (el.dataset.fkEmbedReserved) {
-                    el.style.minHeight = '';
+                    el.setCssStyles({ minHeight: '' });
                     delete el.dataset.fkEmbedReserved;
                 }
                 ro.disconnect();
@@ -1697,16 +1702,16 @@ export default class LinkerPlugin extends Plugin {
         const embedReserveObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of Array.from(mutation.addedNodes)) {
-                    if (!(node instanceof HTMLElement)) continue;
+                    if (!node.instanceOf(HTMLElement)) continue;
                     if (node.matches(EMBED_SEL)) reserveEmbed(node);
-                    for (const el of Array.from(node.querySelectorAll(EMBED_SEL)) as HTMLElement[]) {
+                    for (const el of Array.from(node.querySelectorAll<HTMLElement>(EMBED_SEL))) {
                         reserveEmbed(el);
                     }
                 }
             }
         });
         embedReserveObserver.observe(document.body, { childList: true, subtree: true });
-        for (const el of Array.from(document.querySelectorAll(EMBED_SEL)) as HTMLElement[]) {
+        for (const el of Array.from(document.querySelectorAll<HTMLElement>(EMBED_SEL))) {
             reserveEmbed(el);
         }
         this.embedReserveObserver = embedReserveObserver;
@@ -1744,10 +1749,10 @@ export default class LinkerPlugin extends Plugin {
         const popoverObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 for (const node of Array.from(mutation.addedNodes)) {
-                    if (!(node instanceof HTMLElement)) continue;
+                    if (!node.instanceOf(HTMLElement)) continue;
                     const pops = node.matches('.hover-popover')
                         ? [node]
-                        : Array.from(node.querySelectorAll('.hover-popover')) as HTMLElement[];
+                        : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
                     // No editor handler here on purpose: for a hover popover the
                     // direct scroll (below) is the approach that was verified to
                     // centre it correctly. Handing it to the editor looked
@@ -1767,7 +1772,7 @@ export default class LinkerPlugin extends Plugin {
             const el = evt.target as HTMLElement | null;
             if (!el || el.closest('.cm-editor')) return;      // editor: the widget owns it
             if (!el.closest('.virtual-link, a.virtual-link-a')) return;
-            const scope = el.closest('.hover-popover, .workspace-leaf') as HTMLElement | null;
+            const scope = el.closest<HTMLElement>('.hover-popover, .workspace-leaf');
             window.setTimeout(() => keepScrolledHeadingAligned(scope, 'dom-click', alignWindow(), scrollEditor), 60);
         }, true);
 
@@ -2966,9 +2971,6 @@ class LinkerSettingTab extends PluginSettingTab {
             groupDef(t('Appearance'), [
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
                     desc: t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'),
-                }),
-                toggleDef(t('Require Ctrl/Cmd+click to open virtual links'), 'virtualLinkRequireModifier', {
-                    desc: t('When enabled, a plain click on a virtual link only places the cursor (so you can keep typing in that line) and Ctrl/Cmd+click is needed to jump. Useful because a virtual link covers its text, which otherwise makes that line unclickable.'),
                 }),
                 toggleDef(t('No hover preview for virtual links'), 'disableVirtualLinkPreview', {
                     desc: t('When enabled, hovering a virtual link no longer opens a page preview / Hover Editor popover. Virtual links are rendered by this plugin rather than written in the note, so the popover can be unwanted while reading; clicking still opens the note. Off by default. Tip: to keep previews but only when you ask for them, turn on "Require Ctrl/Cmd to trigger" in the core Page preview plugin settings instead.'),

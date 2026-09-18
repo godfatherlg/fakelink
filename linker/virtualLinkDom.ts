@@ -65,7 +65,7 @@ const ALIGN_MIN_GAP = 12;      // floor, for panes shorter than the heading
 function normalizeHeading(s: string): string {
     return s
         .replace(/^#+\s*/, '')                              // live preview keeps the markup text
-        .replace(/[\u200b\u200c\u200d\ufeff]/g, '')
+        .replace(/[\u200B-\u200D\uFEFF]/g, '')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -94,7 +94,7 @@ function findScrollableAncestor(node: HTMLElement): HTMLElement | null {
 export function findHeadingElement(scope: ParentNode, headingId: string): HTMLElement | null {
     const want = normalizeHeading(headingId);
     if (!want) return null;
-    const candidates = Array.from(scope.querySelectorAll(HEADING_SEL)) as HTMLElement[];
+    const candidates = Array.from(scope.querySelectorAll<HTMLElement>(HEADING_SEL));
     const textOf = (el: HTMLElement) => normalizeHeading(el.getAttribute('data-heading') ?? el.textContent ?? '');
     for (const el of candidates) if (textOf(el) === want) return el;
     for (const el of candidates) if (textOf(el).startsWith(want)) return el;
@@ -228,7 +228,7 @@ export function keepEditorHeadingCentered(
 
 export function findHeadingAtTop(scope: HTMLElement | null): HTMLElement | null {
     const search = (root: ParentNode): HTMLElement | null => {
-        const headings = Array.from(root.querySelectorAll(HEADING_SEL)) as HTMLElement[];
+        const headings = Array.from(root.querySelectorAll<HTMLElement>(HEADING_SEL));
         let best: HTMLElement | null = null;
         let bestDist = Infinity;
         for (const h of headings) {
@@ -317,18 +317,11 @@ function keepAligned(
     window.addEventListener('keydown', stop, { capture: true, signal });
 
     const startedAt = Date.now();
-    let target: HTMLElement | null = null;
-    let scrollerEl: HTMLElement | null = null;
-    let realigns = 0;
-    let lastOffset = 0;
-    let lastDesired = 0;
     let lastWriteAt = 0;
     let lastSignature = '';
     let stableSince = Date.now();
     let settledInMs = -1;
     let domWrites = 0;
-    let via = '';
-    let reportedMissing = false;
 
     const tick = () => {
         if (signal.aborted) return;
@@ -336,9 +329,7 @@ function keepAligned(
 
         const found = resolve();
         if (found) {
-            target = found;
             const scroller = findScrollableAncestor(found);
-            scrollerEl = scroller;
             // Where the heading is, plus a signature of the layout around it:
             // the content height together with the heading's position INSIDE
             // the content. While the page is still rendering - MathJax
@@ -352,11 +343,9 @@ function keepAligned(
             const offset = scroller
                 ? foundRect.top - scroller.getBoundingClientRect().top
                 : 0;
-            lastOffset = Math.round(offset);
             // Where the heading belongs: centred in the pane, like Obsidian's
             // own heading navigation - and impossible to clip from above.
             const desired = scroller ? centeredOffset(scroller, foundRect.height) : 0;
-            lastDesired = desired;
             if (scroller) {
                 const signature = scroller.scrollHeight + ':' + Math.round(scroller.scrollTop + offset);
                 if (signature !== lastSignature) {
@@ -373,7 +362,7 @@ function keepAligned(
                 // in this surface has finished loading. Only then is the first
                 // scroll issued, so it lands on a page that has stopped moving.
                 const stillLoading = Array.from(scroller.querySelectorAll('img'))
-                    .some((img) => !(img as HTMLImageElement).complete);
+                    .some((img) => !img.complete);
                 const settleReady = !stillLoading && Date.now() - stableSince >= ALIGN_STABLE_MS;
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
@@ -394,8 +383,6 @@ function keepAligned(
                         lastWriteAt = Date.now();
                         lastSignature = '';
                         if (settledInMs < 0) settledInMs = Date.now() - startedAt;
-                        realigns++;
-                        via = handled ? 'editor' : 'dom';
                     }
                 }
             }
@@ -587,7 +574,6 @@ export class VirtualMatch {
             s.alwaysShowMultipleReferences ? 1 : 0,
             s.virtualLinkSuffix ?? '',
             s.virtualLinkAliasSuffix ?? '',
-            s.virtualLinkRequireModifier ? 1 : 0,  // click behaviour
             s.headerJumpRetryDelay,                // re-navigate delays
         ].join('\u0002');
     }
@@ -707,13 +693,6 @@ export class VirtualMatch {
         link.onclick = (event: MouseEvent) => {
             event.preventDefault();
             event.stopPropagation();
-
-            // When a modifier is required, a plain click must NOT navigate: the
-            // user is usually trying to place the cursor in that line to keep
-            // typing, and jumping away makes the line impossible to click into.
-            if (this.settings.virtualLinkRequireModifier && !(event.ctrlKey || event.metaKey)) {
-                return false;
-            }
 
             const targetFile = file || (this.files.length > 0 ? this.files[0] : null);
             if (!targetFile) return false;
