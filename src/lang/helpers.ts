@@ -186,12 +186,12 @@ const zhCN: Record<string, string> = {
     'When enabled, FakeLink registers the obsidian://adv-uri protocol and handles line jumping itself, including links fired from external apps (e.g. a browser or a custom obsidianjump:// handler). Obsidian allows only ONE plugin to handle this protocol, so you must NOT enable the Advanced URI plugin at the same time — keep it disabled, otherwise one of the two plugins will fail to load. Generate line links via the right-click menu "Copy line link (adv-uri)".': '启用后，FakeLink 将注册 obsidian://adv-uri 协议并自行处理行跳转，包括来自外部应用触发的链接（如浏览器或自定义 obsidianjump:// 处理器）。Obsidian 只允许一个插件处理该协议，因此切勿同时启用 Advanced URI 插件——请保持其禁用，否则两个插件中会有一个无法加载。生成行链接请使用右键菜单「复制行链接（adv-uri）」。',
     'Self-heal line links': '行链接自愈',
     'When enabled, copied line links also store the text of the target line. If the note is edited and line numbers drift, the jump re-finds the line by its text instead of landing on the wrong line. Works for both plain and aliased line links. Line links copied before enabling this have no anchor and keep the old behavior.': '启用后，复制的行链接会同时记录目标行的文本。若笔记被编辑导致行号偏移，跳转时会按文本重新找到该行，而不是跳到错误的行。行号形式和别名形式的行链接都适用。启用前复制的行链接没有锚点，仍按旧行为跳转。',
-    'Jump delay (ms)': '跳转延时（毫秒）',
-    'Heading align watch window (ms)': '标题对齐观察窗（毫秒）',
-    'How long (base value, in milliseconds) a jumped-to heading keeps being re-aligned while the content above it settles - images, PDFs and formulas above a heading can keep changing its height for seconds. The watch window is 24x this value, minimum 8 seconds, so 500 => 12s. Increase it for very slow notes.': '跳转到标题后，会持续把它保持在原位多久（基准值，毫秒）。标题上方的内容（图片、PDF、公式）可能在跳转后好几秒内继续改变高度。实际观察窗 = 该值 × 24，最少 8 秒，即 500 ⇒ 12 秒。笔记很大很慢时调大它。',
+    'Line jump wait limit (seconds)': '行跳转等待上限（秒）',
+    'Heading align watch window (seconds)': '标题对齐观察窗（秒）',
+    'How long (in SECONDS) a jumped-to heading keeps being re-aligned. The heading is put back in place the moment the content above it changes height (a PDF or an image finishing, MathJax typesetting) - the watch is event-driven, so nothing polls while the page is quiet. After this many seconds the plugin stops following, so a change minutes later never moves your view. The number you type is the number of seconds (12 = 12 seconds); there is no conversion. Raise it for very slow notes (e.g. 60).': '跳到标题后，最多持续跟随多少秒。只要标题上方的内容高度发生变化（PDF/图片渲染完成、公式排版完成），就会立刻把标题摆回原位——观察是事件驱动的，页面静止时不做任何轮询。超过这个秒数就完全收手，因此几分钟后才出现的变化不会再移动你的视图。这里填的就是秒数（12 ⇒ 12 秒），不需要换算；笔记很大很慢时可调到 60。',
 
-    'How far below the top edge a heading is placed after jumping to it. Increase this when a hover popover draws its own header over the content, or when the heading simply looks too close to the top. Default 32.': '跳到标题后，标题顶边距离滚动区域顶部的像素数。若悬停弹窗用自带的标题栏压住了内容，或你觉得标题太靠上，就调大它。默认 32。',
-    'The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.': '定位光标前等待目标文件渲染的最长时间（毫秒）。小文件几乎立即跳转；大文件最多等待到此上限。默认 8000。',
+
+    'The maximum time (in SECONDS) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. The number you type is the number of seconds (8 = 8 seconds); 0 means do not wait.': '定位光标前等待目标文件渲染的最长时间（秒）。小文件几乎立即跳转；大文件最多等待到此上限。这里填的就是秒数（8 ⇒ 8 秒）；填 0 表示不等待。',
     'Open in new tab': '在新标签页打开',
     'When the target file is not already open, open it in a new tab. When off, the current tab is reused.': '当目标文件尚未打开时，在新标签页中打开。关闭时则复用当前标签页。',
 };

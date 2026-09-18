@@ -561,7 +561,7 @@ export interface LinkerPluginSettings {
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     fuzzyBaseColor: string; // Base color mixed into fuzzy-match link colors
     fuzzyColorMixRatio: number; // How much base color to mix in (0-100)
-    headerJumpRetryDelay: number; // Base delay (ms) for the heading alignment watch window
+    headingAlignWatchSeconds: number; // How many seconds a jumped-to heading keeps being re-aligned
     enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
     stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
@@ -575,7 +575,7 @@ export interface LinkerPluginSettings {
     enableInternalLinkSyntax: boolean; // Recognize bare internal-link syntax like "a#b", "a#^block" as virtual links
     enableContextDisambiguation: boolean; // Limit a multi-file header match to the file named in the current paragraph
     jumpEnabled: boolean; // Intercept obsidian://adv-uri clicks to jump to a line directly
-    jumpDelayMs: number; // Delay (ms) to wait for the target file to render before jumping to the line
+    lineJumpWaitSeconds: number; // How many seconds to wait for the target file to render before jumping to the line
     jumpOpenInNewTab: boolean; // When the target file is not open, open it in a new tab
     lineLinkSelfHeal: boolean; // Self-heal line links when target line numbers drift
     autoExcludeContainedCopies: boolean; // Auto-exclude a note whose name fully contains another note's name AND shares the same first sentence (e.g. a renamed duplicate)
@@ -643,7 +643,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     noteVirtualLinkColor: '#c0392b',
     fuzzyBaseColor: '#8e44ad',
     fuzzyColorMixRatio: 50,
-    headerJumpRetryDelay: 500,
+    headingAlignWatchSeconds: 12,
     enableStemming: false,
     stemmingLanguage: 'auto',
     fuzzyMatchThreshold: 80,
@@ -657,7 +657,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     enableInternalLinkSyntax: false,
     enableContextDisambiguation: false,
     jumpEnabled: true,
-    jumpDelayMs: 8000,
+    lineJumpWaitSeconds: 8,
     jumpOpenInNewTab: true,
     lineLinkSelfHeal: false,
     autoExcludeContainedCopies: false,
@@ -826,7 +826,7 @@ export default class LinkerPlugin extends Plugin {
 
         // Self-heal: correct the line number when the recorded one has drifted.
         const targetLine = await this.resolveLineByAnchor(file, line, anchor);
-        await this.waitForEditor(view, targetLine, this.settings.jumpDelayMs);
+        await this.waitForEditor(view, targetLine, this.settings.lineJumpWaitSeconds * 1000);
 
         if (!wasAlreadyOpen) {
             // Freshly opened file: wait a beat for CodeMirror's first layout
@@ -1252,7 +1252,10 @@ export default class LinkerPlugin extends Plugin {
         // done once ever and later sessions (including the very first preview
         // after a restart) hit the cache straight away.
         // ------------------------------------------------------------------
-        const CACHE_KEY = '__fakelinkSizeCache';
+        // Bumped once: every height learned before the measure-after-release fix
+        // may be a reservation (a guess) rather than a measurement, so those
+        // values are dropped and learned again correctly.
+        const CACHE_KEY = '__fakelinkSizeCache2';
         const SIZE_CACHE_LIMIT = 1500;
         let sizeCacheSaveTimer: number | null = null;
         const persistSizeCache = () => {
@@ -1435,17 +1438,35 @@ export default class LinkerPlugin extends Plugin {
                 delete el.dataset.fkReserved;
             };
             let timer: number | null = null;
+            // Measure ONLY while no reservation is applied. While it is applied the
+            // element's height is the reserved guess, so remembering it would store
+            // the guess as if it were the rendered height - and every later visit
+            // would then reserve that same wrong value and release it again, which
+            // is what pushed the content under the embed (a heading right below it)
+            // out of place on every single visit.
+            const measureReal = () => {
+                if (!el.isConnected || el.dataset.fkReserved) return;
+                const rect = el.getBoundingClientRect();
+                if (rect.height > 0) {
+                    rememberPdfHeight(src, rect.width, Math.round(rect.height));
+                    rememberPdfFallback(rect.width, Math.round(rect.height), w / h);
+                    rememberPdfSample(rect.width, h, Math.round(rect.height));
+                }
+            };
             const ro = new ResizeObserver(() => {
                 if (timer !== null) window.clearTimeout(timer);
                 timer = window.setTimeout(() => {
                     timer = null;
-                    const rect = el.getBoundingClientRect();
-                    if (el.isConnected && rect.height > 0) {
-                        rememberPdfHeight(src, rect.width, Math.round(rect.height));
-                        rememberPdfFallback(rect.width, Math.round(rect.height), w / h);
-                        rememberPdfSample(rect.width, h, Math.round(rect.height));
+                    if (el.dataset.fkReserved) {
+                        // Drop the reservation first: the release resizes the box to
+                        // its real height, and that resize is what gets measured.
+                        // A late second look covers the case where the reserved
+                        // height happened to be correct (so nothing resized).
+                        release();
+                        window.setTimeout(measureReal, 800);
+                        return;
                     }
-                    release();
+                    measureReal();
                     ro.disconnect();
                 }, 700);
             });
@@ -1702,11 +1723,19 @@ export default class LinkerPlugin extends Plugin {
                     timer = window.setTimeout(measure, 400);
                     return;
                 }
-                if (src) rememberEmbedHeight(src, rect.width, Math.round(rect.height));
+                // Hand the size back to the real content BEFORE measuring: while a
+                // reservation is applied the height we would read is our own
+                // reserved value, and remembering that stores a guess as if it had
+                // been measured - so every later visit reserves the same wrong
+                // value and releases it again, pushing the content below the embed
+                // (a heading right under it, for instance) out of place.
                 if (el.dataset.fkEmbedReserved) {
                     el.setCssStyles({ minHeight: '' });
                     delete el.dataset.fkEmbedReserved;
+                    timer = window.setTimeout(measure, 400);
+                    return;
                 }
+                if (src) rememberEmbedHeight(src, rect.width, Math.round(rect.height));
                 ro.disconnect();
             };
             const ro = new ResizeObserver(() => {
@@ -1733,10 +1762,11 @@ export default class LinkerPlugin extends Plugin {
         this.embedReserveObserver = embedReserveObserver;
 
 
-        // The alignment watch window, in ms. Derived from the existing "Header
-        // jump retry delay" setting (500ms => 12s) so slow notes can be given
-        // more time without a new setting.
-        const alignWindow = () => Math.max(12000, (this.settings.headerJumpRetryDelay || 500) * 24);
+        // The alignment watch window, in ms. The setting is stored in SECONDS -
+        // the number the user types IS the number of seconds - so this is the
+        // only conversion point in the plugin (no base value, no multiplier).
+        const alignWindow = () =>
+            Math.max(3000, (this.settings.headingAlignWatchSeconds || 12) * 1000);
 
         // Inside a CodeMirror editor the view owns the scroll position, so the
         // move is handed to the editor itself - resolved to a line through the
@@ -2392,7 +2422,23 @@ export default class LinkerPlugin extends Plugin {
     }
 
     async loadSettings() {
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<LinkerPluginSettings>);
+        const stored = await this.loadData() as Partial<LinkerPluginSettings>
+            & { headerJumpRetryDelay?: number; jumpDelayMs?: number };
+        this.settings = Object.assign({}, DEFAULT_SETTINGS, stored);
+        // The watch window used to be stored in milliseconds and multiplied by
+        // 24; it is now stored directly in seconds. Carry an existing value over
+        // so the behaviour of anyone who had tuned it does not change.
+        if (stored.headingAlignWatchSeconds == null && typeof stored.headerJumpRetryDelay === 'number') {
+            const migrated = Math.round((stored.headerJumpRetryDelay * 24) / 1000);
+            this.settings.headingAlignWatchSeconds =
+                Math.min(120, Math.max(3, migrated || DEFAULT_SETTINGS.headingAlignWatchSeconds));
+        }
+        // Same for the line-link wait: it was stored in milliseconds, it is now
+        // stored in seconds.
+        if (stored.lineJumpWaitSeconds == null && typeof stored.jumpDelayMs === 'number') {
+            this.settings.lineJumpWaitSeconds =
+                Math.min(60, Math.max(0, Math.round(stored.jumpDelayMs / 1000)));
+        }
 
         // Load markdown links from obsidian settings
         // At the moment obsidian does not provide a clean way to get the settings through an API
@@ -2767,9 +2813,10 @@ class LinkerSettingTab extends PluginSettingTab {
                 textAreaDef(t('Heading symbol whitelist'), 'headingSymbolWhitelist', {
                     desc: t('Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.'),
                 }),
-                numberDef(t('Heading align watch window (ms)'), 'headerJumpRetryDelay', {
-                    desc: t('How long (base value, in milliseconds) a jumped-to heading keeps being re-aligned while the content above it settles - images, PDFs and formulas above a heading can keep changing its height for seconds. The watch window is 24x this value, minimum 8 seconds, so 500 => 12s. Increase it for very slow notes.'),
-                    min: 100,
+                numberDef(t('Heading align watch window (seconds)'), 'headingAlignWatchSeconds', {
+                    desc: t('How long (in SECONDS) a jumped-to heading keeps being re-aligned. The heading is put back in place the moment the content above it changes height (a PDF or an image finishing, MathJax typesetting) - the watch is event-driven, so nothing polls while the page is quiet. After this many seconds the plugin stops following, so a change minutes later never moves your view. The number you type is the number of seconds (12 = 12 seconds); there is no conversion. Raise it for very slow notes (e.g. 60).'),
+                    min: 3,
+                    max: 120,
                 }),
 
             ]),
@@ -2932,10 +2979,10 @@ class LinkerSettingTab extends PluginSettingTab {
                     desc: t('When enabled, copied line links also store the text of the target line. If the note is edited and line numbers drift, the jump re-finds the line by its text instead of landing on the wrong line. Works for both plain and aliased line links. Line links copied before enabling this have no anchor and keep the old behavior.'),
                     visible: () => s.jumpEnabled,
                 }),
-                numberDef(t('Jump delay (ms)'), 'jumpDelayMs', {
-                    desc: t('The maximum time (milliseconds) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. Default 8000.'),
+                numberDef(t('Line jump wait limit (seconds)'), 'lineJumpWaitSeconds', {
+                    desc: t('The maximum time (in SECONDS) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. The number you type is the number of seconds (8 = 8 seconds); 0 means do not wait.'),
                     min: 0,
-                    max: 60000,
+                    max: 60,
                     visible: () => s.jumpEnabled,
                 }),
                 toggleDef(t('Open in new tab'), 'jumpOpenInNewTab', {

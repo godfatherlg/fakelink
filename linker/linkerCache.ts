@@ -843,7 +843,12 @@ export class PrefixTree {
                         if (startIndex < endIndex) {
                             const keyword = headingText.substring(startIndex + startSymbol.length, endIndex).trim();
                             if (keyword) {
-                                headerEntries.push({ keyword, headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                                // The heading id must be the heading TEXT, exactly as
+                                // Obsidian uses it in "[[note#heading]]" links. It used
+                                // to be slugified (lowercased, spaces => dashes), which
+                                // Obsidian cannot resolve back to a heading - the jump
+                                // missed, and the alignment then centred a neighbour.
+                                headerEntries.push({ keyword, headerId: h.heading });
                                 symbolKeywords.add(keyword);
                             }
                             searchStartIndex = endIndex + endSymbol.length;
@@ -856,12 +861,12 @@ export class PrefixTree {
                 if (!this.settings.headerMatchOnlyBetweenSymbols) {
                     for (const h of metadata.headings) {
                         if (!symbolKeywords.has(h.heading)) {
-                            headerEntries.push({ keyword: this.headingKeyword(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() });
+                            headerEntries.push({ keyword: this.headingKeyword(h.heading), headerId: h.heading });
                         }
                     }
                 }
             } else {
-                headerEntries = metadata.headings.map(h => ({ keyword: this.headingKeyword(h.heading), headerId: h.heading.replace(/\s+/g, '-').toLowerCase() }));
+                headerEntries = metadata.headings.map(h => ({ keyword: this.headingKeyword(h.heading), headerId: h.heading }));
             }
         }
 

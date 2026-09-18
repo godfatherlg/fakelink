@@ -28,9 +28,8 @@ type LinkerPluginType = import('main').default;
 // pushes the heading ABOVE the viewport (the exact symptom this fixes).
 // ---------------------------------------------------------------------------
 const ALIGN_MAX_MS = 12000;       // call sites pass their own window
-const ALIGN_POLL_FAST_MS = 300;   // while watching the layout settle
-const ALIGN_POLL_SLOW_MS = 1200;  // afterwards: just watch for late shifts
-const ALIGN_SETTLE_MS = 2500;     // how long the fast poll is kept after a write
+const ALIGN_DEBOUNCE_MS = 150;    // coalesce a burst of layout changes
+const ALIGN_SAFETY_MS = 4000;     // backstop check for surfaces we cannot observe
 const ALIGN_TOLERANCE_PX = 6;     // ignore sub-pixel jitter
 // How long the layout must hold still, with every image loaded, before the
 // heading is moved. There is no event for "rendering finished" - PDF.js paints
@@ -97,6 +96,13 @@ export function findHeadingElement(scope: ParentNode, headingId: string): HTMLEl
     const candidates = Array.from(scope.querySelectorAll<HTMLElement>(HEADING_SEL));
     const textOf = (el: HTMLElement) => normalizeHeading(el.getAttribute('data-heading') ?? el.textContent ?? '');
     for (const el of candidates) if (textOf(el) === want) return el;
+    // Index entries built by older versions stored the heading as a lowercased,
+    // dash-separated slug ("my heading" => "my-heading"). Such an id can still
+    // reach this function - it is compiled into the virtual-link href - so the
+    // slug form is accepted as well, instead of failing to find the heading and
+    // letting the alignment centre a neighbour.
+    const wantSlug = want.replace(/\s+/g, '-').toLowerCase();
+    for (const el of candidates) if (textOf(el).replace(/\s+/g, '-').toLowerCase() === wantSlug) return el;
     for (const el of candidates) if (textOf(el).startsWith(want)) return el;
     return null;
 }
@@ -317,19 +323,83 @@ function keepAligned(
     window.addEventListener('keydown', stop, { capture: true, signal });
 
     const startedAt = Date.now();
-    let lastWriteAt = 0;
     let lastSignature = '';
     let stableSince = Date.now();
     let settledInMs = -1;
     let domWrites = 0;
 
-    const tick = () => {
+    // Watching is EVENT-DRIVEN: a ResizeObserver fires the moment the content
+    // around the heading changes height - a PDF embed landing seconds late, an
+    // image finishing, MathJax typesetting - instead of a timer asking every few
+    // hundred milliseconds and possibly missing a change that falls between two
+    // questions. While nothing moves, this costs nothing at all.
+    //
+    // The scroller's own box keeps its size when content is added, so it is the
+    // content container (its first element child) that has to be observed.
+    let observed: Element | null = null;
+    let ro: ResizeObserver | null = null;
+    let debounce: number | null = null;     // coalesces a burst of observer hits
+    let pending: number | null = null;      // a check that is already queued
+    let rearm: number | null = null;        // follow-up while something settles
+    let safety: number | null = null;       // backstop for unobservable surfaces
+
+    const stopTimers = () => {
+        for (const t of [debounce, pending, rearm, safety]) {
+            if (t !== null) window.clearTimeout(t);
+        }
+        debounce = pending = rearm = safety = null;
+        ro?.disconnect();
+        ro = null;
+    };
+    signal.addEventListener('abort', stopTimers);
+
+    function schedule(delay: number) {
+        if (signal.aborted || pending !== null) return;
+        pending = window.setTimeout(() => {
+            pending = null;
+            check();
+        }, delay);
+    }
+
+    /** A slow backstop: some surfaces expose nothing reliable to observe. */
+    function armSafety() {
+        if (safety !== null) window.clearTimeout(safety);
+        safety = window.setTimeout(() => {
+            safety = null;
+            schedule(0);
+            armSafety();
+        }, ALIGN_SAFETY_MS);
+    }
+
+    function observe(scroller: HTMLElement | null) {
+        const target: Element | null = scroller ? (scroller.firstElementChild ?? scroller) : null;
+        if (target === observed) return;
+        ro?.disconnect();
+        ro = null;
+        observed = target;
+        if (target) {
+            ro = new ResizeObserver(() => {
+                if (debounce !== null) window.clearTimeout(debounce);
+                debounce = window.setTimeout(() => {
+                    debounce = null;
+                    schedule(0);
+                }, ALIGN_DEBOUNCE_MS);
+            });
+            ro.observe(target);
+        }
+    }
+
+    function check() {
         if (signal.aborted) return;
         if (!alive()) { stop(); return; }               // popover closed / view gone
+        if (Date.now() - startedAt > maxMs) { stop(); return; }
 
+        let wrote = false;
+        let moved = false;
         const found = resolve();
         if (found) {
             const scroller = findScrollableAncestor(found);
+            observe(scroller);
             // Where the heading is, plus a signature of the layout around it:
             // the content height together with the heading's position INSIDE
             // the content. While the page is still rendering - MathJax
@@ -351,10 +421,11 @@ function keepAligned(
                 if (signature !== lastSignature) {
                     lastSignature = signature;
                     stableSince = Date.now();
+                    moved = true;
                 }
                 // Correct a page that has STOPPED changing, and only once: after
                 // the write the layout counts as new again, so the check re-arms
-                // instead of snapping again on the next tick. Waiting for the
+                // instead of snapping again on the next check. Waiting for the
                 // render to finish is what keeps CM6 out of its measure-restart
                 // loop (and the position is only worth setting once, anyway).
                 const miss = Math.abs(offset - desired);
@@ -380,27 +451,29 @@ function keepAligned(
                             scroller.scrollTop = Math.max(0, scroller.scrollTop + offset - desired);
                             if (inEditor) domWrites++;
                         }
-                        lastWriteAt = Date.now();
                         lastSignature = '';
                         if (settledInMs < 0) settledInMs = Date.now() - startedAt;
+                        wrote = true;
                     }
                 }
             }
         }
 
-        const elapsed = Date.now() - startedAt;
-        if (elapsed > maxMs) {
-            stop();
-            return;
+        // A follow-up is only needed while something is settling: a change must
+        // be allowed to become quiet (ALIGN_STABLE_MS) before it is acted on, and
+        // a write must be verified afterwards. Everything else is left to the
+        // slow backstop - no timer asks questions while nothing moves.
+        if (wrote || moved) {
+            if (rearm !== null) window.clearTimeout(rearm);
+            rearm = window.setTimeout(() => {
+                rearm = null;
+                schedule(0);
+            }, ALIGN_STABLE_MS + 200);
         }
-        // Poll fast while things are moving, slowly once they hold: a late
-        // shift (a slow PDF landing) is still caught, but the common case stops
-        // poking the scroller - which is what CM6 reacts to.
-        const settling = Date.now() - startedAt < ALIGN_SETTLE_MS || Date.now() - lastWriteAt < ALIGN_SETTLE_MS;
-        window.setTimeout(tick, settling ? ALIGN_POLL_FAST_MS : ALIGN_POLL_SLOW_MS);
-    };
+    }
 
-    window.setTimeout(tick, ALIGN_POLL_FAST_MS);
+    armSafety();
+    schedule(0);
 }
 
 /**
@@ -574,7 +647,7 @@ export class VirtualMatch {
             s.alwaysShowMultipleReferences ? 1 : 0,
             s.virtualLinkSuffix ?? '',
             s.virtualLinkAliasSuffix ?? '',
-            s.headerJumpRetryDelay,                // re-navigate delays
+            s.headingAlignWatchSeconds,            // alignment watch window (seconds)
         ].join('\u0002');
     }
 
@@ -715,9 +788,9 @@ export class VirtualMatch {
                 // (whichever one sits at the top), so this still works when the
                 // link's #fragment cannot be read back. The watch window comes
                 // from the existing "Header jump retry delay" setting
-                // (500ms => 12s), so slow notes can be given more time.
+                // (12 seconds by default), so slow notes can be given more time.
                 if (headerIdToUse) {
-                    const alignWindow = Math.max(12000, (this.settings.headerJumpRetryDelay || 500) * 24);
+                    const alignWindow = Math.max(3000, (this.settings.headingAlignWatchSeconds || 12) * 1000);
                     // Skip a re-navigation when the heading is already framed:
                     // each one is a full jump+re-render, so there is no reason to
                     // pay for it (or to disturb the view) when nothing is wrong.
@@ -746,6 +819,26 @@ export class VirtualMatch {
                         // corrects (a PDF embed releasing its reserved height,
                         // pushing the heading out of view) happens seconds after
                         // the jump, so the re-navigation is simply repeated late.
+                        // Re-navigation alone is not enough: it only fires while the
+                        // heading is NOT visible, and it stops after 8 seconds - so a
+                        // heading that a slowly rendering image pushed DOWN (still
+                        // visible, just in the wrong place) was never corrected, and
+                        // nothing checked at all after the last re-navigation.
+                        //
+                        // The measured alignment is therefore run here as well, for
+                        // the whole watch window (the "Heading align watch window"
+                        // setting), and it moves the view through the editor's own
+                        // API - never through a synthetic scroll, which is what made
+                        // CodeMirror give up rendering a PDF-heavy note.
+                        const editorScroll = (el: HTMLElement, headingText: string): boolean => {
+                            if (this.plugin?.centerHeadingElement?.(el, 8000)) return true;
+                            const target = resolveHeadingTarget(this.plugin.app, el, headingText, null);
+                            if (!target) return false;
+                            this.plugin.centerHeadingLine(target.view, target.line, 8000);
+                            return true;
+                        };
+                        keepScrolledHeadingAligned(scope, 'click-editor', alignWindow, editorScroll, headerIdToUse);
+
                         const abort = new AbortController();
                         const stop = () => abort.abort();
                         window.addEventListener('wheel', stop, { capture: true, passive: true, signal: abort.signal });
