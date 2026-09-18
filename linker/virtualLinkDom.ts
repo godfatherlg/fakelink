@@ -52,6 +52,12 @@ const ALIGN_STABLE_MS = 1000;
 // at most this many direct scrollTop writes - more than that and the two would
 // only fight over the position.
 const DOM_WRITE_BUDGET = 6;
+// The budget is per EPISODE: once the page has been quiet and then moves again
+// (a late PDF landing, an image finishing) the count starts over, so a slow but
+// well-behaved note is not cut off by spending the whole allowance on the first
+// burst of changes. This ceiling still applies across the whole watch window, so
+// a page that never stops moving cannot be corrected forever.
+const DOM_WRITE_TOTAL_BUDGET = 30;
 
 // A jumped-to heading is CENTRED in its pane, exactly like Obsidian's own
 // heading navigation - and for a practical reason on top of matching it: a
@@ -295,7 +301,8 @@ function keepAligned(
     let lastSignature = '';
     let stableSince = Date.now();
     let settledInMs = -1;
-    let domWrites = 0;
+    let domWrites = 0;         // direct writes in the current episode
+    let domWritesTotal = 0;    // across the whole watch window
     // "Are all images in this surface loaded?" must not turn every check into a
     // full scan: these notes hold hundreds of embeds, so the list is re-read at
     // most every second and a half.
@@ -393,6 +400,10 @@ function keepAligned(
             if (scroller) {
                 const signature = scroller.scrollHeight + ':' + Math.round(scroller.scrollTop + offset);
                 if (signature !== lastSignature) {
+                    // A new episode begins: the page had been quiet and then
+                    // moved again, so the correction gets a fresh budget instead
+                    // of having spent the whole allowance on the first burst.
+                    if (Date.now() - stableSince >= ALIGN_STABLE_MS) domWrites = 0;
                     lastSignature = signature;
                     stableSince = Date.now();
                     moved = true;
@@ -423,10 +434,11 @@ function keepAligned(
                     // without an editor handle is scrolled directly, at most a
                     // few times, so the two can never end up fighting.
                     const handled = inEditor && scrollEditor ? scrollEditor(found, headingText) : false;
-                    if (handled || !inEditor || domWrites < DOM_WRITE_BUDGET) {
+                    const withinBudget = domWrites < DOM_WRITE_BUDGET && domWritesTotal < DOM_WRITE_TOTAL_BUDGET;
+                    if (handled || !inEditor || withinBudget) {
                         if (!handled) {
                             scroller.scrollTop = Math.max(0, scroller.scrollTop + offset - desired);
-                            if (inEditor) domWrites++;
+                            if (inEditor) { domWrites++; domWritesTotal++; }
                         }
                         lastSignature = '';
                         if (settledInMs < 0) settledInMs = Date.now() - startedAt;

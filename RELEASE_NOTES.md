@@ -1,15 +1,11 @@
-# 1.23.30
+# 1.23.31
 
 ## 中文
 
-- **内部清理（无功能变化）**：删掉三处已无人使用的代码（两个导出但从未被调用的函数，以及一个只为早已移除的诊断服务的辅助函数与其参数），净减少约 50 行。
-- **去掉重复动作**：在编辑器里点击虚拟链接时，"重新跳转"改为**只在实测对齐找不到标题时**才执行 —— 以前它可能与纠正动作同时发生并互相抢视图；预留释放后的高度测量也合并为一次。
-- **性能**：判断"本屏图片是否都已加载"的结果缓存 1.5 秒（不再每次检查都全量扫描滚动区，这对嵌入很多的笔记更友好）；四个全局 DOM 观察器合并为一个 —— 全应用每次 DOM 变化只触发一次回调，而不是四次。
-- 除此之外行为与 1.23.29 相同。如果你当前版本一切正常，这一版可以跳过。
+- **改进：标题纠正的次数上限改为"按轮次"计算。** 以前编辑器里的位置纠正有一个**全局**次数上限（6 次），因此变化很多的慢笔记可能把额度用光，之后就**不再纠正** —— 观察窗设得再大也没用。现在：只要页面安静一秒后**又发生变化**（例如很晚才渲染完的图片或 PDF），本轮预算就**重新给 6 次**；同时保留**整个观察窗内 30 次**的天花板，所以"一直抖个不停"的页面仍然会被锁住 —— 这正是该上限存在的意义（避免插件与视图互相抢滚动位置，那正是过去把 PDF 密集的笔记搞到停止渲染的原因）。
+- 除此之外与 1.23.30 相同。如果你当前版本一切正常，这一版可以跳过。
 
 ## English
 
-- **Internal cleanup, no functional change**: removed three pieces of dead code (two exported functions that nothing ever called, plus a helper and a parameter that existed only for diagnostics that were deleted long ago) - about 50 lines lighter.
-- **No more duplicated work**: clicking a virtual link inside the editor now re-navigates **only when the measured alignment cannot find the heading** - it used to be able to fire at the same time and fight the correction - and the height measurement taken after a reservation is released now happens once instead of twice.
-- **Performance**: the "are all images in this surface loaded?" check is cached for 1.5 seconds instead of re-scanning the whole scroll area on every check (which matters in notes full of embeds), and the four global DOM observers were merged into one, so a DOM change anywhere in the app runs one callback instead of four.
-- Otherwise identical to 1.23.29. Skip this one if everything is already working for you.
+- **Improved: the correction budget is now counted per episode.** The editor used to allow a fixed number of position corrections in total (6), so a slow note with many changes could exhaust it and then never be corrected again - no matter how long the watch window was. Now the budget is **refilled** whenever the page has been quiet for a second and then moves again (a very late image or PDF finishing), while a **ceiling of 30** still applies across the whole watch window, so a page that never stops moving is still held back - which is the point of the limit (it prevents the plugin and the view from fighting over the scroll position, the very thing that once made a PDF-heavy note stop rendering).
+- Otherwise identical to 1.23.30. Skip this one if everything is already working for you.
