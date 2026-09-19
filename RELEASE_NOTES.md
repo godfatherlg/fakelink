@@ -1,11 +1,13 @@
-# 1.23.31
+# 1.23.32
 
 ## 中文
 
-- **改进：标题纠正的次数上限改为"按轮次"计算。** 以前编辑器里的位置纠正有一个**全局**次数上限（6 次），因此变化很多的慢笔记可能把额度用光，之后就**不再纠正** —— 观察窗设得再大也没用。现在：只要页面安静一秒后**又发生变化**（例如很晚才渲染完的图片或 PDF），本轮预算就**重新给 6 次**；同时保留**整个观察窗内 30 次**的天花板，所以"一直抖个不停"的页面仍然会被锁住 —— 这正是该上限存在的意义（避免插件与视图互相抢滚动位置，那正是过去把 PDF 密集的笔记搞到停止渲染的原因）。
-- 除此之外与 1.23.30 相同。如果你当前版本一切正常，这一版可以跳过。
+- **修复：全新安装的 fakelink 完全无法工作 —— 设置里没有任何设置项，虚拟链接、行跳转等功能也全都不生效。** 原因是：插件第一次运行时，插件目录里还没有 `data.json`，而读取设置的代码把这个"文件不存在"当成了正常对象处理，直接抛出异常，导致插件的加载流程在**注册设置页和各项功能之前就中断了**。从 **1.23.24** 起的所有版本都存在这个问题；已经很早装过插件（有 `data.json`）的用户不受影响，所以一直没有暴露出来。
+- **同时加固**：如果 `data.json` 存在但内容损坏、无法解析，插件现在会回退到默认设置并继续加载，不再彻底失效（以前遇到损坏文件同样会导致插件"变砖"，而且因为没有设置页，用户没有任何办法自行恢复）。
+- 如果你的安装目前一切正常，这一版对你的实际行为没有变化 —— 但仍建议升级：这是给**所有新用户**解封的一版。
 
 ## English
 
-- **Improved: the correction budget is now counted per episode.** The editor used to allow a fixed number of position corrections in total (6), so a slow note with many changes could exhaust it and then never be corrected again - no matter how long the watch window was. Now the budget is **refilled** whenever the page has been quiet for a second and then moves again (a very late image or PDF finishing), while a **ceiling of 30** still applies across the whole watch window, so a page that never stops moving is still held back - which is the point of the limit (it prevents the plugin and the view from fighting over the scroll position, the very thing that once made a PDF-heavy note stop rendering).
-- Otherwise identical to 1.23.30. Skip this one if everything is already working for you.
+- **Fix: a fresh install of fakelink did not work at all - no settings tab, and none of the features (virtual links, line jumping, ...) were active.** On the very first run there is no `data.json` yet, and the settings loader treated that missing file as a normal object: it threw, which aborted the plugin's startup **before** the settings tab and every feature were registered. Every release since **1.23.24** was affected. Installations that already had a `data.json` were unaffected, which is why it went unnoticed.
+- **Also hardened:** if `data.json` exists but is damaged and cannot be parsed, the plugin now falls back to the default settings and keeps loading instead of bricking itself - previously a damaged file had the same effect, and with no settings tab the user had no way to recover.
+- If your installation is working, this release changes nothing for you - but upgrading is still recommended: it unblocks every new user.

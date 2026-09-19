@@ -2411,8 +2411,17 @@ export default class LinkerPlugin extends Plugin {
     }
 
     async loadSettings() {
-        const stored = await this.loadData() as Partial<LinkerPluginSettings>
-            & { headerJumpRetryDelay?: number; jumpDelayMs?: number };
+        // A fresh install has no data.json at all, so loadData() returns null,
+        // and a damaged one can make it throw. Neither may abort onload: this
+        // runs before the settings tab is registered, so throwing here leaves
+        // the plugin completely dead - no settings to fix it with either.
+        let stored: Partial<LinkerPluginSettings>
+            & { headerJumpRetryDelay?: number; jumpDelayMs?: number } = {};
+        try {
+            stored = (await this.loadData() ?? {}) as typeof stored;
+        } catch (error) {
+            console.error('[fakelink] failed to read data.json - falling back to the defaults', error);
+        }
         this.settings = Object.assign({}, DEFAULT_SETTINGS, stored);
         // The watch window used to be stored in milliseconds and multiplied by
         // 24; it is now stored directly in seconds. Carry an existing value over

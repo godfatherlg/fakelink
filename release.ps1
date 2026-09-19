@@ -20,6 +20,9 @@ param(
     [string] $Repo   = 'godfatherlg/fakelink',
     [string] $Branch = 'master',
     [string] $Vault  = 'J:\OB\.obsidian\plugins\fakelink',
+    # A vault that has never run the plugin - it has no data.json, so it is the
+    # only place where "fresh install" bugs show up. Deploy there too, always.
+    [string] $TestVault = 'F:\OBtest\test\.obsidian\plugins\fakelink',
     [int]    $TimeoutSeconds = 300,
     [switch] $SkipVault
 )
@@ -103,6 +106,18 @@ if (-not $SkipVault) {
         gh release download $next --repo $Repo --pattern main.js --pattern manifest.json --pattern styles.css --dir $Vault --clobber
         Assert-Ok 'gh release download'
         Write-Host "deployed - reload the plugin in Obsidian to pick up $next"
+    }
+
+    Step "Deploying into the test vault ($TestVault)"
+    if (Test-Path -LiteralPath $TestVault) {
+        gh release download $next --repo $Repo --pattern main.js --pattern manifest.json --pattern styles.css --dir $TestVault --clobber
+        Assert-Ok 'gh release download (test vault)'
+        Write-Host "installed into the test vault." -ForegroundColor Yellow
+        Write-Host "NOW RELOAD THAT VAULT AND LOOK AT THE SETTINGS TAB:" -ForegroundColor Yellow
+        Write-Host "  a vault that never ran this plugin has no data.json, which is exactly" -ForegroundColor Yellow
+        Write-Host "  the case that 1.23.32 fixed - the settings tab must appear." -ForegroundColor Yellow
+    } else {
+        Write-Host "test vault not found, skipping: $TestVault" -ForegroundColor Yellow
     }
 }
 
