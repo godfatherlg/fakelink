@@ -373,6 +373,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 headerId
                                             );
 
+                                            // A hit on a keyword that only exists because it
+                                            // was normalised (stemmed / function words /
+                                            // heading number stripped) is an exact tree match
+                                            // but not what the user wrote verbatim - colour it
+                                            // as fuzzy.
+                                            if (this.linkerCache.cache.isDerivedKeyword(name)) {
+                                                match.isFuzzy = true;
+                                            }
+
                                             // Add multi-file heading ID handling logic
                                             // When multiple files match the same keyword, get corresponding heading ID for each file
                                             if (node.files.size > 1) {

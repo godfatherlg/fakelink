@@ -658,6 +658,14 @@ class AutoLinkerPlugin implements PluginValue {
                                     node.headerId
                                 );
 
+                                // A hit on a keyword that only exists because it was
+                                // normalised (stemmed / function words / heading number
+                                // stripped) is an exact tree match but not what the user
+                                // wrote verbatim - colour it as fuzzy.
+                                if (this.linkerCache.cache.isDerivedKeyword(name)) {
+                                    virtualMatch.isFuzzy = true;
+                                }
+
                                 // If there are multiple files, get corresponding heading ID for each file
                                 if (filteredFiles.length > 1) {
                                     filteredFiles.forEach((file, index) => {

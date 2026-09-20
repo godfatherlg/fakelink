@@ -236,6 +236,14 @@ export class PrefixTree {
     // Fuzzy-match index: normalized keyword (lowercased) -> candidate entries.
     // Built alongside the prefix tree when fuzzy (词义模糊) matching is enabled.
     fuzzyKeywordMap: Map<string, { files: Set<TFile>; headerId?: string; canonical?: string }[]> = new Map();
+
+    // Keywords that exist in the exact-match tree ONLY because something was
+    // normalized away: a stemmed / stopword-stripped variant (词义模糊) or a
+    // heading keyword whose leading number was stripped. A hit on one of these
+    // is already an exact tree match, but it is not what the user wrote
+    // verbatim - so it is reported as a FUZZY match and gets the fuzzy colour
+    // instead of the exact colour. Matching itself is unchanged.
+    derivedKeywords: Set<string> = new Set();
     // First-char bucket index: bucket key (first char of normalized keyword) -> list
     // of normalized keywords. Lets findFuzzyMatches only scan the relevant bucket
     // instead of the entire map (the main source of the earlier performance lag).
@@ -282,6 +290,7 @@ export class PrefixTree {
         this.fuzzyKeywordMap.clear();
         this.fuzzyBuckets.clear();
         this.fuzzyKeywordLengths.clear();
+        this.derivedKeywords.clear();
         this.minFuzzyKeywordLen = Infinity;
         this.maxFuzzyKeywordLen = 0;
         // NOTE: autoExcludedPaths / firstSentenceCache / lastAutoExcludeSignature
@@ -609,11 +618,24 @@ export class PrefixTree {
         return matchNodes;
     }
 
+    /** True when this keyword only exists because something was normalized away
+     *  (stemming / stripped function words / stripped heading number). Callers
+     *  use it to show such a match with the fuzzy colour. Case-insensitive. */
+    isDerivedKeyword(name: string): boolean {
+        return this.derivedKeywords.has(name.toLowerCase());
+    }
+
     private addFileWithName(name: string, file: TFile, matchCase: boolean, headerId?: string, canonicalKeyword?: string, canonicalHeaderId?: string) {
         // Skip single-character keywords: they produce spurious virtual links
         // (e.g. "关" matching "下关" or "带" matching "带下") and are never
         // intended by the user as glossary entries.
         if (name.length < 2) return;
+
+        // A variant of another keyword (canonicalKeyword differs from what is
+        // being inserted) is derived, not written by the user.
+        if (canonicalKeyword && canonicalKeyword.toLowerCase() !== name.toLowerCase()) {
+            this.derivedKeywords.add(name.toLowerCase());
+        }
 
         let node = this.root;
 
@@ -1353,12 +1375,23 @@ export class PrefixTree {
      * markers (e.g. 🔥) without those markers becoming part of the keyword.
      */
     private headingKeyword(heading: string): string {
-        let s = PrefixTree.stripHeadingNumber(heading);
+        // Only the leading NUMBER counts as normalisation. Symbols from the
+        // whitelist (e.g. 🔥) are ignored ON PURPOSE - the user asked for that -
+        // so such a match stays an exact match, with or without the symbol.
+        const withoutNumber = PrefixTree.stripHeadingNumber(heading);
+        const numberStripped = withoutNumber.trim().toLowerCase() !== heading.trim().toLowerCase();
+
+        let s = withoutNumber;
         const symbols = this.settings.headingSymbolWhitelist;
         if (symbols && symbols.length > 0) {
             for (const sym of symbols) {
                 if (sym) s = s.split(sym).join('');
             }
+        }
+        // A heading number was removed, so a hit on this keyword is normalised
+        // rather than verbatim - report it as a fuzzy match.
+        if (numberStripped) {
+            this.derivedKeywords.add(s.toLowerCase());
         }
         return s;
     }
