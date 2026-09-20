@@ -2565,21 +2565,27 @@ function groupDef(heading: string, items: SettingGroupItem[], visible?: () => bo
 }
 
 /**
- * Marks every line that starts with a Tab (9 = '\t'). Obsidian renders those
- * lines as bare `.cm-line`s with no indentation class at all, which is why a
- * CSS snippet cannot target them - the classes added here are what makes the
- * "background above the indented line" rule in styles.css possible.
+ * Marks indented lines (a leading Tab or two or more spaces) together with the
+ * line above each of them. Obsidian renders those lines as bare `.cm-line`s
+ * with no indentation class at all, so neither they nor the line above them can
+ * be reached from CSS - and "the line above" is a previous sibling anyway, which
+ * CSS can only express with :has(). The classes added here are what the
+ * "Background" rules in styles.css paint.
  */
 function buildIndentBackground(view: EditorView): DecorationSet {
     const doc = view.state.doc;
     const marks: Range<Decoration>[] = [];
+    const isIndented = (text: string): boolean => text.startsWith('\t') || /^ {2,}/.test(text);
     for (const { from, to } of view.visibleRanges) {
         const last = doc.lineAt(to).number;
         for (let n = doc.lineAt(from).number; n <= last; n++) {
             const line = doc.line(n);
-            if (line.text.charCodeAt(0) === 9) {
-                marks.push(Decoration.line({ class: 'fakelink-indent-line' }).range(line.from));
-            }
+            if (!isIndented(line.text)) continue;
+            marks.push(Decoration.line({ class: 'fakelink-indent-line' }).range(line.from));
+            if (n <= 1) continue;
+            const above = doc.line(n - 1);
+            if (above.text.trim().length === 0 || isIndented(above.text)) continue;
+            marks.push(Decoration.line({ class: 'fakelink-indent-above' }).range(above.from));
         }
     }
     return Decoration.set(marks, true);

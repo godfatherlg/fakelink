@@ -234,7 +234,15 @@ class AutoLinkerPlugin implements PluginValue {
         const activeFile = (this.lastRealActiveView?.file ?? this.app.workspace.getActiveFile())?.path;
         const fileChanged = activeFile != this.lastActiveFile;
 
-        if (force || this.lastCursorPos != cursorPos || update.docChanged || fileChanged || update.viewportChanged) {
+        // Also rebuild when the syntax tree itself changed. The format classes
+        // (bold / italic / highlight / strikethrough / comment / header) are
+        // read from the tree, and Markdown parses asynchronously: right after
+        // the plugin loads the tree is still empty, so a link inside ==...==
+        // was built without .cm-highlight and only got its highlight background
+        // once something else forced a rebuild (a click moved the cursor).
+        const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
+
+        if (force || this.lastCursorPos != cursorPos || update.docChanged || fileChanged || update.viewportChanged || treeChanged) {
             // Pure scroll (viewport change with no doc/cursor/file change): debounce
             // so the rebuild happens once after scrolling stops, not on every tick.
             // Links then appear "a bit later" but without the per-tick DOM churn that

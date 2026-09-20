@@ -541,7 +541,9 @@ body.theme-dark.virtual-link-bg {
   --fakelink-unfocused-mask: rgba(0, 0, 0, 0.45);
 }
 
-/* Very faint overall background */
+/* Very faint overall background. The --background-* aliases set above carry
+ * this for most themes; the explicit rules are the belt-and-braces version for
+ * themes that ignore those variables. */
 body.virtual-link-bg,
 body.virtual-link-bg .app-container,
 body.virtual-link-bg .workspace,
@@ -551,7 +553,7 @@ body.virtual-link-bg .markdown-preview-view,
 body.virtual-link-bg .markdown-reading-view,
 body.virtual-link-bg .cm-editor,
 body.virtual-link-bg .cm-scroller {
-  background-color: var(--fakelink-bg) !important;
+  background-color: var(--fakelink-bg);
 }
 
 /* List lines (live preview + reading view) */
@@ -561,49 +563,43 @@ body.virtual-link-bg .markdown-reading-view li {
   background-color: var(--fakelink-line-bg);
 }
 
-/* The line above an indented one: list continuation, nested item, indented
- * code block - or a Tab-indented line, which the plugin marks for us because
- * Obsidian gives those lines no class at all. */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-list-line):has(+ .cm-line:is(
-  .HyperMD-list-line-nobullet,
-  .HyperMD-list-line-2,
-  .HyperMD-list-line-3,
-  .HyperMD-list-line-4,
-  .HyperMD-list-line-5,
-  .HyperMD-list-line-6,
-  .HyperMD-codeblock,
-  .fakelink-indent-line
-)) {
-  background-color: var(--fakelink-line-bg);
-}
-
-/* Tab-indented lines themselves (class added by the plugin) */
+/* Indented lines themselves (class added by the plugin: a leading Tab or two
+ * or more spaces - neither is visible to CSS, Obsidian gives those lines no
+ * indentation class at all) */
 body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-line {
   background-color: var(--fakelink-line-bg);
 }
 
+/* The line above an indented one. Also marked by the plugin: "the line above"
+ * is a previous sibling, which CSS cannot reach at all without the
+ * sibling-matching pseudo-class - deliberately avoided, because it invalidates
+ * styles broadly on every edit. */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-above {
+  background-color: var(--fakelink-line-bg);
+}
+
 /* Cursor line + caret (from 背景.css) */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.cm-active {
-  background-color: var(--fakelink-cursor-line-bg) !important;
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-line.cm-active {
+  background-color: var(--fakelink-cursor-line-bg);
   border-radius: 4px;
 }
 
 body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content {
-  caret-color: var(--fakelink-caret) !important;
+  caret-color: var(--fakelink-caret);
 }
 
 body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-cursorLayer .cm-cursor {
-  border-left: 1px solid var(--fakelink-caret) !important;
+  border-left: 1px solid var(--fakelink-caret);
 }
 
 /* Table rows, live preview widget and source mode (from 背景.css).
  * Colour only: the alignment tweaks in that snippet (display/width/margins)
  * fought Obsidian's own table widget, so they are intentionally not ported. */
 body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-table-widget,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .HyperMD-table-row.cm-active,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-table-widget .cm-line {
-  background-color: var(--fakelink-line-bg) !important;
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-line.HyperMD-table-row,
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .HyperMD-table-row.cm-active,
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-table-widget .cm-line {
+  background-color: var(--fakelink-line-bg);
 }
 
 /* Reading view: the same tint on tables (cells are normally transparent, so
@@ -611,15 +607,15 @@ body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-table-widget .cm-line {
 body.virtual-link-bg .markdown-rendered table,
 body.virtual-link-bg .markdown-preview-view table,
 body.virtual-link-bg .markdown-reading-view table {
-  background-color: var(--fakelink-line-bg) !important;
+  background-color: var(--fakelink-line-bg);
 }
 
 /* Callouts (from 背景.css) - editor and reading view */
-body.virtual-link-bg .markdown-source-view.mod-cm6 [data-callout="note"],
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content [data-callout="note"],
 body.virtual-link-bg .markdown-rendered [data-callout="note"],
 body.virtual-link-bg .markdown-preview-view [data-callout="note"],
 body.virtual-link-bg .markdown-reading-view [data-callout="note"] {
-  background-color: var(--fakelink-line-bg) !important;
+  background-color: var(--fakelink-line-bg);
 }
 
 /* Tab headers - merged from 背景.css and 激活页面明显化.css */
@@ -633,10 +629,10 @@ body.virtual-link-bg .workspace-tabs:not(.mod-active) .workspace-tab-header-cont
   opacity: 0.85;
 }
 
-body.virtual-link-bg .workspace-tab-header.is-active {
-  background: var(--fakelink-tab-bg) !important;
-  border-bottom: 3px solid var(--fakelink-tab-accent) !important;
-  color: var(--fakelink-tab-accent) !important;
+body.virtual-link-bg .workspace-tab-header-container .workspace-tab-header.is-active {
+  background: var(--fakelink-tab-bg);
+  border-bottom: 3px solid var(--fakelink-tab-accent);
+  color: var(--fakelink-tab-accent);
   font-weight: 600;
   box-shadow: 0 2px 6px var(--fakelink-tab-shadow);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -644,8 +640,8 @@ body.virtual-link-bg .workspace-tab-header.is-active {
 }
 
 /* Keep the tab's icon in step with its label */
-body.virtual-link-bg .workspace-tab-header.is-active svg {
-  color: var(--fakelink-tab-accent) !important;
+body.virtual-link-bg .workspace-tab-header-container .workspace-tab-header.is-active svg {
+  color: var(--fakelink-tab-accent);
 }
 
 body.virtual-link-bg .workspace-tab-header:not(.is-active) {
