@@ -16,6 +16,9 @@ const zhCN: Record<string, string> = {
     'Conversion': '转换',
     'Appearance': '外观',
 
+    'Background': '背景',
+    'One switch for the whole look: a very faint tint, a light blue background on list lines, on tab-indented lines (and the line above them), on tables and callouts, a warm orange highlight on the cursor line with a dark brown caret, accent styling for the active tab header, and a gentle mask while the window is unfocused. Off by default; every colour is a CSS variable (--fakelink-...).': '一个开关控制整套外观：很淡的整体底色；列表行、Tab 缩进行（连同它上面的一行）、表格行与调用块的淡蓝背景；光标行的暖橙高亮与深棕色光标；激活标签页的强调样式；以及窗口失焦时的一层轻蒙版。默认关闭。所有颜色都是 CSS 变量（--fakelink-...），可自行调整。',
+
     'Auto-toggle activation status by mode': '按模式自动切换激活状态',
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
     'Activate virtual linker': '激活虚拟链接',

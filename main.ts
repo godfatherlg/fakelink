@@ -1,6 +1,7 @@
 import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
-import { EditorView } from '@codemirror/view';
+import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
+import type { Range } from '@codemirror/state';
 import { t } from './src/lang/helpers';
 import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 
@@ -553,6 +554,10 @@ export interface LinkerPluginSettings {
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
     disableVirtualLinkPreview: boolean; // Do not let virtual links trigger the page preview / Hover Editor popover
+    // One switch for the whole "背景" look: faint tint, list / Tab-indented
+    // lines (and the line above them), tables, callouts, the cursor line, the
+    // tab headers and a gentle mask while the window is unfocused.
+    backgroundHighlight: boolean;
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
@@ -635,6 +640,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     allowLinksInHeaders: false,
     colorOnlyDisplay: true,
     disableVirtualLinkPreview: false,
+    backgroundHighlight: false,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
@@ -1066,6 +1072,12 @@ export default class LinkerPlugin extends Plugin {
             activeWindow.document.body.classList.add('virtual-link-color-only');
         }
 
+        // The whole optional look lives under this one class
+        // (setting: Appearance -> Background)
+        if (this.settings.backgroundHighlight) {
+            activeWindow.document.body.classList.add('virtual-link-bg');
+        }
+
         // Always set link colors (header vs note)
         activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
         activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
@@ -1093,6 +1105,25 @@ export default class LinkerPlugin extends Plugin {
 
         // Register the live linker for the live edit mode
         this.registerEditorExtension(liveLinkerPlugin(this.app, this.settings, this.updateManager, this));
+
+        // A line indented with a Tab has NO class of its own in Obsidian, so a
+        // CSS snippet cannot style it (or the line above it) at all. Mark those
+        // lines here; styles.css does the painting, and only while the
+        // "Background" setting is on (body.virtual-link-bg).
+        this.registerEditorExtension(
+            ViewPlugin.fromClass(
+                class {
+                    decorations: DecorationSet;
+                    constructor(view: EditorView) {
+                        this.decorations = buildIndentBackground(view);
+                    }
+                    update(update: ViewUpdate) {
+                        this.decorations = buildIndentBackground(update.view);
+                    }
+                },
+                { decorations: (v) => v.decorations }
+            )
+        );
 
         // Auto-trim spaces inside %% comments when alternative display style is enabled
         this.registerEditorExtension(
@@ -2533,6 +2564,27 @@ function groupDef(heading: string, items: SettingGroupItem[], visible?: () => bo
     return { type: 'group', heading, items, visible };
 }
 
+/**
+ * Marks every line that starts with a Tab (9 = '\t'). Obsidian renders those
+ * lines as bare `.cm-line`s with no indentation class at all, which is why a
+ * CSS snippet cannot target them - the classes added here are what makes the
+ * "background above the indented line" rule in styles.css possible.
+ */
+function buildIndentBackground(view: EditorView): DecorationSet {
+    const doc = view.state.doc;
+    const marks: Range<Decoration>[] = [];
+    for (const { from, to } of view.visibleRanges) {
+        const last = doc.lineAt(to).number;
+        for (let n = doc.lineAt(from).number; n <= last; n++) {
+            const line = doc.line(n);
+            if (line.text.charCodeAt(0) === 9) {
+                marks.push(Decoration.line({ class: 'fakelink-indent-line' }).range(line.from));
+            }
+        }
+    }
+    return Decoration.set(marks, true);
+}
+
 class LinkerSettingTab extends PluginSettingTab {
     constructor(app: App, public plugin: LinkerPlugin) {
         super(app, plugin);
@@ -2633,6 +2685,10 @@ class LinkerSettingTab extends PluginSettingTab {
             case 'colorOnlyDisplay':
                 await this.plugin.updateSettings({ colorOnlyDisplay: value as boolean });
                 this.applyBodyClass('virtual-link-color-only', value as boolean);
+                break;
+            case 'backgroundHighlight':
+                await this.plugin.updateSettings({ backgroundHighlight: value as boolean });
+                this.applyBodyClass('virtual-link-bg', value as boolean);
                 break;
             case 'alternativeDisplayStyle':
                 await this.plugin.updateSettings({ alternativeDisplayStyle: value as boolean });
@@ -3030,6 +3086,9 @@ class LinkerSettingTab extends PluginSettingTab {
 
             // ---------- Appearance ----------
             groupDef(t('Appearance'), [
+                toggleDef(t('Background'), 'backgroundHighlight', {
+                    desc: t('One switch for the whole look: a very faint tint, a light blue background on list lines, on tab-indented lines (and the line above them), on tables and callouts, a warm orange highlight on the cursor line with a dark brown caret, accent styling for the active tab header, and a gentle mask while the window is unfocused. Off by default; every colour is a CSS variable (--fakelink-...).'),
+                }),
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
                     desc: t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'),
                 }),

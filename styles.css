@@ -493,3 +493,178 @@ body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-com
   display: none;
 }
 */
+
+/* ============================================================
+ * Optional background highlight
+ * (setting: Appearance -> Background, off by default)
+ *
+ * Everything is scoped to body.virtual-link-bg, so none of it applies
+ * unless the setting is on. Colours are variables - override them in a
+ * snippet to taste:
+ *   --fakelink-bg       overall tint        (default #f0f8ff, aliceblue)
+ *   --fakelink-line-bg  lists / indent lines (default skyblue at 10%)
+ * ============================================================ */
+
+body.virtual-link-bg {
+  --fakelink-bg: #f0f8ff;
+  --fakelink-line-bg: rgba(135, 206, 235, 0.1);
+  --fakelink-cursor-line-bg: rgba(255, 220, 180, 0.35);
+  --fakelink-caret: #8B4513;
+  --fakelink-tab-accent: #1a73e8;
+  /* Both tab styles are available: this gradient comes from 激活页面明显化.css,
+   * the flat #f8fbff from 背景.css - set the variable to whichever you prefer. */
+  --fakelink-tab-bg: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+  --fakelink-tab-shadow: rgba(92, 107, 192, 0.2);
+  --fakelink-tab-pane: rgba(26, 115, 232, 0.32);
+  /* Unfocused window: was rgba(0, 0, 0, 0.7) - much lighter now. */
+  --fakelink-unfocused-mask: rgba(0, 0, 0, 0.25);
+  /* Let theme components that read these follow the tint as well. */
+  --background-primary: var(--fakelink-bg);
+  --background-primary-alt: var(--fakelink-bg);
+  --background-secondary: var(--fakelink-bg);
+  --background-secondary-alt: var(--fakelink-bg);
+}
+
+/* Dark themes: the light defaults above would turn the whole app white, so a
+ * dark set is used instead. The --background-* aliases follow automatically,
+ * because they reference --fakelink-bg. */
+body.theme-dark.virtual-link-bg {
+  --fakelink-bg: #1b1f24;
+  --fakelink-line-bg: rgba(120, 170, 255, 0.12);
+  --fakelink-cursor-line-bg: rgba(255, 190, 120, 0.16);
+  --fakelink-caret: #ffb27a;
+  --fakelink-tab-accent: #7aa2f7;
+  --fakelink-tab-bg: linear-gradient(135deg, #23272e 0%, #1c2026 100%);
+  --fakelink-tab-shadow: rgba(0, 0, 0, 0.35);
+  --fakelink-tab-pane: rgba(90, 140, 255, 0.22);
+  /* Over a dark background a light-grey mask disappears, so a darker one. */
+  --fakelink-unfocused-mask: rgba(0, 0, 0, 0.45);
+}
+
+/* Very faint overall background */
+body.virtual-link-bg,
+body.virtual-link-bg .app-container,
+body.virtual-link-bg .workspace,
+body.virtual-link-bg .workspace-leaf-content,
+body.virtual-link-bg .markdown-source-view,
+body.virtual-link-bg .markdown-preview-view,
+body.virtual-link-bg .markdown-reading-view,
+body.virtual-link-bg .cm-editor,
+body.virtual-link-bg .cm-scroller {
+  background-color: var(--fakelink-bg) !important;
+}
+
+/* List lines (live preview + reading view) */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
+body.virtual-link-bg .markdown-preview-view li,
+body.virtual-link-bg .markdown-reading-view li {
+  background-color: var(--fakelink-line-bg);
+}
+
+/* The line above an indented one: list continuation, nested item, indented
+ * code block - or a Tab-indented line, which the plugin marks for us because
+ * Obsidian gives those lines no class at all. */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line:not(.HyperMD-list-line):has(+ .cm-line:is(
+  .HyperMD-list-line-nobullet,
+  .HyperMD-list-line-2,
+  .HyperMD-list-line-3,
+  .HyperMD-list-line-4,
+  .HyperMD-list-line-5,
+  .HyperMD-list-line-6,
+  .HyperMD-codeblock,
+  .fakelink-indent-line
+)) {
+  background-color: var(--fakelink-line-bg);
+}
+
+/* Tab-indented lines themselves (class added by the plugin) */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-line {
+  background-color: var(--fakelink-line-bg);
+}
+
+/* Cursor line + caret (from 背景.css) */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.cm-active {
+  background-color: var(--fakelink-cursor-line-bg) !important;
+  border-radius: 4px;
+}
+
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content {
+  caret-color: var(--fakelink-caret) !important;
+}
+
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-cursorLayer .cm-cursor {
+  border-left: 1px solid var(--fakelink-caret) !important;
+}
+
+/* Table rows, live preview widget and source mode (from 背景.css).
+ * Colour only: the alignment tweaks in that snippet (display/width/margins)
+ * fought Obsidian's own table widget, so they are intentionally not ported. */
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-table-widget,
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.HyperMD-table-row,
+body.virtual-link-bg .markdown-source-view.mod-cm6 .HyperMD-table-row.cm-active,
+body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-table-widget .cm-line {
+  background-color: var(--fakelink-line-bg) !important;
+}
+
+/* Reading view: the same tint on tables (cells are normally transparent, so
+ * colouring the table element is enough) */
+body.virtual-link-bg .markdown-rendered table,
+body.virtual-link-bg .markdown-preview-view table,
+body.virtual-link-bg .markdown-reading-view table {
+  background-color: var(--fakelink-line-bg) !important;
+}
+
+/* Callouts (from 背景.css) - editor and reading view */
+body.virtual-link-bg .markdown-source-view.mod-cm6 [data-callout="note"],
+body.virtual-link-bg .markdown-rendered [data-callout="note"],
+body.virtual-link-bg .markdown-preview-view [data-callout="note"],
+body.virtual-link-bg .markdown-reading-view [data-callout="note"] {
+  background-color: var(--fakelink-line-bg) !important;
+}
+
+/* Tab headers - merged from 背景.css and 激活页面明显化.css */
+body.virtual-link-bg .workspace-tabs.mod-active .workspace-tab-header-container {
+  background-color: var(--fakelink-tab-pane);
+  transition: background-color 0.2s ease;
+}
+
+/* Inactive pane / inactive tab: only gently dimmed (was 0.6 / 0.7) */
+body.virtual-link-bg .workspace-tabs:not(.mod-active) .workspace-tab-header-container {
+  opacity: 0.85;
+}
+
+body.virtual-link-bg .workspace-tab-header.is-active {
+  background: var(--fakelink-tab-bg) !important;
+  border-bottom: 3px solid var(--fakelink-tab-accent) !important;
+  color: var(--fakelink-tab-accent) !important;
+  font-weight: 600;
+  box-shadow: 0 2px 6px var(--fakelink-tab-shadow);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 2;
+}
+
+/* Keep the tab's icon in step with its label */
+body.virtual-link-bg .workspace-tab-header.is-active svg {
+  color: var(--fakelink-tab-accent) !important;
+}
+
+body.virtual-link-bg .workspace-tab-header:not(.is-active) {
+  opacity: 0.9;
+  transition: all 0.15s ease;
+}
+
+body.virtual-link-bg .workspace-tab-header:not(.is-active):hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* While the window is unfocused the workspace dims a little.
+ * 激活页面明显化.css used rgba(0, 0, 0, 0.7) here - far too dark. */
+body.virtual-link-bg:not(.is-focused) .workspace::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--fakelink-unfocused-mask);
+  z-index: 9999;
+  pointer-events: none;
+  transition: background 0.5s ease;
+}
