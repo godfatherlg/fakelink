@@ -1820,11 +1820,16 @@ export default class LinkerPlugin extends Plugin {
             const pops = node.matches('.hover-popover')
                 ? [node]
                 : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
-            // No editor handler here on purpose: for a hover popover the
-            // direct scroll (below) is the approach that was verified to
-            // centre it correctly. Handing it to the editor looked
-            // tidier but left the preview showing half a heading.
-            for (const pop of pops) keepScrolledHeadingAligned(pop, 'popover', alignWindow());
+            // The alignment watch scrolls the popover repeatedly. That is only
+            // safe and useful for a real-editor popover (Hover Editor). Obsidian's
+            // own core Page Preview popover is plain HTML and already positioned
+            // by Obsidian - scrolling it is what closed the preview on its own and
+            // made the page jump. Leave the core popover alone.
+            for (const pop of pops) {
+                if (pop.querySelector('.cm-editor')) {
+                    keepScrolledHeadingAligned(pop, 'popover', alignWindow());
+                }
+            }
         });
         // Everything has registered by now, so start watching: starting earlier
         // would run an incomplete handler list for the first insertions.

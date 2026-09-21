@@ -272,6 +272,14 @@ export function findHeadingAtTop(scope: HTMLElement | null): HTMLElement | null 
  */
 const HEADING_SEL = 'h1, h2, h3, h4, h5, h6, [data-heading], [class*="HyperMD-header"]';
 
+// The numbered targets of a multi-file link (1|2|3) are only shown on :hover.
+// Showing them reflows the line, which can push the link out from under the
+// pointer - which hid them again, reflowed the line a second time and made the
+// view jump. So they are kept open while the pointer is on the link and only
+// released a moment after it really left.
+const MULTI_REFERENCE_HOVER_GRACE_MS = 400;
+const hoverUnlockTimers = new WeakMap<HTMLElement, number>();
+
 /**
  * Pin the heading returned by `resolve` just below the top of its scroller,
  * for as long as the surface keeps settling.
@@ -865,6 +873,26 @@ export class VirtualMatch {
         } else if (this.type === MatchType.Header) {
             span.classList.add('virtual-link-type-header');
         }
+
+        // 'virtual-link-hover-lock' is the existing "do not collapse" switch
+        // (the click path sets it too). Arm it on hover and release it a moment
+        // after the pointer leaves, so travelling to "1|2|3" never loses them.
+        span.addEventListener('mouseenter', () => {
+            const pending = hoverUnlockTimers.get(span);
+            if (pending !== undefined) {
+                window.clearTimeout(pending);
+                hoverUnlockTimers.delete(span);
+            }
+            span.classList.add('virtual-link-hover-lock');
+        });
+        span.addEventListener('mouseleave', () => {
+            const pending = hoverUnlockTimers.get(span);
+            if (pending !== undefined) window.clearTimeout(pending);
+            hoverUnlockTimers.set(span, window.setTimeout(() => {
+                hoverUnlockTimers.delete(span);
+                span.classList.remove('virtual-link-hover-lock');
+            }, MULTI_REFERENCE_HOVER_GRACE_MS));
+        });
 
         // Add context-specific classes
         if (this.isBoldContext) {
