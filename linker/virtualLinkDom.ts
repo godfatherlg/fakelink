@@ -1,7 +1,8 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { App, MarkdownView, TFile, getLinkpath } from 'obsidian';
+import { App, MarkdownView, Menu, TFile, getLinkpath } from 'obsidian';
 import { MatchType } from './linkerCache';
+import { convertVirtualLinkToReal } from './convertLink';
 import { t } from '../src/lang/helpers';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -548,6 +549,17 @@ export function buildIndentBackground(view: EditorView): DecorationSet {
     return Decoration.set(marks, true);
 }
 
+/**
+ * True when the element sits inside an editor-mode table cell - the special
+ * contentEditable Obsidian uses while editing a single cell (.cm-table-widget
+ * wrapped in .table-cell-wrapper). Read-mode tables and the source editor have
+ * neither, so this is the signal for the table-cell-only behaviours (right-click
+ * suppression, cell-local line boundaries, active-view override).
+ */
+export function isInTableCellEditor(el: Element | null): boolean {
+    return Boolean(el?.closest('.cm-table-widget') && el?.closest('.table-cell-wrapper'));
+}
+
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
 
@@ -956,24 +968,42 @@ export class VirtualMatch {
             span.classList.add('virtual-link-in-strikethrough');
         }
 
-        // Set context menu based on table cell context
-        if (inTableCellEditor === true) {
+        // ===== NEW implementation =====
+        // In an editor-mode table cell Obsidian runs BOTH of its context-menu
+        // pipelines (the cell editor's and the main editor's), so file-menu
+        // fires twice and every plugin's menu items - ours included - end up in
+        // the menu twice. Neither stopPropagation nor preventDefault can
+        // suppress just one of the two pipelines, so the plugin takes over
+        // completely here: both pipelines are blocked and our own menu with
+        // just the virtual-link actions is shown instead.
+        if (inTableCellEditor) {
             span.classList.add('no-context-menu');
-            
-            // Ensure default right-click menu is disabled in table cells
-            span.addEventListener('contextmenu', (e: Event) => {
+            span.addEventListener('contextmenu', (e: MouseEvent) => {
                 e.preventDefault();
                 e.stopPropagation();
-                return false;
-            }, true);
-            
-            // Add additional mouse right-click event listeners to capture all possible right-click events
-            span.addEventListener('mouseup', (e: MouseEvent) => {
-                if (e.button === 2) { // Right mouse button
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return false;
+                const menu = new Menu();
+                menu.addItem((item) => {
+                    item.setTitle('Add to excluded keywords')
+                        .setIcon('ban')
+                        .onClick(async () => {
+                            if (this.originText) {
+                                const newExcludedKeywords = [...new Set([...this.settings.excludedKeywords, this.originText])];
+                                await this.plugin.updateSettings({ excludedKeywords: newExcludedKeywords });
+                                this.plugin.updateManager.update();
+                            }
+                        });
+                });
+                const anchor = span.querySelector('.virtual-link-a');
+                if (anchor && this.files.length > 0) {
+                    menu.addItem((item) => {
+                        item.setTitle('Convert to real link')
+                            .setIcon('link')
+                            .onClick(() => {
+                                convertVirtualLinkToReal(anchor as Element, this.files[0], this.plugin.app, this.settings);
+                            });
+                    });
                 }
+                menu.showAtMouseEvent(e);
             }, true);
         }
         

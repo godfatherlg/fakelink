@@ -31,12 +31,11 @@ body.virtual-link-color-only .virtual-link {
   background-color: transparent;
 }
 
-/* Color-only mode: override background in italic and table contexts */
+/* Color-only mode: override background in italic contexts
+ * [TABLE TEST] the table-th rules here were removed for testing */
 body.virtual-link-color-only .virtual-link.cm-em,
 body.virtual-link-color-only .cm-em .virtual-link,
-body.virtual-link-color-only .virtual-link-in-italic,
-body.virtual-link-color-only table th .virtual-link,
-body.virtual-link-color-only table th .virtual-link-span {
+body.virtual-link-color-only .virtual-link-in-italic {
   background-color: transparent;
 }
 
@@ -102,8 +101,11 @@ body.virtual-link-color-only .virtual-link-span.virtual-link-in-highlight {
 }
 
 body.virtual-link-color-only .cm-highlight .virtual-link,
-body.virtual-link-color-only .markdown-preview-view mark .virtual-link,
-body.virtual-link-color-only .markdown-preview-view mark .virtual-link-span {
+body.virtual-link-color-only .cm-highlight .virtual-link-span,
+body.virtual-link-color-only mark .virtual-link,
+body.virtual-link-color-only mark .virtual-link-span,
+body.virtual-link-color-only .cm-highlight .virtual-link-span.virtual-link-in-highlight,
+body.virtual-link-color-only mark .virtual-link-span.virtual-link-in-highlight {
   background-color: transparent;
 }
 
@@ -292,13 +294,6 @@ table th .virtual-link-span .internal-link {
     width: 1.5em;
     height: 1.5em;
     z-index: 0;
-}
-
-/* Special handling for highlighted virtual links within tables */
-.cm-table-widget .cm-highlight .virtual-link,
-.table-cell-wrapper .cm-highlight .virtual-link {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 /* ============================================================

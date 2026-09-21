@@ -1,25 +1,25 @@
-# 1.23.37
+# 1.23.38
 
 ## 中文
 
-**性能修复（超大库）**
-- 首次建索引与增量重建改为分片执行：每索引 256 个文件就让出一次主线程，避免在超大库里启用插件时界面卡死 / 黑屏。
+**重构**
+- 设置面板整体抽取到独立文件 `src/settingsTab.ts`，`main.ts` 精简约 700 行（纯移动，无行为变化）。
 
-**新增（设置 → 外观 → 背景，打开「背景」后可见）**
-- 「背景着色强度」滑块：调整列表 / 缩进 / 表格 / 调用块那一层淡蓝底色的透明度（范围 0–60，默认 10）。
-- 「光标行强度」滑块：调整光标所在行暖橙色高亮的透明度（范围 0–100，默认 35）。
-
-**移除**
-- 设置页里的两个「复制」按钮：「Copy Quick Add script」与「Copy EasyTyping template」，连同相关模板与翻译一并移除。
+**表格支持优化**
+- 修复：加载插件后，渲染表格里的虚拟链接不出现（需删一个字才触发）的问题。
+- 修复：表格高亮（`==高亮==`）里的虚拟链接底色叠加变深、颜色不一致的问题。
+- 修复：表格里的虚拟链接「转真实链接」定位错误（点进单元格时报错、转错位置、被 `|` 拆列）的问题。
+- 重写表格转换定位：删除约 450 行旧的 `handleTableCellConversion`，改用简洁的 DOM 行列定位，表格内外共用同一条转换路径。
+- 表格表头里的虚拟链接保持加粗样式。
 
 ## English
 
-**Performance fix (very large vaults)**
-- The initial index build (and incremental rebuilds) now yield to the UI every 256 files, so enabling the plugin in a very large vault no longer freezes the app.
+**Refactor**
+- The settings panel was extracted into its own file `src/settingsTab.ts`, slimming `main.ts` by ~700 lines (pure move, no behavior change).
 
-**New (Settings → Appearance → Background, shown once "Background" is on)**
-- "Background tint strength" slider: controls the opacity of the light blue tint on list / indented / table / callout lines (0–60, default 10).
-- "Cursor line strength" slider: controls the opacity of the warm orange highlight on the line the cursor is on (0–100, default 35).
-
-**Removed**
-- The two "Copy" buttons in the settings ("Copy Quick Add script" and "Copy EasyTyping template"), along with their templates and translations.
+**Table support**
+- Fixed: virtual links in rendered tables did not appear after loading (required deleting a character first).
+- Fixed: virtual links inside table highlights (`==highlight==`) stacked a darker, inconsistent background.
+- Fixed: "Convert to real link" in tables landed in the wrong place (error while editing a cell / wrong position / broken by the `|` separator).
+- Rewrote table conversion positioning: removed ~450 lines of the old `handleTableCellConversion`, replaced by concise DOM row/column positioning shared across contexts.
+- Table header virtual links keep their bold styling.

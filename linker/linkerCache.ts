@@ -275,10 +275,29 @@ export class PrefixTree {
         'mp4', 'mov', 'avi', 'webm'
     ];
 
+    // Resolves once the initial (asynchronous) index build has finished. The
+    // tree is built in chunks so a huge vault never blocks the UI, which means
+    // the tree is still empty while the plugin is loading - editors that render
+    // at that moment find no links. They await this promise to refresh.
+    public isReady = false;
+    public readyPromise: Promise<void>;
+    private readyResolve: (() => void) | null = null;
+
     constructor(public app: App, public settings: LinkerPluginSettings) {
         this.fetcher = new LinkerMetaInfoFetcher(this.app, this.settings);
         this.fuzzyMinLength = settings.fuzzyMinLength ?? 4;
-        void this.updateTree();
+        // The tree is NOT built here: doing so raced with the updateCache(true)
+        // call that follows, so two builds ran at once and "ready" fired while
+        // the tree was still half-built. Builds are driven solely by updateCache
+        // now, which calls markReady() once a build actually completes.
+        this.readyPromise = new Promise((resolve) => { this.readyResolve = resolve; });
+    }
+
+    markReady() {
+        if (!this.isReady) {
+            this.isReady = true;
+            this.readyResolve?.();
+        }
     }
 
     clear() {
@@ -1462,7 +1481,8 @@ export class LinkerCache {
             return;
         }
 
-        void this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath]);
+        void this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath])
+            .then(() => this.cache.markReady());
 
         this.activeFilePath = activeFile;
 

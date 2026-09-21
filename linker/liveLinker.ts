@@ -6,7 +6,7 @@ import { App, MarkdownView, TFile, Vault, getLinkpath } from 'obsidian';
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType } from './linkerCache';
-import { VirtualMatch } from './virtualLinkDom';
+import { VirtualMatch, isInTableCellEditor } from './virtualLinkDom';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -30,10 +30,7 @@ export class VirtualLinkWidget extends WidgetType {
     }
     
     toDOM(view: EditorView): HTMLElement {
-        // Improved table cell detection logic
-        const cmTableWidget = view.dom.closest('.cm-table-widget');
-        const tableWrapper = view.dom.closest('.table-cell-wrapper');
-        const inTableCellEditor = Boolean(cmTableWidget && tableWrapper);
+        const inTableCellEditor = isInTableCellEditor(view.dom);
         
         // Create link element
         const element = this.match.getCompleteLinkElement(inTableCellEditor);
@@ -168,6 +165,26 @@ class AutoLinkerPlugin implements PluginValue {
 
         this.decorations = this.buildDecorations(view);
 
+        // The prefix tree is built asynchronously (in chunks), so on load the
+        // tree is still empty when this constructor runs and buildDecorations
+        // above finds no matches. Refresh once the initial build finishes so
+        // links appear without needing a scroll/click first.
+        void this.linkerCache.cache.readyPromise?.then(() => {
+            // Right after load the view may not have measured yet, so
+            // visibleRanges is empty and buildDecorations has nothing to scan.
+            // Wait a frame at a time (bounded) until a viewport exists.
+            let tries = 0;
+            const attempt = () => {
+                if (view.visibleRanges.length > 0 || ++tries > 30) {
+                    this.decorations = this.buildDecorations(view, true);
+                    view.dispatch({});
+                } else {
+                    requestAnimationFrame(attempt);
+                }
+            };
+            attempt();
+        });
+
         updateManager.registerCallback(() => {
             if (this.lastViewUpdate) {
                 this.update(this.lastViewUpdate, true);
@@ -187,10 +204,7 @@ class AutoLinkerPlugin implements PluginValue {
         }
         const activeView = this.cachedActiveView;
 
-        // Pre-detect table environment for active view checking
-        const cmTableWidget = update.view.dom.closest('.cm-table-widget');
-        const tableWrapper = update.view.dom.closest('.table-cell-wrapper');
-        const inTableCellEditor = Boolean(cmTableWidget && tableWrapper);
+
 
         // Check if the update is on the active view. We only need to check this, if one of the following settings is enabled
         // - fixIMEProblem
@@ -213,12 +227,7 @@ class AutoLinkerPlugin implements PluginValue {
                 if (updateIsOnActiveView) activeViewForUpdate = this.lastRealActiveView;
             }
             
-            // Additional check for table environments - pragmatic approach
-            if (!updateIsOnActiveView && inTableCellEditor) {
-                // If we're in a table cell editor, assume it's the active view
-                // This solves the complex DOM hierarchy detection issue
-                updateIsOnActiveView = true;
-            }
+
             
 
 
@@ -315,53 +324,6 @@ class AutoLinkerPlugin implements PluginValue {
         return parents;
     }
 
-    /**
-     * Find the boundary of the current line within a table cell
-     * @param view The editor view
-     * @param cursorPos Current cursor position
-     * @param findStart Whether to find the start boundary (true) or end boundary (false)
-     * @returns The position of the line boundary
-     */
-    findTableCellLineBoundary(view: EditorView, cursorPos: number, findStart: boolean): number {
-        const doc = view.state.doc;
-        
-
-        
-        // Additional debugging
-
-        
-        if (findStart) {
-            // Look backwards for newline or start of document
-            for (let pos = cursorPos; pos >= 0; pos--) {
-                if (pos === 0) {
-
-                    return 0;
-                }
-                const char = doc.sliceString(pos - 1, pos);
-                if (char === '\n') {
-
-                    return pos;
-                }
-            }
-
-            return 0;
-        } else {
-            // Look forwards for newline or end of document
-            for (let pos = cursorPos; pos <= doc.length; pos++) {
-                if (pos === doc.length) {
-
-                    return doc.length;
-                }
-                const char = doc.sliceString(pos, pos + 1);
-                if (char === '\n') {
-
-                    return pos;
-                }
-            }
-
-            return doc.length;
-        }
-    }
 
     /**
      * Context-aware disambiguation: when a heading name exists in multiple notes,
@@ -1042,42 +1004,6 @@ class AutoLinkerPlugin implements PluginValue {
             
 
 
-            // Check if we're in a table environment - improved detection logic
-            // Look for any table-related indicators in the DOM hierarchy
-            let inTableCellEditor = false;
-            
-            // Check various table indicators
-            const tableIndicators = [
-                '.cm-table-widget',
-                '.table-cell-wrapper', 
-                '.cm-table',
-                '.cm-table-cell',
-                '[class*="table"]', // Any class containing "table"
-                '[class*="cell"]',   // Any class containing "cell"
-                '.markdown-table',
-                '.markdown-table-cell'
-            ];
-            
-            // Check if any table indicator exists in the DOM path
-            for (const indicator of tableIndicators) {
-                if (view.dom.closest(indicator)) {
-                    inTableCellEditor = true;
-                    break;
-                }
-            }
-            
-            // Special case: if we're in a contentEditable element within a table structure
-            if (!inTableCellEditor) {
-                let parent = view.dom.parentElement;
-                while (parent && parent !== activeDocument.body) {
-                    const parentClasses = Array.from(parent.classList);
-                    if (parentClasses.some(cls => cls.includes('table') || cls.includes('cell'))) {
-                        inTableCellEditor = true;
-                        break;
-                    }
-                    parent = parent.parentElement;
-                }
-            }
             
             // Debug logging
 
@@ -1085,18 +1011,11 @@ class AutoLinkerPlugin implements PluginValue {
             // Get the line start and end positions
             let lineStart: number, lineEnd: number;
             
-            if (inTableCellEditor) {
-                // In table cell: find the boundaries of the current line within the cell
-
-                lineStart = this.findTableCellLineBoundary(view, cursorPos, true);
-                lineEnd = this.findTableCellLineBoundary(view, cursorPos, false);
-            } else {
                 // Regular text: use standard line detection
 
                 const line = view.state.doc.lineAt(cursorPos);
                 lineStart = line.from;
                 lineEnd = line.to;
-            }
             
 
 

@@ -244,6 +244,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
             }
         }
 
+        // The prefix tree is built asynchronously (in chunks); on first load
+        // it is still empty when this post-processor runs, so nothing matches.
+        // Wait for the initial build and re-render once it finishes — otherwise
+        // paragraphs and table cells stay unlinked until the next edit.
+        if (!this.linkerCache.cache.isReady) {
+            void this.linkerCache.cache.readyPromise?.then(() => {
+                this.clearExistingLinks();
+                this.onload();
+            });
+            return;
+        }
+
         const tags = ['p', 'li', 'td', 'th', 'span', 'em', 'strong', 'mark', 'del', 's'];
         if (this.settings.allowLinksInHeaders) {
             tags.push('h1', 'h2', 'h3', 'h4', 'h5', 'h6');
