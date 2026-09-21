@@ -278,7 +278,7 @@ export class PrefixTree {
     constructor(public app: App, public settings: LinkerPluginSettings) {
         this.fetcher = new LinkerMetaInfoFetcher(this.app, this.settings);
         this.fuzzyMinLength = settings.fuzzyMinLength ?? 4;
-        this.updateTree();
+        void this.updateTree();
     }
 
     clear() {
@@ -1117,7 +1117,7 @@ export class PrefixTree {
         return this.mapIndexedFilePathsToUpdateTime.has(path) && this.mapIndexedFilePathsToUpdateTime.get(path) === mtime;
     }
 
-    updateTree(updateFiles?: (string | undefined)[]) {
+    async updateTree(updateFiles?: (string | undefined)[]) {
         this.fetcher.refreshSettings();
 
         const currentVaultFiles = new Set<string>();
@@ -1141,7 +1141,8 @@ export class PrefixTree {
                 .filter((f): f is TFile => f instanceof TFile);
         }
 
-        for (const file of files) {
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
             // Check if the file has been updated
             if (this.fileIsUpToDate(file)) {
                 continue;
@@ -1164,6 +1165,13 @@ export class PrefixTree {
                 } catch (err) {
                     console.error('[fakelink] failed to index', file.path, err);
                 }
+            }
+
+            // Yield every 256 files so indexing a huge vault never blocks the
+            // UI. A long synchronous loop here is what made enabling the plugin
+            // freeze on very large vaults.
+            if ((i & 0xff) === 0) {
+                await new Promise((resolve) => window.setTimeout(resolve, 0));
             }
         }
 
@@ -1454,7 +1462,7 @@ export class LinkerCache {
             return;
         }
 
-        this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath]);
+        void this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath]);
 
         this.activeFilePath = activeFile;
 

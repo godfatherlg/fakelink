@@ -17,16 +17,18 @@ const zhCN: Record<string, string> = {
     'Appearance': '外观',
 
     'Background': '背景',
+    'Failed to save settings. The change may be lost when Obsidian reloads.': '设置保存失败，更改可能在重启 Obsidian 后丢失。',
+
+    'Background tint strength': '背景着色强度',
+    'Opacity of the light blue tint on list / indented / table / callout lines. 10 is the default.': '列表 / 缩进 / 表格 / 调用块行的淡蓝底色的不透明度。默认 10。',
+    'Cursor line strength': '光标行强度',
+    'Opacity of the warm orange highlight on the line the cursor is on. 35 is the default.': '光标所在行暖橙高亮的不透明度。默认 35。',
     'One switch for the whole look: a very faint tint, a light blue background on list lines, on tab-indented lines (and the line above them), on tables and callouts, a warm orange highlight on the cursor line with a dark brown caret, accent styling for the active tab header, and a gentle mask while the window is unfocused. Off by default; every colour is a CSS variable (--fakelink-...).': '一个开关控制整套外观：很淡的整体底色；列表行、Tab 缩进行（连同它上面的一行）、表格行与调用块的淡蓝背景；光标行的暖橙高亮与深棕色光标；激活标签页的强调样式；以及窗口失焦时的一层轻蒙版。默认关闭。所有颜色都是 CSS 变量（--fakelink-...），可自行调整。',
 
     'Auto-toggle activation status by mode': '按模式自动切换激活状态',
     'When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active': '启用后，插件将在编辑模式中自动激活，在阅读模式中自动停用',
     'Activate virtual linker': '激活虚拟链接',
     'To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).': '如需【显示/关闭】普通笔记正文（段落、列表等）中的虚拟链接，请【打开/关闭】此开关。\n注：此开关【无法控制】表格和 Canvas 中的虚拟链接（由于渲染机制不同）。若表格或 Canvas 中的虚拟链接不显示或出现渲染异常，请勿操作此开关，直接重启本插件（通过 QuickAdd 或其他方式）即可。',
-    'Copy Quick Add script': '复制 Quick Add 脚本',
-    'Quick Add script copied to clipboard!': 'Quick Add 脚本已复制到剪贴板！',
-    'Copy EasyTyping template': '复制 EasyTyping 模板',
-    'EasyTyping template copied to clipboard!': 'EasyTyping 模板已复制到剪贴板！',
     'Show advanced settings': '显示高级设置',
 
     'Include aliases': '包含别名',

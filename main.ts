@@ -1,7 +1,6 @@
 import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
-import { Decoration, DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
+import { DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
-import type { Range } from '@codemirror/state';
 import { t } from './src/lang/helpers';
 import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 
@@ -10,7 +9,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { keepScrolledHeadingAligned, resolveHeadingTarget } from './linker/virtualLinkDom';
+import { buildIndentBackground, keepScrolledHeadingAligned, resolveHeadingTarget } from './linker/virtualLinkDom';
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -558,6 +557,8 @@ export interface LinkerPluginSettings {
     // lines (and the line above them), tables, callouts, the cursor line, the
     // tab headers and a gentle mask while the window is unfocused.
     backgroundHighlight: boolean;
+    backgroundLineOpacity: number;  // 0-100, alpha of the list / indent / table / callout tint
+    cursorLineOpacity: number;      // 0-100, alpha of the cursor-line highlight
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
@@ -641,6 +642,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     colorOnlyDisplay: true,
     disableVirtualLinkPreview: false,
     backgroundHighlight: false,
+    backgroundLineOpacity: 10,
+    cursorLineOpacity: 35,
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
@@ -1078,6 +1081,11 @@ export default class LinkerPlugin extends Plugin {
             activeWindow.document.body.classList.add('virtual-link-bg');
         }
 
+        // Slider-tunable alphas (defaults live in styles.css; apply the saved
+        // values so they survive a reload).
+        activeWindow.document.body.style.setProperty('--fakelink-line-alpha', String(this.settings.backgroundLineOpacity / 100));
+        activeWindow.document.body.style.setProperty('--fakelink-cursor-line-alpha', String(this.settings.cursorLineOpacity / 100));
+
         // Always set link colors (header vs note)
         activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
         activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
@@ -1118,7 +1126,9 @@ export default class LinkerPlugin extends Plugin {
                         this.decorations = buildIndentBackground(view);
                     }
                     update(update: ViewUpdate) {
-                        this.decorations = buildIndentBackground(update.view);
+                        if (update.docChanged || update.viewportChanged) {
+                            this.decorations = buildIndentBackground(update.view);
+                        }
                     }
                 },
                 { decorations: (v) => v.decorations }
@@ -2503,7 +2513,13 @@ export default class LinkerPlugin extends Plugin {
         try {
             await this.saveData(settingsToSave);
         } catch {
-            // Failed to save settings
+            // A failed save leaves in-memory settings ahead of the file; retry
+            // once, then surface it instead of failing silently.
+            try {
+                await this.saveData(settingsToSave);
+            } catch {
+                new Notice(t('Failed to save settings. The change may be lost when Obsidian reloads.'));
+            }
         }
         
         this.updateManager.update();
@@ -2560,40 +2576,8 @@ function numberDef(name: string, key: string, opts: DefOpts & { min?: number; ma
 function colorDef(name: string, key: string, opts: DefOpts = {}): SettingDef {
     return { id: key, name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, control: { type: 'color', key, disabled: opts.disabled } };
 }
-// Buttons have no settings key, and their name is translated (so it is not a
-// stable id) — leave them without one.
-function actionDef(name: string, action: () => void | Promise<void>, opts: DefOpts = {}): SettingDef {
-    return { name, desc: opts.desc, visible: opts.visible, aliases: opts.aliases, action: () => { void action(); } };
-}
 function groupDef(heading: string, items: SettingGroupItem[], visible?: () => boolean): SettingDefinitionGroup {
     return { type: 'group', heading, items, visible };
-}
-
-/**
- * Marks indented lines (a leading Tab or two or more spaces) together with the
- * line above each of them. Obsidian renders those lines as bare `.cm-line`s
- * with no indentation class at all, so neither they nor the line above them can
- * be reached from CSS - and "the line above" is a previous sibling anyway, which
- * CSS can only express with :has(). The classes added here are what the
- * "Background" rules in styles.css paint.
- */
-function buildIndentBackground(view: EditorView): DecorationSet {
-    const doc = view.state.doc;
-    const marks: Range<Decoration>[] = [];
-    const isIndented = (text: string): boolean => text.startsWith('\t') || /^ {2,}/.test(text);
-    for (const { from, to } of view.visibleRanges) {
-        const last = doc.lineAt(to).number;
-        for (let n = doc.lineAt(from).number; n <= last; n++) {
-            const line = doc.line(n);
-            if (!isIndented(line.text)) continue;
-            marks.push(Decoration.line({ class: 'fakelink-indent-line' }).range(line.from));
-            if (n <= 1) continue;
-            const above = doc.line(n - 1);
-            if (above.text.trim().length === 0 || isIndented(above.text)) continue;
-            marks.push(Decoration.line({ class: 'fakelink-indent-above' }).range(above.from));
-        }
-    }
-    return Decoration.set(marks, true);
 }
 
 class LinkerSettingTab extends PluginSettingTab {
@@ -2701,6 +2685,14 @@ class LinkerSettingTab extends PluginSettingTab {
                 await this.plugin.updateSettings({ backgroundHighlight: value as boolean });
                 this.applyBodyClass('virtual-link-bg', value as boolean);
                 break;
+            case 'backgroundLineOpacity':
+                await this.plugin.updateSettings({ backgroundLineOpacity: value as number });
+                this.applyCssVar('--fakelink-line-alpha', String((value as number) / 100));
+                break;
+            case 'cursorLineOpacity':
+                await this.plugin.updateSettings({ cursorLineOpacity: value as number });
+                this.applyCssVar('--fakelink-cursor-line-alpha', String((value as number) / 100));
+                break;
             case 'alternativeDisplayStyle':
                 await this.plugin.updateSettings({ alternativeDisplayStyle: value as boolean });
                 this.applyBodyClass('virtual-linker-alt-style', value as boolean);
@@ -2753,46 +2745,11 @@ class LinkerSettingTab extends PluginSettingTab {
         const s = this.s;
         const adv = () => s.advancedSettings;
 
-        const quickAddCode = `module.exports = async (params) => {
-    const id = 'fakelink';
-    const pm = app.plugins;
-
-    try {
-        if (pm.enabledPlugins.has(id)) {
-            await pm.disablePluginAndSave(id);
-            new Notice('Fake Link: OFF');
-        } else {
-            await pm.enablePluginAndSave(id);
-            new Notice('Fake Link: ON');
-        }
-
-        // Force refresh views first, then reload plugins
-        const types = ['markdown', 'canvas'];
-        const leaves = types.flatMap(t => app.workspace.getLeavesOfType(t));
-        for (const leaf of leaves) {
-            try {
-                const s = leaf.getViewState();
-                await leaf.setViewState({ ...s, state: { ...s.state, forceRefresh: true } });
-            } catch (_) {}
-        }
-        app.workspace.trigger('layout-change');
-        app.workspace.activeLeaf?.rebuildView();
-
-        app.commands.executeCommandById('app:reload-plugins');
-    } catch (e) {
-        new Notice('Fake Link: toggle failed, check console');
-    }
-};`;
-
         return [
             // ---------- General ----------
             groupDef(t('General'), [
                 toggleDef(t('Activate virtual linker'), 'linkerActivated', {
                     desc: t('To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).'),
-                }),
-                actionDef(t('Copy Quick Add script'), async () => {
-                    await navigator.clipboard.writeText(quickAddCode);
-                    new Notice(t('Quick Add script copied to clipboard!'));
                 }),
                 toggleDef(t('Auto-toggle activation status by mode'), 'autoToggleByMode', {
                     desc: t('When enabled, the plugin will automatically activate in edit mode if inactive, and automatically deactivate in read mode if active'),
@@ -2852,10 +2809,6 @@ class LinkerSettingTab extends PluginSettingTab {
                 toggleDef(t('Enable header symbol keywords'), 'headerMatchSymbols', {
                     desc: t('When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.'),
                 }),
-                actionDef(t('Copy EasyTyping template'), async () => {
-                    await navigator.clipboard.writeText('⟦${0:${SEL}}⟧');
-                    new Notice(t('EasyTyping template copied to clipboard!'));
-                }, { visible: () => s.headerMatchSymbols }),
                 textDef(t('Start symbol'), 'headerMatchStartSymbol', {
                     desc: t('Symbol marking the start of the keyword in headers. Must be different from end symbol.'),
                     visible: () => s.headerMatchSymbols,
@@ -3099,6 +3052,14 @@ class LinkerSettingTab extends PluginSettingTab {
             groupDef(t('Appearance'), [
                 toggleDef(t('Background'), 'backgroundHighlight', {
                     desc: t('One switch for the whole look: a very faint tint, a light blue background on list lines, on tab-indented lines (and the line above them), on tables and callouts, a warm orange highlight on the cursor line with a dark brown caret, accent styling for the active tab header, and a gentle mask while the window is unfocused. Off by default; every colour is a CSS variable (--fakelink-...).'),
+                }),
+                sliderDef(t('Background tint strength'), 'backgroundLineOpacity', 0, 60, 1, {
+                    desc: t('Opacity of the light blue tint on list / indented / table / callout lines. 10 is the default.'),
+                    visible: () => s.backgroundHighlight,
+                }),
+                sliderDef(t('Cursor line strength'), 'cursorLineOpacity', 0, 100, 1, {
+                    desc: t('Opacity of the warm orange highlight on the line the cursor is on. 35 is the default.'),
+                    visible: () => s.backgroundHighlight,
                 }),
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {
                     desc: t('When enabled, virtual links are shown in a custom text color instead of the default background shadow.'),

@@ -507,8 +507,10 @@ body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-com
 
 body.virtual-link-bg {
   --fakelink-bg: #f0f8ff;
-  --fakelink-line-bg: rgba(135, 206, 235, 0.1);
-  --fakelink-cursor-line-bg: rgba(255, 220, 180, 0.35);
+  --fakelink-line-alpha: 0.10;
+  --fakelink-cursor-line-alpha: 0.35;
+  --fakelink-line-bg: rgba(135, 206, 235, var(--fakelink-line-alpha));
+  --fakelink-cursor-line-bg: rgba(255, 220, 180, var(--fakelink-cursor-line-alpha));
   --fakelink-caret: #8B4513;
   --fakelink-tab-accent: #1a73e8;
   /* Both tab styles are available: this gradient comes from 激活页面明显化.css,
@@ -530,8 +532,8 @@ body.virtual-link-bg {
  * because they reference --fakelink-bg. */
 body.theme-dark.virtual-link-bg {
   --fakelink-bg: #1b1f24;
-  --fakelink-line-bg: rgba(120, 170, 255, 0.12);
-  --fakelink-cursor-line-bg: rgba(255, 190, 120, 0.16);
+  --fakelink-line-bg: rgba(120, 170, 255, var(--fakelink-line-alpha));
+  --fakelink-cursor-line-bg: rgba(255, 190, 120, var(--fakelink-cursor-line-alpha));
   --fakelink-caret: #ffb27a;
   --fakelink-tab-accent: #7aa2f7;
   --fakelink-tab-bg: linear-gradient(135deg, #23272e 0%, #1c2026 100%);
