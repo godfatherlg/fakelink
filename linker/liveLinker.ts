@@ -341,29 +341,22 @@ class AutoLinkerPlugin implements PluginValue {
      * signal — a name mentioned right before the heading is far more likely to be
      * the intended target than one buried further up the paragraph.
      */
-    disambiguateFilesByContext(files: TFile[], docPos: number, view: EditorView): TFile[] {
-        if (files.length <= 1) return files;
+    disambiguateFilesByContext(
+        files: TFile[],
+        docPos: number,
+        view: EditorView
+    ): { files: TFile[]; distances: Map<string, number> } {
+        // 距离也要带出去：消歧没能缩小到唯一候选时，[1|2|3] 会用它在同一档位内部
+        // 排序（正文里提得更近的那篇排前面）。
+        const distances = new Map<string, number>();
+        if (files.length <= 1) return { files, distances };
 
         const doc = view.state.doc;
-        // Find the start of the current paragraph (preceded by a blank line).
-        let paraStart = 0;
-        const line = doc.lineAt(docPos);
-        paraStart = line.from;
-        let prevLine = line;
-        // Walk backwards over consecutive non-blank lines to the paragraph start.
-        for (let l = line.number - 1; l >= 1; l--) {
-            const candidate = doc.line(l);
-            if (candidate.text.trim().length === 0) {
-                paraStart = prevLine.from;
-                break;
-            }
-            paraStart = candidate.from;
-            prevLine = candidate;
-        }
-
-        // Only the text before the current match position counts as "context".
-        const context = doc.sliceString(paraStart, docPos).toLowerCase();
-        if (context.trim().length === 0) return files;
+        // 上下文范围 = 整篇（文档开头到当前匹配位置）。原来只看"当前段落"，
+        // 但需求是"文章里提到过谁，谁就更受重视"—— 整篇更稳定，也不受段落
+        // 怎么划分的影响。
+        const context = doc.sliceString(0, docPos).toLowerCase();
+        if (context.trim().length === 0) return { files, distances };
 
         // Score each candidate by the proximity of its most recent name/alias
         // mention: distance = chars from the end of that mention to the match.
@@ -387,17 +380,21 @@ class AutoLinkerPlugin implements PluginValue {
             return { file, distance: closestDistance };
         });
 
+        for (const s of scored) {
+            if (Number.isFinite(s.distance)) distances.set(s.file.path, s.distance);
+        }
+
         // Keep only candidates that actually appeared in the context.
         const hits = scored.filter((s) => Number.isFinite(s.distance));
-        if (hits.length === 0) return files;
+        if (hits.length === 0) return { files, distances };
 
         // Only narrow down when exactly one file is clearly the closest.
         const minDist = Math.min(...hits.map((s) => s.distance));
         const winners = hits.filter((s) => s.distance === minDist);
         if (winners.length === 1) {
-            return [winners[0].file];
+            return { files: [winners[0].file], distances };
         }
-        return files;
+        return { files, distances };
     }
 
     /**
@@ -606,12 +603,15 @@ class AutoLinkerPlugin implements PluginValue {
                             // multiple notes, prefer the note whose file name (or alias)
                             // appears earlier in the current paragraph. This keeps the
                             // link pointing at the most relevant note.
+                            let ctxDistances: Map<string, number> | undefined;
                             if (
                                 this.settings.enableContextDisambiguation &&
                                 node.type === MatchType.Header &&
                                 filteredFiles.length > 1
                             ) {
-                                filteredFiles = this.disambiguateFilesByContext(filteredFiles, from + actualFrom, view);
+                                const ctx = this.disambiguateFilesByContext(filteredFiles, from + actualFrom, view);
+                                filteredFiles = ctx.files;
+                                ctxDistances = ctx.distances;
                             }
                             
                             // getCurrentMatchNodes already handles excluded keywords (including per-note)
@@ -628,6 +628,12 @@ class AutoLinkerPlugin implements PluginValue {
                                     this.plugin, // Add plugin parameter
                                     node.headerId
                                 );
+
+                                // 把上下文距离交给渲染层：同一档位的目标按"正文里提得
+                                // 更近的在前"排序。
+                                if (ctxDistances) {
+                                    for (const [p, d] of ctxDistances) virtualMatch.setFileContextDistance(p, d);
+                                }
 
                                 // A hit on a keyword that only exists because it was
                                 // normalised (stemmed / function words / heading number
@@ -1000,8 +1006,14 @@ class AutoLinkerPlugin implements PluginValue {
                 matches = VirtualMatch.sort(matches);
             }
 
-            // Store the files that are linked by a virtual link
-            matches.forEach((addition) => addition.files.forEach((f) => alreadyLinkedFiles.add(f)));
+            // 按位置顺序，给每个匹配打一份"在它之前已经链接过的文件"快照，然后
+            // 才把它自己加进集合。排序时用这份快照判断"文章里是否已经指向过这篇
+            // 笔记"（含精准和模糊匹配）—— 快照必须在它自己之前取，否则同一组
+            // 候选会互相把对方算成"已链接"，加权就失效了。
+            matches.forEach((addition) => {
+                addition.setAlreadyLinkedFiles(new Set(alreadyLinkedFiles));
+                addition.files.forEach((f) => alreadyLinkedFiles.add(f));
+            });
 
             // Get the cursor position
             const cursorPos = view.state.selection.main.from;

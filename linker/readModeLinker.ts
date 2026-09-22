@@ -165,17 +165,21 @@ export class GlossaryLinker extends MarkdownRenderChild {
      * text nodes, so we walk the block's text nodes to reconstruct the text
      * that precedes the match position.
      */
-    disambiguateFilesByContextReadMode(files: TFile[], textNode: Node, offset: number): TFile[] {
-        if (files.length <= 1 || !textNode) return files;
+    disambiguateFilesByContextReadMode(
+        files: TFile[],
+        textNode: Node,
+        offset: number
+    ): { files: TFile[]; distances: Map<string, number> } {
+        // 距离也要带出去：消歧没能缩小到唯一候选时，[1|2|3] 会用它在同一档位内部
+        // 排序（正文里提得更近的那篇排前面）。
+        const distances = new Map<string, number>();
+        if (files.length <= 1 || !textNode) return { files, distances };
 
-        let blockEl: Element | null = textNode.parentElement;
-        while (blockEl && !['P', 'LI', 'TD', 'TH'].includes(blockEl.tagName)) {
-            blockEl = blockEl.parentElement;
-        }
-        if (!blockEl) return files;
-
-        const context = this.getTextBeforeNode(blockEl, textNode, offset).toLowerCase();
-        if (context.trim().length === 0) return files;
+        // 上下文范围 = 整篇（当前渲染容器内、匹配位置之前的全部文本）。原来只看
+        // 当前块元素（P/LI/TD/TH），现在按"文章里提到过谁，谁就更受重视"的规则
+        // 扩大到整篇。
+        const context = this.getTextBeforeNode(this.containerEl, textNode, offset).toLowerCase();
+        if (context.trim().length === 0) return { files, distances };
 
         const scored = files.map((file) => {
             let closestDistance = Number.POSITIVE_INFINITY;
@@ -197,15 +201,19 @@ export class GlossaryLinker extends MarkdownRenderChild {
             return { file, distance: closestDistance };
         });
 
+        for (const s of scored) {
+            if (Number.isFinite(s.distance)) distances.set(s.file.path, s.distance);
+        }
+
         const hits = scored.filter((s) => Number.isFinite(s.distance));
-        if (hits.length === 0) return files;
+        if (hits.length === 0) return { files, distances };
 
         const minDist = Math.min(...hits.map((s) => s.distance));
         const winners = hits.filter((s) => s.distance === minDist);
         if (winners.length === 1) {
-            return [winners[0].file];
+            return { files: [winners[0].file], distances };
         }
-        return files;
+        return { files, distances };
     }
 
     /**
@@ -360,12 +368,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             );
                                         });
                                         if (files.length === 0) return;
+                                        let ctxDistances: Map<string, number> | undefined;
                                         if (
                                             this.settings.enableContextDisambiguation &&
                                             node.type === MatchType.Header &&
                                             files.length > 1
                                         ) {
-                                            files = this.disambiguateFilesByContextReadMode(files, childNode, nFrom);
+                                            const ctx = this.disambiguateFilesByContextReadMode(files, childNode, nFrom);
+                                            files = ctx.files;
+                                            ctxDistances = ctx.distances;
                                         }
 
                                         // Ensure headerId is correctly passed when matching headings
@@ -384,6 +395,12 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 this.plugin, // Add plugin parameter
                                                 headerId
                                             );
+
+                                            // 把上下文距离交给渲染层：同一档位的目标按
+                                            // "正文里提得更近的在前"排序。
+                                            if (ctxDistances) {
+                                                for (const [p, d] of ctxDistances) match.setFileContextDistance(p, d);
+                                            }
 
                                             // A hit on a keyword that only exists because it
                                             // was normalised (stemmed / function words /
@@ -682,9 +699,14 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             let lastTo = 0;
 
                             matches.forEach((match) => {
-                                match.files.forEach((f) => linkedFiles.add(f));
+                                // 先把"到目前为止已链接过的文件"快照交给本次排序
+                                // （不含它自己这一批，否则每个候选都会觉得自己已被
+                                // 链接），再渲染，最后才把它自己加进集合。
+                                match.setAlreadyLinkedFiles(new Set(linkedFiles));
 
                                 const span = match.getCompleteLinkElement();
+
+                                match.files.forEach((f) => linkedFiles.add(f));
 
                                 if (match.from > 0) {
                                     parent?.insertBefore(activeDocument.createTextNode(text.slice(lastTo, match.from)), childNode);

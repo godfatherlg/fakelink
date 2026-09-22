@@ -1,7 +1,7 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { App, MarkdownView, Menu, TFile, getLinkpath } from 'obsidian';
-import { MatchType } from './linkerCache';
+import { MatchType, PrefixTree } from './linkerCache';
 import { convertVirtualLinkToReal } from './convertLink';
 import { t } from '../src/lang/helpers';
 
@@ -741,6 +741,35 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
 
+    // 上下文距离：该文件（名或别名）在正文里离本次匹配有多近，越小越近。
+    // 只在"上下文感知的标题消歧"开启且算出了距离时才有值，用于在同一档位
+    // （例如都是"标题精准"）内部再排序 —— 正文里提得更近的那篇排前面。
+    private fileContextDistances: Map<string, number> = new Map();
+
+    setFileContextDistance(path: string, distance: number) {
+        this.fileContextDistances.set(path, distance);
+    }
+
+    getFileContextDistance(path: string): number | undefined {
+        return this.fileContextDistances.get(path);
+    }
+
+    // 本文档里"在本次匹配之前"已经被链接过的文件（精准和模糊匹配都算）。
+    // 排序时它压过档位：文章里已经指向过某篇笔记，说明它和当前上下文强相关。
+    private alreadyLinkedFiles: Set<TFile> | undefined;
+
+    setAlreadyLinkedFiles(files: Set<TFile>) {
+        this.alreadyLinkedFiles = files;
+    }
+
+    // 正文里是否已经"提到过"这篇笔记：要么前面已经有一条指向它的链接
+    // （精准或模糊匹配，模糊那种靠字符串比对是抓不到的），要么它的文件名/
+    // 别名在文中出现过（fileContextDistances 由消歧阶段填入）。
+    private isMentioned(file: TFile): boolean {
+        if (this.alreadyLinkedFiles?.has(file)) return true;
+        return this.fileContextDistances.has(file.path);
+    }
+
     constructor(
         public id: number,
         public originText: string,
@@ -829,6 +858,17 @@ export class VirtualMatch {
             .map((f) => `${f.path}=${this.fileHeaderIds.get(f.path) ?? ''}`)
             .sort()
             .join('\u0001');
+        // 上下文距离也影响 [1|2|3] 的排列，必须进签名，否则 eq() 会以为 DOM
+        // 还能复用，顺序变了也不重绘。
+        const ctxDistances = this.files
+            .map((f) => `${f.path}=${this.fileContextDistances.get(f.path) ?? ''}`)
+            .sort()
+            .join('\u0001');
+        // "此前是否已被链接"同样影响 [1|2|3] 的排序，也必须进签名。
+        const linkedFlags = this.files
+            .map((f) => `${f.path}=${this.alreadyLinkedFiles?.has(f) ? 1 : 0}`)
+            .sort()
+            .join('\u0001');
 
         return [
             this.from,
@@ -847,6 +887,8 @@ export class VirtualMatch {
             this.isInHeaderContext ? 1 : 0,
             filePaths,
             headerIds,
+            ctxDistances,
+            linkedFlags,
             // Settings used by the render methods / the anchor's handlers.
             s.maxReferencesToHideLink,        // hides the link entirely
             s.maxReferenceCount,              // truncates the [1|2|3] list
@@ -876,11 +918,33 @@ export class VirtualMatch {
             return emptySpan;
         }
 
-        // Sort files: Note → Alias → Header
+        // 三层排序：
+        //   1) 档位：文件名精准 → 文件名包含 → 别名 → 标题原文相等 →
+        //      标题去章节号后相等 → 标题仅包含；
+        //   2) 上下文距离：正文里提到该笔记名字的位置离匹配点越近越优先；
+        //   3) 时间兜底：最后改动时间越新越优先。新建笔记的 mtime 就等于 ctime，
+        //      所以"新建的"和"后来改过的"都算新；重命名不更新这两个时间戳，
+        //      因此识别不了改名。
         const sortedFiles = [...this.files].sort((a, b) => {
-            const typeA = this.getFileTypeOrder(a);
-            const typeB = this.getFileTypeOrder(b);
-            return typeA - typeB;
+            // 0) 正文里已经提到过（有链接，或名字出现过）→ 压过档位排前面
+            const mentionedA = this.isMentioned(a);
+            const mentionedB = this.isMentioned(b);
+            if (mentionedA !== mentionedB) return mentionedA ? -1 : 1;
+
+            const byType = this.getFileTypeOrder(a) - this.getFileTypeOrder(b);
+            if (byType !== 0) return byType;
+
+            const da = this.fileContextDistances.get(a.path);
+            const db = this.fileContextDistances.get(b.path);
+            if (da !== undefined && db !== undefined) {
+                if (da !== db) return da - db;
+            } else if (da !== undefined) {
+                return -1;
+            } else if (db !== undefined) {
+                return 1;
+            }
+
+            return (b.stat?.mtime ?? 0) - (a.stat?.mtime ?? 0);
         });
 
         // Limit visible files, and show a "..." indicator when there are more
@@ -913,14 +977,48 @@ export class VirtualMatch {
         return span;
     }
 
-    // Get sort order for file type: 0=Note, 1=Alias, 2=Header
+    // 多指向链接（[1|2|3]）里各目标文件的排列顺序，越精准越靠前：
+    //   0 文件名与关键词精准相同   ┐ 文章匹配
+    //   1 文件名包含关键词         ┘
+    //   2 别名匹配
+    //   3 标题本身就是关键词（"# 牙痛"）        ┐
+    //   4 标题去掉章节号后才是关键词（"（六）牙痛"）│ 标题匹配
+    //   5 标题只是包含关键词                     ┘
+    // 三个要点：
+    //   - 必须先看"文件名是否匹配"，再看"有没有标题 id"。原来的写法先判
+    //     fileHeaderIds.has()，于是一个文件名正好等于关键词、同时又带标题匹配的
+    //     文件会被当成 Header 排到最后。
+    //   - 标题匹配内部要按"接近原文的程度"分档：原文相等 > 去章节号后相等 >
+    //     只是包含。原来全都归成一个值，同分后只能沿用索引里的原始顺序，
+    //     于是"（六）牙痛"可能排在"牙痛"前面。
+    //   - 比较前要剥掉标题外面包的标记符号（起始/结束符号）：索引里的关键词不带
+    //     符号，标题原文带，不剥会把精准命中误判成"只是包含"。
     private getFileTypeOrder(file: TFile): number {
-        if (this.fileHeaderIds.has(file.path)) return 2; // Header
-        // Check if file basename matches (Note match)
-        const keyword = this.originText;
-        if (file.basename.toLowerCase() === keyword.toLowerCase()) return 0;
-        if (file.basename.includes(keyword)) return 0;
-        return 1; // Alias
+        const key = this.originText.toLowerCase();
+        const base = file.basename.toLowerCase();
+        if (base === key) return 0;                 // 文件名精准
+        if (base.includes(key)) return 1;           // 文件名包含
+
+        const headerId = this.fileHeaderIds.get(file.path);
+        if (headerId) {
+            // 剥掉标题外层的标记符号后再比较。
+            let hk = headerId.trim();
+            const ss = this.settings.headerMatchStartSymbol;
+            const es = this.settings.headerMatchEndSymbol;
+            if (ss && es && hk.startsWith(ss) && hk.endsWith(es)) {
+                const inner = hk.slice(ss.length, hk.length - es.length).trim();
+                if (inner) hk = inner;
+            }
+            hk = hk.toLowerCase();
+
+            // 标题本身就等于关键词（"# 牙痛"）→ 最精准。
+            if (hk === key) return 3;
+            // 去掉章节号前缀后才等于关键词（"（六）牙痛"）→ 次之。
+            if (PrefixTree.stripHeadingNumber(hk).trim().toLowerCase() === key) return 4;
+            // 标题只是包含关键词 → 最后。
+            return 5;
+        }
+        return 2;                                   // 别名
     }
 
 
