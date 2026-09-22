@@ -633,7 +633,10 @@ export function isLinkingDisabledInNote(
     const cache = app.metadataCache.getFileCache(file);
     if (!cache) return false;
 
-    const fm = cache.frontmatter as Record<string, unknown> | undefined;
+    // 用显式标注而非 as：cache.frontmatter 本身已是兼容的索引类型，断言不改变
+    // 类型（lint 会报 unnecessary assertion）；同时把 any 收窄成 unknown，
+    // 后面取值时不会把 any 传播出去。
+    const fm: Record<string, unknown> | undefined = cache.frontmatter;
 
     if (mode === 'property') {
         const prop = settings.linkIgnoreProperty;
