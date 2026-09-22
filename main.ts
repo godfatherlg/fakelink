@@ -8,9 +8,14 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { buildIndentBackground, keepScrolledHeadingAligned, resolveHeadingTarget } from './linker/virtualLinkDom';
+import { buildIndentBackground, clearContextLock, getHoveredHeadingId, keepScrolledHeadingAligned, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
+
+// 同一编辑器只允许一个居中循环在跑。调用方（keepAligned）会在每次 miss 超容差
+// 时再请求一次；如果每次都新起一个循环，多个循环各自写滚动，表现就是"不停
+// 滚动"——预览弹窗里尤其明显。
+const activeCenterLoops = new WeakMap<EditorView, AbortController>();
 
 // Obsidian compatible path utility functions
 function dirname(filePath: string): string {
@@ -471,20 +476,65 @@ export default class LinkerPlugin extends Plugin {
         const cmEl = el.closest('.cm-editor');
         const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
         if (!cm) return false;
-        let line: number;
-        try {
-            line = cm.state.doc.lineAt(cm.posAtDOM(el)).number - 1;
-        } catch {
-            return false;
-        }
-        this.centerCmLine(cm, line, maxMs);
+
+        // 直接按元素自身的 DOM 实测居中。getBoundingClientRect 是渲染后的真相，
+        // 与外层 keepAligned 用的是同一个元素、同一套坐标，所以一次 delta 就能
+        // 写到位；之前走 coordsAtPos/lineBlockAt 会因高度估算不一致差出几像素，
+        // 表现为"差一点不居中"或反复拉扯。属性面板多高、是否折叠都不影响。
+        const scroller = cm.scrollDOM;
+
+        // 后到的请求替换先前的循环（同一处反复请求时只保留最后一个，避免多个
+        // 循环同时写滚动）。
+        activeCenterLoops.get(cm)?.abort();
+        const controller = new AbortController();
+        activeCenterLoops.set(cm, controller);
+        const stop = () => controller.abort();
+        window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
+        window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
+        window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
+
+        const startedAt = Date.now();
+        let passes = 0;
+        const tick = () => {
+            if (controller.signal.aborted) return;
+            if (Date.now() - startedAt > maxMs || passes > 12) return;
+            if (!el.isConnected) return;   // 元素被 CM 回收了，交给调用方重新找
+
+            const r = el.getBoundingClientRect();
+            const sr = scroller.getBoundingClientRect();
+            const current = r.top - sr.top;
+            const height = Math.max(1, r.height);
+            const target = Math.max(6, Math.round((scroller.clientHeight - height) / 2));
+            const delta = Math.round(current - target);
+            if (Math.abs(delta) <= 6) return;   // 已居中，收工
+
+            // 只在 CM 的 measure 周期里写，避免被它下一次 measure 覆盖。
+            cm.requestMeasure({
+                read: () => delta,
+                write: (d, view) => {
+                    view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + d);
+                },
+            });
+            passes++;
+            window.setTimeout(tick, 500);
+        };
+        window.setTimeout(tick, 200);
         return true;
     }
 
     private centerCmLine(cm: EditorView, line: number, maxMs: number): void {
+        // 给这个视图的 dispatch 装保护（幂等）：Obsidian 偶尔会拿超界 selection
+        // 去 dispatch，这里捕获后 clamp 到文档长度内重试，真正化解而不是隐藏。
+        patchDispatchClamp(cm);
+
+        // 后到的请求替换先前的循环：同一处反复请求时只保留最后一个，避免多个
+        // 循环同时写滚动（预览里"不停滚动"就是它们互相打架）。
+        activeCenterLoops.get(cm)?.abort();
+        const controller = new AbortController();
+        activeCenterLoops.set(cm, controller);
+
         const scroller = cm.scrollDOM;
 
-        const controller = new AbortController();
         const stop = () => controller.abort();
         window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
         window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
@@ -498,26 +548,60 @@ export default class LinkerPlugin extends Plugin {
         // place, with it the view could stop rendering altogether. So: give the
         // view time to recover from the jump, wait for the page to stop moving,
         // and then write ONCE - never touching the scroll again afterwards.
-        const MIN_FIRST_WRITE_MS = 2000;
+        // 800ms（原 2000ms）：调用方已经先等了它自己的一轮，再让用户多等 2 秒
+        // 才动手，观感就是"好久才跳一下拉正"。
+        const MIN_FIRST_WRITE_MS = 800;
         // The page can move more than once after the first correction: a PDF
         // embed releases its reserved height seconds later, which shrinks
         // everything above the heading and pushes it off the top. Each write
         // goes through requestMeasure (no transaction), so correcting again is
         // safe - the loop keeps the heading in place until the window ends.
-        const MAX_WRITES = 8;
+        const MAX_WRITES = 24;
+
+        // 测标题行当前的视口位置（相对 .cm-scroller 视口顶部）与高度。用
+        // coordsAtPos（基于已渲染行的实测坐标）而不是 lineBlockAt：后者是 CM 的
+        // 内容坐标，和滚动所在的 .cm-scroller 差着 properties / inline title 的
+        // 高度（日志里 355px）。视口坐标里直接算差值，属性面板有几行、是否折叠
+        // 都不需要额外假设；行在视口外拿不到坐标时，才退回内容坐标 + 上方偏移，
+        // 先把视口滚过去。
+        const measure = (view: EditorView): { current: number; height: number } | null => {
+            let pos: number;
+            try {
+                pos = view.state.doc.line(line + 1).from;
+            } catch {
+                return null;
+            }
+            const sr = view.scrollDOM.getBoundingClientRect();
+            const coords = view.coordsAtPos(pos);
+            if (coords) {
+                return { current: coords.top - sr.top, height: Math.max(1, coords.bottom - coords.top) };
+            }
+            try {
+                const b = view.lineBlockAt(pos);
+                const ct = view.contentDOM.getBoundingClientRect().top;
+                return {
+                    current: b.top - view.scrollDOM.scrollTop
+                        + (ct - sr.top + view.scrollDOM.scrollTop),
+                    height: Math.max(1, b.height),
+                };
+            } catch {
+                return null;
+            }
+        };
 
         const tick = () => {
             if (controller.signal.aborted) return;
-            if (Date.now() - startedAt > maxMs || passes > 6) return;
-            let block;
-            try {
-                const pos = cm.state.doc.line(line + 1).from;
-                block = cm.lineBlockAt(pos);
-            } catch {
-                return;                                  // the document changed under us
+            if (Date.now() - startedAt > maxMs || passes > 24) return;
+            const m = measure(cm);
+            if (!m) {
+                // 行号超界（跳转后 CM6 还在装载新文档、或行号来自旧状态）：
+                // 继续重试到 maxMs，不要在这一步 return —— 那样整个居中循环会在
+                // 第一次 tick 就悄悄停掉，标题就停在 Obsidian 默认的位置。
+                window.setTimeout(tick, 700);
+                return;
             }
-            const target = Math.max(6, Math.round((scroller.clientHeight - block.height) / 2));
-            const current = Math.round(block.top - scroller.scrollTop);
+            const target = Math.max(6, Math.round((scroller.clientHeight - m.height) / 2));
+            const current = Math.round(m.current);
             // A tight tolerance, but only readings that HOLD STILL are acted on:
             // while CodeMirror is still measuring a region its line positions
             // are estimates that change from tick to tick (chasing those flung
@@ -549,15 +633,16 @@ export default class LinkerPlugin extends Plugin {
                 //     until it gives up laying the document out.
                 // requestMeasure does neither: it runs in the measure cycle, so
                 // the position is applied after the view has decided its own.
+                // 写入用"实测位置 - 目标位置"的差值（与上面判断同一套视口坐标），
+                // 属性面板多高、是否折叠都不影响；read 阶段重新测一次拿最新布局。
                 try {
                     cm.requestMeasure({
-                        read: (view) => {
-                            const block = view.lineBlockAt(view.state.doc.line(line + 1).from);
-                            return { top: block.top, height: block.height };
-                        },
-                        write: (m, view) => {
-                            const want = m.top - Math.max(6, Math.round((view.scrollDOM.clientHeight - m.height) / 2));
-                            view.scrollDOM.scrollTop = Math.max(0, want);
+                        read: (view) => measure(view),
+                        write: (mm, view) => {
+                            if (!mm) return;
+                            const delta = mm.current
+                                - Math.max(6, Math.round((view.scrollDOM.clientHeight - mm.height) / 2));
+                            view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + delta);
                         },
                     });
                 } catch { return; }
@@ -1378,15 +1463,14 @@ export default class LinkerPlugin extends Plugin {
             const pops = node.matches('.hover-popover')
                 ? [node]
                 : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
-            // The alignment watch scrolls the popover repeatedly. That is only
-            // safe and useful for a real-editor popover (Hover Editor). Obsidian's
-            // own core Page Preview popover is plain HTML and already positioned
-            // by Obsidian - scrolling it is what closed the preview on its own and
-            // made the page jump. Leave the core popover alone.
+            // 有编辑器（Hover Editor）的 popover 走 scrollEditor（编辑器 API）；
+            // 纯 HTML 的核心 Page Preview 没有编辑器，keepAligned 会自动走"直接
+            // 滚动内部 scroller"（.markdown-preview-view）——只滚内部、不滚外层
+            // .hover-popover，所以不会像早先那样把预览滚没/滚跳。
             for (const pop of pops) {
-                if (pop.querySelector('.cm-editor')) {
-                    keepScrolledHeadingAligned(pop, 'popover', alignWindow());
-                }
+                // 用 hover 时记下的标题 id 精确定位目标（popover 打开时它可能在中部
+                // 而非顶部，按顶部猜会捡到上面的小标题）。
+                keepScrolledHeadingAligned(pop, 'popover', alignWindow(), scrollEditor, getHoveredHeadingId() ?? undefined);
             }
         });
         // Everything has registered by now, so start watching: starting earlier
@@ -1604,11 +1688,21 @@ export default class LinkerPlugin extends Plugin {
                     if (virtualLinkSpan) {
                         // Add temporary lock class to prevent collapse
                         virtualLinkSpan.classList.add('virtual-link-hover-lock');
-                        
-                        // Set timer to remove lock class
-                        window.setTimeout(() => {
+                        const spanEl = virtualLinkSpan as HTMLElement;
+                        spanEl.dataset.fkContextLock = '1';
+
+                        // 菜单关闭时才解锁：去掉 10s 定时（那是"10 秒后收起"的
+                        // 来源），改成 menu.onHide —— 菜单开着列表就一直展开，
+                        // 用户选完（或按 Esc / 点别处）菜单一关才收起。
+                        menu.onHide(() => {
                             virtualLinkSpan.classList.remove('virtual-link-hover-lock');
-                        }, 3000); // Remove after 3 seconds to balance operation time and UI responsiveness
+                            delete spanEl.dataset.fkContextLock;
+                            // 同时清掉右键锁定集里的 key：getLinkRootSpan 的 mousedown
+                            // 在右键时加了 key，这里不删的话，之后同名链接一重建
+                            // 就会恢复 lock，[1|2|3] 一直不收。
+                            const key = virtualLinkSpan.querySelector('.virtual-link-a')?.getAttribute('origin-text') || '';
+                            if (key) clearContextLock(key);
+                        });
                     }
                 }
 

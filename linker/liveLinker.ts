@@ -6,7 +6,7 @@ import { App, MarkdownView, TFile, Vault, getLinkpath } from 'obsidian';
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType } from './linkerCache';
-import { VirtualMatch, isInTableCellEditor } from './virtualLinkDom';
+import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu } from './virtualLinkDom';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -30,10 +30,19 @@ export class VirtualLinkWidget extends WidgetType {
     }
     
     toDOM(view: EditorView): HTMLElement {
-        const inTableCellEditor = isInTableCellEditor(view.dom);
-        
-        // Create link element
-        const element = this.match.getCompleteLinkElement(inTableCellEditor);
+        // Create the link element without the cell-editor menu. The span is
+        // detached right now, so it has no .table-cell-wrapper ancestor yet and
+        // isInTableCellEditor() reads false during the cell editor's first build;
+        // the eager check against view.dom flaked in large documents with many
+        // tables. The menu is attached lazily below, after the span is inserted.
+        const element = this.match.getCompleteLinkElement(false);
+
+        // Attach the table-cell context menu once the span is actually in the DOM.
+        requestAnimationFrame(() => {
+            if (isInTableCellEditor(element)) {
+                attachTableCellContextMenu(element, this.match);
+            }
+        });
         
         // Format context flags were pre-computed in buildDecorations from a single
         // syntax-tree walk, so no per-widget walk is needed here.

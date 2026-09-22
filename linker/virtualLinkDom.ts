@@ -111,6 +111,13 @@ export function findHeadingElement(scope: ParentNode, headingId: string): HTMLEl
     const wantSlug = want.replace(/\s+/g, '-').toLowerCase();
     for (const el of candidates) if (textOf(el).replace(/\s+/g, '-').toLowerCase() === wantSlug) return el;
     for (const el of candidates) if (textOf(el).startsWith(want)) return el;
+    // 链接的 headingId 可能带章节号前缀（如"（六）牙痛"），而渲染出的标题是去掉
+    // 章节号后的"牙痛"（章节号由 heading decorator 单独渲染）。用"want 以候选结尾"
+    // 兜底，且前缀必须很短（章节号通常是"（六）"这种 3~6 字符）。
+    for (const el of candidates) {
+        const t = textOf(el);
+        if (t && want.endsWith(t) && want.length - t.length <= 8) return el;
+    }
     return null;
 }
 
@@ -158,7 +165,9 @@ export function resolveHeadingTarget(
     const sameHeading = (candidate: string): boolean => {
         if (candidate === want) return true;
         if (candidate.startsWith(want)) return true;
-        return want.startsWith(candidate) && want.length - candidate.length <= 12;
+        if (want.startsWith(candidate) && want.length - candidate.length <= 12) return true;
+        // 章节号前缀："（六）牙痛"（want）匹配"牙痛"（candidate）。
+        return want.endsWith(candidate) && want.length - candidate.length <= 8;
     };
     const findLine = (file: TFile): number => {
         const headings = app.metadataCache.getFileCache(file)?.headings ?? [];
@@ -232,7 +241,7 @@ export function keepEditorHeadingCentered(
     window.setTimeout(() => start(900), 900);
 }
 
-export function findHeadingAtTop(scope: HTMLElement | null): HTMLElement | null {
+export function findHeadingAtTop(scope: HTMLElement | null, allowGlobalFallback = true): HTMLElement | null {
     const search = (root: ParentNode): HTMLElement | null => {
         const headings = Array.from(root.querySelectorAll<HTMLElement>(HEADING_SEL));
         let best: HTMLElement | null = null;
@@ -262,7 +271,9 @@ export function findHeadingAtTop(scope: HTMLElement | null): HTMLElement | null 
         const inScope = search(scope);
         if (inScope) return inScope;
     }
-    return search(document.body);
+    // 全局兜底只在调用方明确允许时用：预览 popover 的目标标题一定在 popover 内，
+    // 内容没渲染完时若是兜底到 document.body，会把别的 leaf 里的标题捡过来对齐。
+    return allowGlobalFallback ? search(document.body) : null;
 }
 
 /**
@@ -280,6 +291,23 @@ const HEADING_SEL = 'h1, h2, h3, h4, h5, h6, [data-heading], [class*="HyperMD-he
 // released a moment after it really left.
 const MULTI_REFERENCE_HOVER_GRACE_MS = 400;
 const hoverUnlockTimers = new WeakMap<HTMLElement, number>();
+
+// 右键菜单打开期间被锁定的链接（用 key 标识，和 DOM 无关）。虚拟链接的 widget
+// 会在右键后被 CodeMirror 整体重建，旧 span 上的 lock 类随旧 DOM 一起消失；
+// 这个集合让新 span 在重建时能自动恢复 lock，[1|2|3] 就不会收起。
+const contextLockedLinks = new Set<string>();
+
+/** 移除某个 key 的右键锁定（渲染表格路径的 file-menu 菜单关闭时也用它解锁）。 */
+export function clearContextLock(key: string): void {
+    contextLockedLinks.delete(key);
+}
+
+// 最近一次 hover 的虚拟链接指向的标题 id。预览 popover 打开时（onInsert）用它
+// 精确找目标标题，而不是按"视口顶部"猜——h1 等被 Obsidian 放到视口中部时，
+// 按顶部猜会捡到它上面的小标题。
+let lastHoveredHeadingId: string | null = null;
+export function setHoveredHeadingId(id: string | null): void { lastHoveredHeadingId = id; }
+export function getHoveredHeadingId(): string | null { return lastHoveredHeadingId; }
 
 /**
  * Pin the heading returned by `resolve` just below the top of its scroller,
@@ -434,8 +462,10 @@ function keepAligned(
                 const settleReady = !stillLoading && Date.now() - stableSince >= ALIGN_STABLE_MS;
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
-                // after a few seconds, correct a large miss anyway.
-                const impatient = Date.now() - startedAt > 4000 && miss > 60;
+                // after a moment, correct a large miss anyway. Kept short on
+                // purpose: in media-heavy notes settleReady may not hold for
+                // seconds, and waiting 4s just reads as "it takes ages to snap".
+                const impatient = Date.now() - startedAt > 1200 && miss > 60;
                 if (miss > ALIGN_TOLERANCE_PX && (settleReady || impatient)) {
                     // Inside a CodeMirror editor the view owns the scroll, so the
                     // job is handed to the editor (centred - the same call
@@ -489,20 +519,31 @@ export function keepScrolledHeadingAligned(
 ): void {
     const requestedAt = Date.now();
     let cached: HTMLElement | null = null;
+    // 预览弹窗没有 headingId，只能靠"当前最靠顶的标题"猜。但一旦滚动起来，顶部
+    // 就换成了另一个标题，猜出来的目标跟着换 → 追着不同标题滚个不停。所以第一次
+    // 猜中后把它的名字固定下来，之后按名字找，目标就不再漂移。
+    let pinnedId: string | null = null;
     keepAligned(
         () => {
             if (cached && cached.isConnected) return cached;
             // A known heading name is always preferred over guessing from the
             // layout - the click path knows exactly which heading was linked.
-            if (headingId) {
-                const byName = (scope && scope.isConnected ? findHeadingElement(scope, headingId) : null)
-                    ?? findHeadingElement(document.body, headingId);
+            const lookupId = headingId ?? pinnedId;
+            if (lookupId) {
+                const byName = (scope && scope.isConnected ? findHeadingElement(scope, lookupId) : null)
+                    ?? findHeadingElement(document.body, lookupId);
                 if (byName) { cached = byName; return cached; }
                 // Not rendered yet: keep waiting for THAT heading instead of
                 // latching onto a neighbour (which would be centred instead).
                 if (Date.now() - requestedAt < 4000) return null;
+                // 名字已固定过：宁可继续等它渲染，也别改去居中旁边的标题。
+                if (pinnedId) return null;
             }
-            cached = findHeadingAtTop(scope);
+            const top = findHeadingAtTop(scope, false);
+            if (top && !headingId && !pinnedId) {
+                pinnedId = normalizeHeading(top.getAttribute('data-heading') ?? top.textContent ?? '');
+            }
+            cached = top;
             return cached;
         },
         label,
@@ -558,6 +599,130 @@ export function buildIndentBackground(view: EditorView): DecorationSet {
  */
 export function isInTableCellEditor(el: Element | null): boolean {
     return Boolean(el?.closest('.cm-table-widget') && el?.closest('.table-cell-wrapper'));
+}
+
+type DispatchSelectionLike = {
+    anchor?: number; head?: number; from?: number; to?: number;
+    ranges?: { from: number; to: number }[];
+};
+
+/**
+ * 给某个 CodeMirror 视图的 dispatch 装一层保护：Obsidian 在复杂布局（大表格 /
+ * PDF-heavy note）里偶尔会拿一个超界的 selection 去 dispatch，抛
+ * "Selection points outside of document"。这里捕获它，把 selection clamp 到
+ * 文档长度内重试 —— 真正化解，而不是把报错藏起来。幂等，重复调用只挂一次。
+ */
+export function patchDispatchClamp(cm: EditorView): void {
+    const cmAny = cm as unknown as {
+        dispatch: (...a: unknown[]) => unknown;
+        __fkDispatchPatched?: boolean;
+    };
+    if (cmAny.__fkDispatchPatched) return;
+    cmAny.__fkDispatchPatched = true;
+    const origDispatch = cm.dispatch.bind(cm);
+    cmAny.dispatch = (...args: unknown[]) => {
+        try {
+            return origDispatch(...args);
+        } catch (e) {
+            const msg = String((e as Error)?.message ?? '');
+            if (!msg.includes('outside of document')) throw e;
+            const docLen = cm.state.doc.length;
+            const spec = (args[0] ?? {}) as { selection?: DispatchSelectionLike } & Record<string, unknown>;
+            const sel = spec.selection;
+            if (!sel) throw e;
+            const clamp = (v: number) => Math.min(Math.max(Number(v) || 0, 0), docLen);
+            const rawAnchor = sel.ranges?.[0]?.from ?? sel.anchor ?? sel.from ?? 0;
+            const rawHead = sel.ranges?.[0]?.to ?? sel.head ?? sel.to ?? sel.anchor ?? sel.from ?? 0;
+            return origDispatch({
+                ...spec,
+                selection: { anchor: clamp(rawAnchor), head: clamp(rawHead) },
+            });
+        }
+    };
+}
+
+/** 给当前文档里所有 CodeMirror 编辑器装上 dispatch 保护。 */
+export function patchAllEditorsDispatchClamp(): void {
+    const doc: Document = (typeof activeDocument !== 'undefined' ? activeDocument : document);
+    Array.from(doc.querySelectorAll('.cm-editor')).forEach((el) => {
+        const cm = EditorView.findFromDOM(el as HTMLElement);
+        if (cm) patchDispatchClamp(cm);
+    });
+}
+
+/**
+ * Attach the table-cell take-over context menu to a virtual-link span. In an
+ * editor-mode table cell Obsidian runs BOTH of its context-menu pipelines, so
+ * file-menu fires twice and every plugin's items appear twice; blocking both
+ * pipelines and showing our own menu here is the only reliable way.
+ *
+ * Extracted from getLinkRootSpan so liveLinker can attach it lazily: cell
+ * editors are built detached, so at toDOM() time the span has no .table-cell-wrapper
+ * ancestor yet and isInTableCellEditor() reads false. Attaching after the span
+ * is actually inserted (requestAnimationFrame) makes the check reliable even in
+ * large documents with many tables (where the earlier eager check flaked).
+ */
+export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatch): void {
+    span.classList.add('no-context-menu');
+    span.addEventListener('contextmenu', (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // 多引用列表（[1][2][3]）平时靠 hover 展开，鼠标一移开就折叠。右键时
+        // 必须先锁住它，否则鼠标移到菜单项上列表就收起、菜单也跟着消失。
+        const holder = (span.closest('.virtual-link-span') ?? span) as HTMLElement;
+        holder.classList.add('virtual-link-hover-lock');
+        // 打上标记，让 mouseleave 在菜单打开期间不要解锁。
+        holder.dataset.fkContextLock = '1';
+        // 加入锁定集：右键后 CodeMirror 重建 widget 时，新 span 靠它恢复 lock。
+        const lockKey = match.getLockKey();
+        contextLockedLinks.add(lockKey);
+        const unlock = () => {
+            contextLockedLinks.delete(lockKey);
+            delete holder.dataset.fkContextLock;
+            holder.classList.remove('virtual-link-hover-lock');
+        };
+
+        const menu = new Menu();
+        menu.addItem((item) => {
+            item.setTitle('Add to excluded keywords')
+                .setIcon('ban')
+                .onClick(async () => {
+                    if (match.originText) {
+                        const newExcludedKeywords = [...new Set([...match.settings.excludedKeywords, match.originText])];
+                        await match.plugin.updateSettings({ excludedKeywords: newExcludedKeywords });
+                        match.plugin.updateManager.update();
+                    }
+                });
+        });
+
+        // 用右键命中的那个链接（[1]/[2]/[3] 里具体哪一个），而不是格子里第一个
+        // 链接 —— 这样右键 [2] 转换到的就是第 2 个文件。菜单里仍只有一个
+        // "Convert to real link"，只是目标文件跟着右键命中的编号走。
+        const hit = (e.target as HTMLElement | null)?.closest?.('.virtual-link-a') as Element | null;
+        const anchor = (hit && span.contains(hit)) ? hit : span.querySelector('.virtual-link-a');
+
+        if (anchor) {
+            const href = anchor.getAttribute('href') || '';
+            const targetFile = match.plugin.app.vault.getAbstractFileByPath(href.split('#')[0]);
+            if (targetFile instanceof TFile) {
+                menu.addItem((item) => {
+                    item.setTitle('Convert to real link')
+                        .setIcon('link')
+                        .onClick(() => {
+                            convertVirtualLinkToReal(anchor as Element, targetFile, match.plugin.app, match.settings);
+                        });
+                });
+            }
+        }
+
+        // 只在菜单真正关闭时解锁。之前加了个 10s 定时兜底，结果菜单还开着、
+        // 用户还没选完，列表就被定时解掉了（这正是"10s 收起"的来源）。
+        // 去掉定时，改为完全依赖 onHide：菜单不关，列表就一直展开。
+        menu.onHide(unlock);
+
+        menu.showAtMouseEvent(e);
+    }, true);
 }
 
 export class VirtualMatch {
@@ -633,6 +798,13 @@ export class VirtualMatch {
      * (setFileHeaderId(), isFuzzy), and a cached signature would then be stale.
      * Callers that need it cheaper can memoise it per widget instance.
      */
+    getLockKey(): string {
+        // 只用 originText：cell editor 失焦提交后，虚拟链接从编辑态切回渲染态，
+        // from/to 会变（cell 偏移 → text-node 偏移），带偏移的 key 就失效了。
+        // 同名链接会被一起锁定，但无害（只是多展开一会儿，菜单关了就恢复）。
+        return this.originText;
+    }
+
     renderKey(): string {
         const s = this.settings;
 
@@ -794,7 +966,14 @@ export class VirtualMatch {
             const targetFile = file || (this.files.length > 0 ? this.files[0] : null);
             if (!targetFile) return false;
 
-            if (this.plugin && this.plugin.app) {
+            // 点进单元格（cell editor 激活）时，直接导航会触发 cell editor 的焦点
+            // 恢复（setCellFocus）报错（Selection points outside of document）。
+            // 先 blur 掉 cell editor，延迟到它提交退出后再导航。
+            const active = activeDocument.activeElement as HTMLElement | null;
+            const inCellEditor = Boolean(active && active.closest('.table-cell-wrapper'));
+
+            const doNav = () => {
+                if (this.plugin && this.plugin.app) {
                 // The surface the click happened in: a hover popover hosts its
                 // own editor (Hover Editor), i.e. it is NOT a workspace leaf,
                 // while openLinkText() can only ever scroll a workspace leaf -
@@ -802,6 +981,13 @@ export class VirtualMatch {
                 const clicked = event.target as HTMLElement | null;
                 const scope = (clicked?.closest?.('.hover-popover') as HTMLElement | null)
                     ?? (clicked?.closest?.('.workspace-leaf') as HTMLElement | null);
+
+                // 跳转前给所有编辑器装上 dispatch 保护：大表格 / PDF-heavy note
+                // 里，跳转后的滚动与重新渲染会让 Obsidian 拿超界 selection 去
+                // dispatch，抛 "Selection points outside of document"（这是
+                // Obsidian 内部算错的位置，插件改不了源头，只能在这里拦住并
+                // clamp 到合法范围重试）。
+                patchAllEditorsDispatchClamp();
 
                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
 
@@ -855,10 +1041,10 @@ export class VirtualMatch {
                         // API - never through a synthetic scroll, which is what made
                         // CodeMirror give up rendering a PDF-heavy note.
                         const editorScroll = (el: HTMLElement, headingText: string): boolean => {
-                            if (this.plugin?.centerHeadingElement?.(el, 8000)) return true;
+                            if (this.plugin?.centerHeadingElement?.(el, alignWindow)) return true;
                             const target = resolveHeadingTarget(this.plugin.app, el, headingText, null);
                             if (!target) return false;
-                            this.plugin.centerHeadingLine(target.view, target.line, 8000);
+                            this.plugin.centerHeadingLine(target.view, target.line, alignWindow);
                             return true;
                         };
                         keepScrolledHeadingAligned(scope, 'click-editor', alignWindow, editorScroll, headerIdToUse);
@@ -889,7 +1075,17 @@ export class VirtualMatch {
                         keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse);
                     }
                 }
+                }
+            };
 
+            if (inCellEditor) {
+                active!.blur();
+                // 把焦点交还给主 editor，让 cell editor 彻底退出，避免导航后
+                // Obsidian 恢复 cell editor 焦点（setCellFocus）时用失效的 selection 报错。
+                this.plugin?.app.workspace.getActiveViewOfType(MarkdownView)?.editor.focus();
+                window.setTimeout(doNav, 250);
+            } else {
+                doNav();
             }
 
             return false;
@@ -907,7 +1103,14 @@ export class VirtualMatch {
     getLinkRootSpan(inTableCellEditor = false) {
         const span = activeDocument.createElement('span');
         span.classList.add('virtual-link', 'virtual-link-span');
-        
+
+        // 这个链接正被右键锁定（菜单打开中）时，恢复 lock 状态。widget 可能
+        // 在右键后被 CodeMirror 整体重建，这些类不会自己跟过来。
+        if (contextLockedLinks.has(this.getLockKey())) {
+            span.classList.add('virtual-link-hover-lock');
+            span.dataset.fkContextLock = '1';
+        }
+
         if (this.settings.applyDefaultLinkStyling) {
             span.classList.add('virtual-link-default');
         }
@@ -932,15 +1135,34 @@ export class VirtualMatch {
                 hoverUnlockTimers.delete(span);
             }
             span.classList.add('virtual-link-hover-lock');
+            // 记住 hover 链接指向的标题，预览 popover 打开时用它精确定位，
+            // 而不是按"视口顶部"猜（h1 被放到中部时那样会猜错）。
+            const anchor = span.querySelector('.virtual-link-a');
+            const hid = anchor?.getAttribute('data-heading-id');
+            if (hid) setHoveredHeadingId(hid);
         });
         span.addEventListener('mouseleave', () => {
             const pending = hoverUnlockTimers.get(span);
             if (pending !== undefined) window.clearTimeout(pending);
+            // 右键菜单打开期间不要解锁：鼠标移向菜单项就会离开这个 span，
+            // 一旦解锁 [1|2|3] 立刻收起，右键菜单也跟着断掉。
+            if (span.dataset.fkContextLock) return;
             hoverUnlockTimers.set(span, window.setTimeout(() => {
                 hoverUnlockTimers.delete(span);
                 span.classList.remove('virtual-link-hover-lock');
             }, MULTI_REFERENCE_HOVER_GRACE_MS));
         });
+        // 右键时阻止 CodeMirror 把光标移到点击处：光标一进入虚拟链接，CodeMirror
+        // 就把整个链接替换成纯文本，[1|2|3] 列表跟着消失，也就没法"指着编号
+        // 右键"了。这里只拦右键（button===2），左键/中键完全不受影响。
+        span.addEventListener('mousedown', (e: MouseEvent) => {
+            if (e.button !== 2) return;
+            // 加入锁定集：右键后 CodeMirror 会重建 widget，新 span 靠这个集合
+            // 恢复 lock，[1|2|3] 才不会收起。菜单关闭时（unlock）移除。
+            contextLockedLinks.add(this.getLockKey());
+            e.preventDefault();
+            e.stopPropagation();
+        }, true);
 
         // Add context-specific classes
         if (this.isBoldContext) {
@@ -977,34 +1199,7 @@ export class VirtualMatch {
         // completely here: both pipelines are blocked and our own menu with
         // just the virtual-link actions is shown instead.
         if (inTableCellEditor) {
-            span.classList.add('no-context-menu');
-            span.addEventListener('contextmenu', (e: MouseEvent) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const menu = new Menu();
-                menu.addItem((item) => {
-                    item.setTitle('Add to excluded keywords')
-                        .setIcon('ban')
-                        .onClick(async () => {
-                            if (this.originText) {
-                                const newExcludedKeywords = [...new Set([...this.settings.excludedKeywords, this.originText])];
-                                await this.plugin.updateSettings({ excludedKeywords: newExcludedKeywords });
-                                this.plugin.updateManager.update();
-                            }
-                        });
-                });
-                const anchor = span.querySelector('.virtual-link-a');
-                if (anchor && this.files.length > 0) {
-                    menu.addItem((item) => {
-                        item.setTitle('Convert to real link')
-                            .setIcon('link')
-                            .onClick(() => {
-                                convertVirtualLinkToReal(anchor as Element, this.files[0], this.plugin.app, this.settings);
-                            });
-                    });
-                }
-                menu.showAtMouseEvent(e);
-            }, true);
+            attachTableCellContextMenu(span, this);
         }
         
         return span;
