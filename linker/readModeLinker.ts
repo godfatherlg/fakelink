@@ -2,7 +2,7 @@ import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, TF
 
 import { LinkerPluginSettings } from '../main';
 import { LinkerCache, MatchType, PrefixTree } from './linkerCache';
-import { VirtualMatch } from './virtualLinkDom';
+import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
 import IntervalTree from '@flatten-js/interval-tree';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -250,6 +250,14 @@ export class GlossaryLinker extends MarkdownRenderChild {
                 this.clearExistingLinks();
                 return;
             }
+        }
+
+        // 单篇禁用：笔记自己声明了不渲染任何虚拟链接（标签或 frontmatter 属性，
+        // 用哪种由 linkIgnoreMode 决定）
+        const ignoreFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
+        if (ignoreFile instanceof TFile && isLinkingDisabledInNote(ignoreFile, this.app, this.settings)) {
+            this.clearExistingLinks();
+            return;
         }
 
         // The prefix tree is built asynchronously (in chunks); on first load

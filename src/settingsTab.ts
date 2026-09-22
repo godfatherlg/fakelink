@@ -385,6 +385,26 @@ export class LinkerSettingTab extends PluginSettingTab {
                     placeholder: 'List of directory names (separated by new line)',
                     visible: adv,
                 }),
+                // 上面那项是"按目录"关闭链接生成，下面这组是"按单篇" —— 两者都是源侧
+                // 排除（笔记自己不生成链接），与 Exclusions 组里那些"让笔记不被链接到"
+                // 的目标侧排除相反，所以放在这里而不是 Exclusions 组。
+                dropdownDef(t('Single-note opt-out'), 'linkIgnoreMode', {
+                    off: t('Off — no note can opt out'),
+                    tag: t('By tag'),
+                    property: t('By frontmatter property'),
+                }, {
+                    desc: t('Lets one note switch off virtual links inside itself (the opposite of "linker-exclude", which stops it being linked from elsewhere). Pick one method; the matching field below is used.'),
+                }),
+                textDef(t('Opt-out tag name'), 'linkIgnoreTag', {
+                    desc: t('Used when the method is "By tag": a note carrying this tag renders no virtual links at all. Put it in the frontmatter (tags: [linker-ignore]) or anywhere in the note as #linker-ignore.'),
+                    placeholder: 'linker-ignore',
+                    visible: () => s.linkIgnoreMode === 'tag',
+                }),
+                textDef(t('Opt-out property name'), 'linkIgnoreProperty', {
+                    desc: t('Used when the method is "By frontmatter property": a note with this property set to true renders no virtual links at all. Usage: add "linker-ignore: true" to the note frontmatter.'),
+                    placeholder: 'linker-ignore',
+                    visible: () => s.linkIgnoreMode === 'property',
+                }),
                 textDef(t('Tag to include file'), 'tagToIncludeFile', {
                     desc: t('Tag to explicitly include the file for the linker.'),
                     visible: adv,

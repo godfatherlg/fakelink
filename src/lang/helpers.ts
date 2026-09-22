@@ -199,6 +199,16 @@ const zhCN: Record<string, string> = {
     'The maximum time (in SECONDS) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. The number you type is the number of seconds (8 = 8 seconds); 0 means do not wait.': '定位光标前等待目标文件渲染的最长时间（秒）。小文件几乎立即跳转；大文件最多等待到此上限。这里填的就是秒数（8 ⇒ 8 秒）；填 0 表示不等待。',
     'Open in new tab': '在新标签页打开',
     'When the target file is not already open, open it in a new tab. When off, the current tab is reused.': '当目标文件尚未打开时，在新标签页中打开。关闭时则复用当前标签页。',
+
+    'Single-note opt-out': '单篇禁用虚拟链接',
+    'Lets one note switch off virtual links inside itself (the opposite of "linker-exclude", which stops it being linked from elsewhere). Pick one method; the matching field below is used.': '允许单篇笔记关闭自身内部的虚拟链接渲染（与 linker-exclude 相反——后者是让该笔记不被别处链接到）。选择一种方式，下方对应的输入框生效。',
+    'Off — no note can opt out': '关闭（不允许单篇禁用）',
+    'By tag': '按标签',
+    'By frontmatter property': '按 Frontmatter 属性',
+    'Opt-out tag name': '禁用标签名',
+    'Used when the method is "By tag": a note carrying this tag renders no virtual links at all. Put it in the frontmatter (tags: [linker-ignore]) or anywhere in the note as #linker-ignore.': '当方式为「按标签」时，带有该标签的笔记完全不渲染虚拟链接。可写在 frontmatter（tags: [linker-ignore]）或正文任意处（#linker-ignore），也支持层级标签（如 #linker-ignore/xxx）。',
+    'Opt-out property name': '禁用属性名',
+    'Used when the method is "By frontmatter property": a note with this property set to true renders no virtual links at all. Usage: add "linker-ignore: true" to the note frontmatter.': '当方式为「按 Frontmatter 属性」时，该属性设为 true 的笔记完全不渲染虚拟链接。用法：在笔记 frontmatter 添加 "linker-ignore: true"。',
 };
 
 export function t(text: string): string {

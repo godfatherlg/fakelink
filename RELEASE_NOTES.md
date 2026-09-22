@@ -1,29 +1,27 @@
-# 1.23.41
+# 1.23.42
 
 ## 中文
 
-**多指向虚拟链接（`[1|2|3]`）排序重做，越相关越靠前**
+**新增：单篇笔记可关闭自身内部的虚拟链接（源侧禁用）**
 
-- 排序分四层：
-  1. **正文里已经提到过它** —— 前面已有一条指向它的链接（精准**或模糊**匹配都算），或它的文件名 / 别名在文中出现过 —— **直接排到最前**，压过下面的档位；
-  2. **档位**：文件名精准 > 文件名包含 > 别名 > 标题原文等于关键词 > 标题去掉章节号后相等 > 标题仅包含；
-  3. **上下文距离**：同一档位内，正文里提到它的位置离关键词越近越靠前（判断范围从"当前段落"扩大到**整篇**）；
-  4. **时间兜底**：最后修改时间越新越靠前（新建笔记的 mtime 就是 ctime）。
-- 修复：标题**原文**等于关键词的笔记，可能排在"标题只是包含关键词"的笔记后面。
-- 修复：文件名**正好等于关键词**、但同时带标题匹配的笔记，被当成标题匹配排到了最后。
-- 修复：同一组候选在渲染前互相把对方记成"已链接"，导致相关性加权失效（快照顺序）。
-- 说明：重命名不会更新文件的 ctime / mtime，因此"改过文件名"无法被判定为"更新"。
+- 新设置「单篇禁用虚拟链接」，位于 **Files** 分组（在「排除生成虚拟链接的目录」正下方，两者都是源侧排除）。可选择一种方式：
+  - **按标签**（默认）：笔记带 `linker-ignore` 标签即生效 —— 可写在 frontmatter（`tags: [linker-ignore]`）或正文任意处（`#linker-ignore`），也支持层级标签；
+  - **按 Frontmatter 属性**：frontmatter 写 `linker-ignore: true` 即生效；
+  - **关闭**：不启用该功能。
+- 两种方式的名字都可在设置里自定义；因为同一时间只生效一种，默认值统一为 `linker-ignore`，与 `linker-exclude`、`linker-ignore-case`、`linker-match-case` 的前缀保持一致。
+- 属性判定做了宽松处理：`true`、`"true"`（Obsidian 属性面板按「文本」类型存储时写成的字符串）、`True` 都算开启。
+- 标签判定同时检查正文的 `#tag` 与 frontmatter 的 `tags`，避免不同 Obsidian 版本对二者归并方式不一致导致漏判。
+- 说明：这与已有的 `linker-exclude` 方向相反 —— 后者是"让这篇笔记**不被别处链接到**"（目标侧），本次新增的是"这篇笔记**自己内部不生成任何虚拟链接**"（源侧）。
 
 ## English
 
-**Multi-target link ranking (`[1|2|3]`) reworked — most relevant first**
+**New: a single note can switch off virtual links inside itself (source-side opt-out)**
 
-- Four ranking layers:
-  1. **Already mentioned earlier in the note** — an existing link to it (exact **or fuzzy**) or its file name / alias appearing in the text — ranked **first, above the tiers below**;
-  2. **Tier**: exact file name > partial file name > alias > heading equals the keyword > heading equals it after stripping the section number > heading merely contains it;
-  3. **Context distance**: within a tier, the closer the mention sits to the keyword, the earlier (scope widened from the current paragraph to **the whole note**);
-  4. **Recency fallback**: most recently modified first (a new note's mtime equals its ctime).
-- Fixed: a note whose heading **is** the keyword could rank after one whose heading merely contains it.
-- Fixed: a note whose file name **equals** the keyword, but which also has a heading match, was ranked as a heading match and pushed last.
-- Fixed: candidates marking each other as "already linked" before rendering, which disabled the relevance boost (snapshot order).
-- Note: renaming does not update ctime / mtime, so a renamed note cannot be treated as "newer".
+- New setting "Single-note opt-out", placed in the **Files** group right under "Excluded directories for generating virtual links" (both are source-side exclusions). Pick one method:
+  - **By tag** (default): a note carrying the `linker-ignore` tag renders no virtual links — put it in the frontmatter (`tags: [linker-ignore]`) or anywhere in the body (`#linker-ignore`); nested tags are supported;
+  - **By frontmatter property**: `linker-ignore: true` in the frontmatter;
+  - **Off**: the feature is disabled.
+- Both names are configurable; since only one method is active at a time, both default to `linker-ignore`, matching the existing `linker-` prefix family (`linker-exclude`, `linker-ignore-case`, `linker-match-case`).
+- The property check is lenient: `true`, `"true"` (what Obsidian's Properties panel writes for a text-typed property) and `True` all count as enabled.
+- The tag check looks at both in-body `#tags` and frontmatter `tags`, since Obsidian versions differ in whether they merge the latter into the tag cache.
+- Note this is the opposite of `linker-exclude`, which stops a note from being linked **from elsewhere** (target-side); this one stops the note from generating any virtual links **inside itself** (source-side).

@@ -79,6 +79,9 @@ export interface LinkerPluginSettings {
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
     frontmatterExcludeListProperty: string; // Frontmatter property for per-note keyword list
+    linkIgnoreMode: 'off' | 'tag' | 'property'; // How a single note opts out of all virtual links
+    linkIgnoreTag: string;        // Tag name, used when linkIgnoreMode = 'tag'
+    linkIgnoreProperty: string;   // Frontmatter property name, used when linkIgnoreMode = 'property'
     headerVirtualLinkColor: string; // Color for header virtual links
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     fuzzyBaseColor: string; // Base color mixed into fuzzy-match link colors
@@ -164,6 +167,11 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
     frontmatterExcludeListProperty: 'fakelink-exclude-keywords',
+    linkIgnoreMode: 'tag',
+    linkIgnoreTag: 'linker-ignore',
+    // 属性也用 linker- 前缀，和 linker-exclude / linker-ignore-case / linker-match-case
+    // 保持一致。两种方式是二选一（linkIgnoreMode），所以同名不会冲突。
+    linkIgnoreProperty: 'linker-ignore',
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
     fuzzyBaseColor: '#8e44ad',

@@ -614,6 +614,61 @@ export function isInTableCellEditor(el: Element | null): boolean {
     return Boolean(el?.closest('.cm-table-widget') && el?.closest('.table-cell-wrapper'));
 }
 
+/**
+ * 单篇禁用（源侧）：让这一篇笔记自己不渲染任何虚拟链接。
+ * 用哪种方式由设置里的 linkIgnoreMode 决定：
+ *   'off'      —— 不启用
+ *   'tag'      —— 带指定标签即禁用（frontmatter 的 tags 和正文里的 #tag 都算，
+ *                 也支持层级标签，如 #linker-ignore/xxx）
+ *   'property' —— frontmatter 里指定属性为 true 即禁用（如 fakelink-ignore: true）
+ */
+export function isLinkingDisabledInNote(
+    file: TFile | null | undefined,
+    app: App,
+    settings: LinkerPluginSettings
+): boolean {
+    const mode = settings.linkIgnoreMode ?? 'off';
+    if (mode === 'off' || !file) return false;
+
+    const cache = app.metadataCache.getFileCache(file);
+    if (!cache) return false;
+
+    const fm = cache.frontmatter as Record<string, unknown> | undefined;
+
+    if (mode === 'property') {
+        const prop = settings.linkIgnoreProperty;
+        if (!prop || !fm) return false;
+        const raw = fm[prop];
+        // 宽松判定：YAML 里写成 linker-ignore: "true"（带引号）时解析出来是字符串，
+        // 只认布尔 true 的话用户会觉得"明明设了却没生效"。这里 true / "true" /
+        // "True" 都算开启。
+        return raw === true
+            || (typeof raw === 'string' && raw.trim().toLowerCase() === 'true');
+    }
+
+    // mode === 'tag'
+    const tag = settings.linkIgnoreTag;
+    if (!tag) return false;
+    const want = tag.replace(/^#/, '').toLowerCase();
+
+    // 正文里的 #tag（cache.tags）和 frontmatter 的 tags 都要看：不同 Obsidian
+    // 版本对"frontmatter 里的 tags 是否并入 cache.tags"处理不一致，两边都查才稳。
+    const candidates: string[] = [];
+    for (const t of cache.tags ?? []) candidates.push(t.tag);
+    const fmTags = fm?.tags;
+    if (Array.isArray(fmTags)) {
+        for (const t of fmTags) if (typeof t === 'string') candidates.push(t);
+    } else if (typeof fmTags === 'string') {
+        candidates.push(...fmTags.split(/[,\s]+/));
+    }
+
+    for (const raw of candidates) {
+        const name = raw.replace(/^#/, '').toLowerCase();
+        if (name === want || name.startsWith(want + '/')) return true;
+    }
+    return false;
+}
+
 type DispatchSelectionLike = {
     anchor?: number; head?: number; from?: number; to?: number;
     ranges?: { from: number; to: number }[];

@@ -6,7 +6,7 @@ import { App, MarkdownView, TFile, Vault, getLinkpath } from 'obsidian';
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType } from './linkerCache';
-import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu } from './virtualLinkDom';
+import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu, isLinkingDisabledInNote } from './virtualLinkDom';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -531,6 +531,11 @@ class AutoLinkerPlugin implements PluginValue {
             const path = mappedFile?.parent?.path ?? this.app.workspace.getActiveFile()?.parent?.path;
             if (excludedFolders.includes(path ?? '')) return builder.finish();
         }
+
+        // 单篇禁用：笔记自己声明了不渲染任何虚拟链接（标签或 frontmatter 属性，
+        // 用哪种由 linkIgnoreMode 决定）
+        const ignoreFile = mappedFile ?? this.app.workspace.getActiveFile();
+        if (isLinkingDisabledInNote(ignoreFile, this.app, this.settings)) return builder.finish();
 
         // Set to exclude files that are explicitly linked
         const explicitlyLinkedFiles = new Set<TFile>();
