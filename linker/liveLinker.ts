@@ -38,7 +38,7 @@ export class VirtualLinkWidget extends WidgetType {
         const element = this.match.getCompleteLinkElement(false);
 
         // Attach the table-cell context menu once the span is actually in the DOM.
-        requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
             if (isInTableCellEditor(element)) {
                 attachTableCellContextMenu(element, this.match);
             }
@@ -188,7 +188,7 @@ class AutoLinkerPlugin implements PluginValue {
                     this.decorations = this.buildDecorations(view, true);
                     view.dispatch({});
                 } else {
-                    requestAnimationFrame(attempt);
+                    window.requestAnimationFrame(attempt);
                 }
             };
             attempt();

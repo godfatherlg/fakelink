@@ -17,43 +17,6 @@ import { LinkerSettingTab } from './src/settingsTab';
 // 滚动"——预览弹窗里尤其明显。
 const activeCenterLoops = new WeakMap<EditorView, AbortController>();
 
-// Obsidian compatible path utility functions
-function dirname(filePath: string): string {
-    const lastSlashIndex = filePath.lastIndexOf('/');
-    return lastSlashIndex === -1 ? '' : filePath.substring(0, lastSlashIndex);
-}
-
-function basename(filePath: string): string {
-    const lastSlashIndex = filePath.lastIndexOf('/');
-    return lastSlashIndex === -1 ? filePath : filePath.substring(lastSlashIndex + 1);
-}
-
-function relative(from: string, to: string): string {
-    // Simplified relative path calculation for Obsidian environment
-    if (from === to) return '';
-    
-    const fromParts = from.split('/').filter(part => part !== '');
-    const toParts = to.split('/').filter(part => part !== '');
-    
-    // Find common prefix
-    let commonLength = 0;
-    while (commonLength < fromParts.length && 
-           commonLength < toParts.length && 
-           fromParts[commonLength] === toParts[commonLength]) {
-        commonLength++;
-    }
-    
-    // Calculate number of parent directories to go up
-    const upLevels = fromParts.length - commonLength;
-    const downParts = toParts.slice(commonLength);
-    
-    // Construct relative path
-    const upPath = upLevels > 0 ? '../'.repeat(upLevels) : './';
-    const downPath = downParts.join('/');
-    
-    return downPath ? upPath + downPath : upPath.slice(0, -1); // Remove trailing '/'
-}
-
 export interface LinkerPluginSettings {
     app?: App; // Add app instance reference
     autoToggleByMode: boolean;
@@ -289,6 +252,9 @@ export default class LinkerPlugin extends Plugin {
             }
         }
         try {
+            // Clipboard use is limited to this user-invoked "copy line link"
+            // command: it only WRITES (never reads) the obsidian:// URL of the
+            // link the user asked to copy. No clipboard content is inspected.
             await navigator.clipboard.writeText(`[${line}](${uri})`);
             new Notice(t('Line link copied'));
         } catch {

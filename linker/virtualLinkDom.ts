@@ -9,6 +9,19 @@ import { t } from '../src/lang/helpers';
 type LinkerPluginType = import('main').default;
 
 // ---------------------------------------------------------------------------
+// Why this file uses `activeDocument.createElement` rather than Obsidian's
+// `createEl` helper (which the `obsidianmd/prefer-create-el` lint flags):
+//
+// The widget elements built here are DETACHED on purpose - a virtual-link span
+// is handed to CodeMirror after being built (and the numbered [1|2|3] anchors
+// are appended to that still-detached span). `createEl` appends the new element
+// to its receiver immediately, so it would place the element in the document
+// before CodeMirror could; and plugins that replace that helper (Media
+// Extended) make the call throw
+// "HierarchyRequestError: Only one element on document allowed".
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
 // Heading alignment after navigation
 //
 // A jump to a heading lands exactly on it, but content ABOVE the heading can
@@ -670,7 +683,7 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
 
         // 多引用列表（[1][2][3]）平时靠 hover 展开，鼠标一移开就折叠。右键时
         // 必须先锁住它，否则鼠标移到菜单项上列表就收起、菜单也跟着消失。
-        const holder = (span.closest('.virtual-link-span') ?? span) as HTMLElement;
+        const holder = span.closest<HTMLElement>('.virtual-link-span') ?? span;
         holder.classList.add('virtual-link-hover-lock');
         // 打上标记，让 mouseleave 在菜单打开期间不要解锁。
         holder.dataset.fkContextLock = '1';
@@ -710,7 +723,7 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
                     item.setTitle('Convert to real link')
                         .setIcon('link')
                         .onClick(() => {
-                            convertVirtualLinkToReal(anchor as Element, targetFile, match.plugin.app, match.settings);
+                            convertVirtualLinkToReal(anchor, targetFile, match.plugin.app, match.settings);
                         });
                 });
             }
