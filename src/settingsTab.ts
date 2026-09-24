@@ -148,7 +148,30 @@ export class LinkerSettingTab extends PluginSettingTab {
                 break;
             case 'backgroundHighlight':
                 await this.plugin.updateSettings({ backgroundHighlight: value as boolean });
-                this.applyBodyClass('virtual-link-bg', value as boolean);
+                // Turning the master switch off has to clear the part classes
+                // too, otherwise a leftover part class silently re-applies as
+                // soon as the master switch comes back on.
+                this.applyBackgroundClasses();
+                break;
+            case 'backgroundTint':
+                await this.plugin.updateSettings({ backgroundTint: value as boolean });
+                this.applyBackgroundClasses();
+                break;
+            case 'backgroundLines':
+                await this.plugin.updateSettings({ backgroundLines: value as boolean });
+                this.applyBackgroundClasses();
+                break;
+            case 'backgroundCursorLine':
+                await this.plugin.updateSettings({ backgroundCursorLine: value as boolean });
+                this.applyBackgroundClasses();
+                break;
+            case 'backgroundTabAccent':
+                await this.plugin.updateSettings({ backgroundTabAccent: value as boolean });
+                this.applyBackgroundClasses();
+                break;
+            case 'backgroundUnfocusedMask':
+                await this.plugin.updateSettings({ backgroundUnfocusedMask: value as boolean });
+                this.applyBackgroundClasses();
                 break;
             case 'backgroundLineOpacity':
                 await this.plugin.updateSettings({ backgroundLineOpacity: value as number });
@@ -196,14 +219,51 @@ export class LinkerSettingTab extends PluginSettingTab {
         return value.split('\n').map((x) => x.trim()).filter((x) => x.length > 0);
     }
 
+    /**
+     * Run `fn` against the <body> of every window that hosts a leaf.
+     *
+     * Everything used to go through `containerEl.ownerDocument`, i.e. whichever
+     * document the settings tab itself lives in. That is not necessarily the
+     * document the notes are in - a settings tab can be opened (or dragged) into
+     * another window - and notes living in popout windows were never touched at
+     * all, so changing a look setting appeared to do nothing until a reload.
+     */
+    private eachBody(fn: (body: HTMLElement) => void): void {
+        const done = new Set<Document>();
+        const visit = (ownerDoc: Document) => {
+            if (done.has(ownerDoc)) return;
+            done.add(ownerDoc);
+            fn(ownerDoc.body);
+        };
+        visit(this.app.workspace.containerEl.ownerDocument);
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const el = leaf.view?.containerEl;
+            if (el) visit(el.ownerDocument);
+        });
+    }
+
     private applyBodyClass(cls: string, on: boolean): void {
-        const doc = this.containerEl.ownerDocument;
-        if (on) doc.body.classList.add(cls);
-        else doc.body.classList.remove(cls);
+        this.eachBody((body) => {
+            if (on) body.classList.add(cls);
+            else body.classList.remove(cls);
+        });
     }
 
     private applyCssVar(name: string, value: string): void {
-        this.containerEl.ownerDocument.body.style.setProperty(name, value);
+        this.eachBody((body) => body.style.setProperty(name, value));
+    }
+
+    /**
+     * Re-apply the whole "Background" look.
+     *
+     * The plugin owns this now (LinkerPlugin.applyBackgroundStyles), because it
+     * has to reach every window, not just the one this settings tab lives in.
+     * Deriving all classes from scratch rather than toggling one matters too:
+     * `virtual-link-bg` gates the rest, so the part classes have to disappear
+     * with it.
+     */
+    private applyBackgroundClasses(): void {
+        this.plugin.applyBackgroundStyles();
     }
 
     getSettingDefinitions(): SettingDefinitionItem[] {
@@ -536,14 +596,34 @@ export class LinkerSettingTab extends PluginSettingTab {
             // ---------- Appearance ----------
             groupDef(t('Appearance'), [
                 toggleDef(t('Background'), 'backgroundHighlight', {
-                    desc: t('One switch for the whole look: a very faint tint, a light blue background on list lines, on tab-indented lines (and the line above them), on tables and callouts, a warm orange highlight on the cursor line with a dark brown caret, accent styling for the active tab header, and a gentle mask while the window is unfocused. Off by default; every colour is a CSS variable (--fakelink-...).'),
+                    desc: t('Master switch for the look below. Each part of it can then be switched off separately with the toggles under it, so you keep only what you want instead of getting everything at once. Off by default; every colour is a CSS variable (--fakelink-...).'),
+                }),
+                toggleDef(t('Overall tint'), 'backgroundTint', {
+                    desc: t('The very faint background colour of the app surfaces (aliceblue in light themes, dark grey in dark ones). Also feeds Obsidian own --background-* variables, so themes that read them follow along.'),
+                    visible: () => s.backgroundHighlight,
+                }),
+                toggleDef(t('Line and block tint'), 'backgroundLines', {
+                    desc: t('Light blue background on list lines, on tab-indented lines (and the line above them), on tables and on callouts. All four use one colour - set its opacity with the strength slider below. Every callout type gets it, not just "note".'),
+                    visible: () => s.backgroundHighlight,
                 }),
                 sliderDef(t('Background tint strength'), 'backgroundLineOpacity', 0, 60, 1, {
                     desc: t('Opacity of the light blue tint on list / indented / table / callout lines. 10 is the default.'),
+                    visible: () => s.backgroundHighlight && s.backgroundLines,
+                }),
+                toggleDef(t('Cursor line'), 'backgroundCursorLine', {
+                    desc: t('Warm orange highlight on the line the cursor is on, together with the caret colour.'),
                     visible: () => s.backgroundHighlight,
                 }),
                 sliderDef(t('Cursor line strength'), 'cursorLineOpacity', 0, 100, 1, {
                     desc: t('Opacity of the warm orange highlight on the line the cursor is on. 35 is the default.'),
+                    visible: () => s.backgroundHighlight && s.backgroundCursorLine,
+                }),
+                toggleDef(t('Tab accent'), 'backgroundTabAccent', {
+                    desc: t('Makes the active tab header stand out: a raised background, an accent-coloured underline and label, a bolder label and a soft shadow.'),
+                    visible: () => s.backgroundHighlight,
+                }),
+                toggleDef(t('Unfocused mask'), 'backgroundUnfocusedMask', {
+                    desc: t('Dims the workspace with a gentle mask while the Obsidian window is not focused, so it stays obvious which window you are typing into.'),
                     visible: () => s.backgroundHighlight,
                 }),
                 toggleDef(t('Color-only display'), 'colorOnlyDisplay', {

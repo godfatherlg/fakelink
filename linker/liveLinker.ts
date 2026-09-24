@@ -131,6 +131,10 @@ class AutoLinkerPlugin implements PluginValue {
     settings: LinkerPluginSettings;
     plugin: LinkerPluginType;
 
+    // Unsubscriber for the updateManager callback registered below. The view
+    // plugin outlives nothing but itself: without this, every note ever opened
+    // stayed subscribed and was repainted on each settings change.
+    private unsubscribeUpdate: (() => void) | null = null;
     private lastCursorPos: number = 0;
     private lastActiveFile: string = '';
     private lastViewUpdate: ViewUpdate | null = null;
@@ -194,7 +198,7 @@ class AutoLinkerPlugin implements PluginValue {
             attempt();
         });
 
-        updateManager.registerCallback(() => {
+        this.unsubscribeUpdate = updateManager.registerCallback(() => {
             if (this.lastViewUpdate) {
                 this.update(this.lastViewUpdate, true);
             }
@@ -311,6 +315,8 @@ class AutoLinkerPlugin implements PluginValue {
             this.scrollDebounceTimer = null;
             this.pendingScrollBuild = null;
         }
+        this.unsubscribeUpdate?.();
+        this.unsubscribeUpdate = null;
     }
 
     /**

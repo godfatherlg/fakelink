@@ -140,16 +140,34 @@ const FUZZY_ZH_STOPWORD_TEST = new RegExp(
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
     registeredCallbacks: Set<() => void> = new Set();
+    // A burst of changes should rebuild everything once, not once per change.
+    private pendingTimer: number | null = null;
 
     constructor() {}
 
-    registerCallback(callback: () => void) {
+    /**
+     * @returns a function that removes the callback again. Every caller owns a
+     * lifetime that is shorter than the plugin's (a CodeMirror ViewPlugin is
+     * destroyed with its view), so keeping anonymous callbacks alive here meant
+     * repainting views that no longer exist.
+     */
+    registerCallback(callback: () => void): () => void {
         this.registeredCallbacks.add(callback);
+        return () => this.unregisterCallback(callback);
+    }
+
+    unregisterCallback(callback: () => void) {
+        this.registeredCallbacks.delete(callback);
     }
 
     update() {
-        // Timeout to make sure the cache is updated
-        window.setTimeout(() => {
+        // Timeout to make sure the cache is updated. Restarting the timer makes
+        // the whole burst coalesce: dragging a slider used to queue one rebuild
+        // per step, each of them throwing the index away and repainting every
+        // open note.
+        if (this.pendingTimer !== null) window.clearTimeout(this.pendingTimer);
+        this.pendingTimer = window.setTimeout(() => {
+            this.pendingTimer = null;
             for (const callback of this.registeredCallbacks) {
                 callback();
             }

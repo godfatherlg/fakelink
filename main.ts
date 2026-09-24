@@ -75,6 +75,16 @@ export interface LinkerPluginSettings {
     backgroundHighlight: boolean;
     backgroundLineOpacity: number;  // 0-100, alpha of the list / indent / table / callout tint
     cursorLineOpacity: number;      // 0-100, alpha of the cursor-line highlight
+    // The look above used to be one all-or-nothing switch. These split it into
+    // independently switchable parts (each maps to its own `<the class>-*`
+    // body class and is checked by its own group of rules in styles.css):
+    backgroundTint: boolean;        // overall app tint
+    backgroundLines: boolean;       // list / indent / table / callout backgrounds
+    backgroundCursorLine: boolean;  // cursor line highlight + caret colour
+    backgroundTabAccent: boolean;      // active tab header styling
+    backgroundUnfocusedMask: boolean;  // mask over the workspace while unfocused
+    /** @deprecated Superseded by the two above; read once by loadSettings to migrate. */
+    backgroundTabs?: boolean;
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
     enableFrontmatterExcludeList: boolean; // When enabled, notes can define extra excluded keywords in frontmatter
@@ -161,6 +171,15 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     colorOnlyDisplay: true,
     disableVirtualLinkPreview: false,
     backgroundHighlight: false,
+    // The parts default to on: they only take effect while the master switch is
+    // on, so turning it on still gives the complete look (an existing user's
+    // appearance is unchanged after upgrading).
+    backgroundTint: true,
+    backgroundLines: true,
+    backgroundCursorLine: true,
+    backgroundTabAccent: true,
+    backgroundUnfocusedMask: true,
+    backgroundTabs: true, // deprecated: migration source only, never read at runtime
     backgroundLineOpacity: 10,
     cursorLineOpacity: 35,
     frontmatterExcludeProperty: 'fakelink-exclude',
@@ -682,16 +701,10 @@ export default class LinkerPlugin extends Plugin {
             activeWindow.document.body.classList.add('virtual-link-color-only');
         }
 
-        // The whole optional look lives under this one class
-        // (setting: Appearance -> Background)
-        if (this.settings.backgroundHighlight) {
-            activeWindow.document.body.classList.add('virtual-link-bg');
-        }
-
-        // Slider-tunable alphas (defaults live in styles.css; apply the saved
-        // values so they survive a reload).
-        activeWindow.document.body.style.setProperty('--fakelink-line-alpha', String(this.settings.backgroundLineOpacity / 100));
-        activeWindow.document.body.style.setProperty('--fakelink-cursor-line-alpha', String(this.settings.cursorLineOpacity / 100));
+        // The optional look lives under these classes (settings: Appearance ->
+        // Background). One helper applies them everywhere, so it can also be
+        // re-run later for windows that did not exist yet at startup.
+        this.applyBackgroundStyles();
 
         // Always set link colors (header vs note)
         activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
@@ -701,7 +714,12 @@ export default class LinkerPlugin extends Plugin {
         this.applyFuzzyColors();
 
         // Listen for view changes
-        this.registerEvent(this.app.workspace.on('layout-change', () => { void this.handleLayoutChange(); }));
+        this.registerEvent(this.app.workspace.on('layout-change', () => {
+            void this.handleLayoutChange();
+            // A window opened after startup missed the startup application, so
+            // its <body> carries none of these classes.
+            this.scheduleBackgroundSync();
+        }));
         this.registerEvent(this.app.workspace.on('active-leaf-change', () => { void this.handleLayoutChange(); }));
 
         // Set callback to update the cache when the settings are changed
@@ -1962,6 +1980,17 @@ export default class LinkerPlugin extends Plugin {
             console.error('[fakelink] failed to read data.json - falling back to the defaults', error);
         }
         this.settings = Object.assign({}, DEFAULT_SETTINGS, stored);
+        // "Tabs" used to be one switch for both the accent and the unfocused
+        // mask. Anyone who had it off loses both parts again - carrying this
+        // over is what keeps their appearance unchanged.
+        if (typeof stored.backgroundTabs === 'boolean') {
+            if (stored.backgroundTabAccent == null) {
+                this.settings.backgroundTabAccent = stored.backgroundTabs;
+            }
+            if (stored.backgroundUnfocusedMask == null) {
+                this.settings.backgroundUnfocusedMask = stored.backgroundTabs;
+            }
+        }
         // The watch window used to be stored in milliseconds and multiplied by
         // 24; it is now stored directly in seconds. Carry an existing value over
         // so the behaviour of anyone who had tuned it does not change.
@@ -2017,6 +2046,10 @@ export default class LinkerPlugin extends Plugin {
         
         this.updateManager.update();
         
+        // Keep the appearance in step no matter which code path changed a
+        // setting (settings tab, command, context menu item).
+        this.applyBackgroundStyles();
+
         // If plugin is disabled, clear all virtual links
         if (!this.settings.linkerActivated) {
             this.cleanupVirtualLinks();
@@ -2029,5 +2062,61 @@ export default class LinkerPlugin extends Plugin {
                 view.previewMode.rerender(true);
             }
         });
+    }
+
+    private bgSyncTimer: number | null = null;
+
+    /**
+     * Write the "Background" look to the <body> of every window.
+     *
+     * styles.css hangs the entire optional look on these classes, and the two
+     * alpha variables are the strength sliders. This used to target whichever
+     * window was active at startup, which left every later window - and any
+     * window other than the one hosting the settings tab - unstyled until a
+     * reload. Each <body> gets the full set so switching a part off removes it.
+     */
+    applyBackgroundStyles(): void {
+        const s = this.settings;
+        const wanted: string[] = [];
+        if (s.backgroundHighlight) {
+            wanted.push('virtual-link-bg');
+            if (s.backgroundTint) wanted.push('virtual-link-bg-tint');
+            if (s.backgroundLines) wanted.push('virtual-link-bg-lines');
+            if (s.backgroundCursorLine) wanted.push('virtual-link-bg-cursor');
+            if (s.backgroundTabAccent) wanted.push('virtual-link-bg-tab-accent');
+            if (s.backgroundUnfocusedMask) wanted.push('virtual-link-bg-unfocused-mask');
+        }
+        const known = [
+            'virtual-link-bg', 'virtual-link-bg-tint', 'virtual-link-bg-lines',
+            'virtual-link-bg-cursor', 'virtual-link-bg-tab-accent', 'virtual-link-bg-unfocused-mask',
+        ];
+        const vars: [string, string][] = [
+            ['--fakelink-line-alpha', String(s.backgroundLineOpacity / 100)],
+            ['--fakelink-cursor-line-alpha', String(s.cursorLineOpacity / 100)],
+        ];
+
+        const seen = new Set<Document>();
+        const visit = (ownerDoc: Document) => {
+            if (seen.has(ownerDoc)) return;
+            seen.add(ownerDoc);
+            const body = ownerDoc.body;
+            if (!body) return;
+            for (const cls of known) body.classList.toggle(cls, wanted.indexOf(cls) !== -1);
+            for (const [name, value] of vars) body.style.setProperty(name, value);
+        };
+        visit(activeWindow.document);
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const el = leaf.view?.containerEl;
+            if (el) visit(el.ownerDocument);
+        });
+    }
+
+    /** Layout changes arrive in bursts; touch the windows once when it settles. */
+    private scheduleBackgroundSync(): void {
+        if (this.bgSyncTimer !== null) return;
+        this.bgSyncTimer = window.setTimeout(() => {
+            this.bgSyncTimer = null;
+            this.applyBackgroundStyles();
+        }, 200);
     }
 }

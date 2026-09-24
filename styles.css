@@ -493,9 +493,15 @@ body.virtual-link-color-only.virtual-linker-alt-style .cm-line.cm-active .cm-com
  * Optional background highlight
  * (setting: Appearance -> Background, off by default)
  *
- * Everything is scoped to body.virtual-link-bg, so none of it applies
- * unless the setting is on. Colours are variables - override them in a
- * snippet to taste:
+ * Everything is scoped to body.virtual-link-bg, so none of it applies unless
+ * the master setting is on. Each part of the look then needs its own class as
+ * well, which is how the four settings split it up (all optional):
+ *   virtual-link-bg-tint    overall tint
+ *   virtual-link-bg-lines   list / indent / table / callout backgrounds
+ *   virtual-link-bg-cursor  cursor line + caret
+ *   virtual-link-bg-tab-accent      active tab header styling
+ *   virtual-link-bg-unfocused-mask  mask while the window is unfocused
+ * Colours are variables - override them in a snippet to taste:
  *   --fakelink-bg       overall tint        (default #f0f8ff, aliceblue)
  *   --fakelink-line-bg  lists / indent lines (default skyblue at 10%)
  * ============================================================ */
@@ -515,6 +521,14 @@ body.virtual-link-bg {
   --fakelink-tab-pane: rgba(26, 115, 232, 0.32);
   /* Unfocused window: was rgba(0, 0, 0, 0.7) - much lighter now. */
   --fakelink-unfocused-mask: rgba(0, 0, 0, 0.25);
+  /* Surface of an inactive pane's tab strip (replaces an opacity fade). */
+  --fakelink-tab-dim: rgba(0, 0, 0, 0.05);
+}
+
+/* Part switch "Overall tint": the --background-* aliases are only redirected
+ * when that part is on, so the theme keeps its own surfaces otherwise. The
+ * other parts (lines, cursor line, tabs) do not depend on this block. */
+body.virtual-link-bg.virtual-link-bg-tint {
   /* Let theme components that read these follow the tint as well. */
   --background-primary: var(--fakelink-bg);
   --background-primary-alt: var(--fakelink-bg);
@@ -536,34 +550,36 @@ body.theme-dark.virtual-link-bg {
   --fakelink-tab-pane: rgba(90, 140, 255, 0.22);
   /* Over a dark background a light-grey mask disappears, so a darker one. */
   --fakelink-unfocused-mask: rgba(0, 0, 0, 0.45);
+  /* Over a dark surface a light dim would read as raised, not recessed. */
+  --fakelink-tab-dim: rgba(0, 0, 0, 0.18);
 }
 
 /* Very faint overall background. The --background-* aliases set above carry
  * this for most themes; the explicit rules are the belt-and-braces version for
  * themes that ignore those variables. */
-body.virtual-link-bg,
-body.virtual-link-bg .app-container,
-body.virtual-link-bg .workspace,
-body.virtual-link-bg .workspace-leaf-content,
-body.virtual-link-bg .markdown-source-view,
-body.virtual-link-bg .markdown-preview-view,
-body.virtual-link-bg .markdown-reading-view,
-body.virtual-link-bg .cm-editor,
-body.virtual-link-bg .cm-scroller {
+body.virtual-link-bg.virtual-link-bg-tint,
+body.virtual-link-bg.virtual-link-bg-tint .app-container,
+body.virtual-link-bg.virtual-link-bg-tint .workspace,
+body.virtual-link-bg.virtual-link-bg-tint .workspace-leaf-content,
+body.virtual-link-bg.virtual-link-bg-tint .markdown-source-view,
+body.virtual-link-bg.virtual-link-bg-tint .markdown-preview-view,
+body.virtual-link-bg.virtual-link-bg-tint .markdown-reading-view,
+body.virtual-link-bg.virtual-link-bg-tint .cm-editor,
+body.virtual-link-bg.virtual-link-bg-tint .cm-scroller {
   background-color: var(--fakelink-bg);
 }
 
 /* List lines (live preview + reading view) */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
-body.virtual-link-bg .markdown-preview-view li,
-body.virtual-link-bg .markdown-reading-view li {
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-line.HyperMD-list-line,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-preview-view li,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-reading-view li {
   background-color: var(--fakelink-line-bg);
 }
 
 /* Indented lines themselves (class added by the plugin: a leading Tab or two
  * or more spaces - neither is visible to CSS, Obsidian gives those lines no
  * indentation class at all) */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-line {
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-line {
   background-color: var(--fakelink-line-bg);
 }
 
@@ -571,88 +587,113 @@ body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-line
  * is a previous sibling, which CSS cannot reach at all without the
  * sibling-matching pseudo-class - deliberately avoided, because it invalidates
  * styles broadly on every edit. */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-above {
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-line.fakelink-indent-above {
   background-color: var(--fakelink-line-bg);
 }
 
 /* Cursor line + caret (from 背景.css) */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-line.cm-active {
+body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-content .cm-line.cm-active {
   background-color: var(--fakelink-cursor-line-bg);
   border-radius: 4px;
 }
 
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content {
+body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-content {
   caret-color: var(--fakelink-caret);
 }
 
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-cursorLayer .cm-cursor {
+body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-cursorLayer .cm-cursor {
   border-left: 1px solid var(--fakelink-caret);
 }
 
 /* Table rows, live preview widget and source mode (from 背景.css).
  * Colour only: the alignment tweaks in that snippet (display/width/margins)
  * fought Obsidian's own table widget, so they are intentionally not ported. */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-table-widget,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-line.HyperMD-table-row,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .HyperMD-table-row.cm-active,
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content .cm-table-widget .cm-line {
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-content .cm-table-widget,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-content .cm-line.HyperMD-table-row,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-content .HyperMD-table-row.cm-active,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-content .cm-table-widget .cm-line {
   background-color: var(--fakelink-line-bg);
 }
 
 /* Reading view: the same tint on tables (cells are normally transparent, so
  * colouring the table element is enough) */
-body.virtual-link-bg .markdown-rendered table,
-body.virtual-link-bg .markdown-preview-view table,
-body.virtual-link-bg .markdown-reading-view table {
+body.virtual-link-bg.virtual-link-bg-lines .markdown-rendered table,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-preview-view table,
+body.virtual-link-bg.virtual-link-bg-lines .markdown-reading-view table {
   background-color: var(--fakelink-line-bg);
 }
 
-/* Callouts (from 背景.css) - editor and reading view */
-body.virtual-link-bg .markdown-source-view.mod-cm6 .cm-content [data-callout="note"],
-body.virtual-link-bg .markdown-rendered [data-callout="note"],
-body.virtual-link-bg .markdown-preview-view [data-callout="note"],
-body.virtual-link-bg .markdown-reading-view [data-callout="note"] {
+/* Callouts (from 背景.css) - editor and reading view.
+ * Every callout type gets the tint, not just "note": they all carry the
+ * [data-callout] attribute, and colouring only one type looked like a bug. */
+body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-content [data-callout],
+body.virtual-link-bg.virtual-link-bg-lines .markdown-rendered [data-callout],
+body.virtual-link-bg.virtual-link-bg-lines .markdown-preview-view [data-callout],
+body.virtual-link-bg.virtual-link-bg-lines .markdown-reading-view [data-callout] {
   background-color: var(--fakelink-line-bg);
 }
 
-/* Tab headers - merged from 背景.css and 激活页面明显化.css */
-body.virtual-link-bg .workspace-tabs.mod-active .workspace-tab-header-container {
+/* Tab headers - merged from 背景.css and 激活页面明显化.css.
+ * Part switch "Tab accent" (virtual-link-bg-tab-accent). */
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container {
   background-color: var(--fakelink-tab-pane);
   transition: background-color 0.2s ease;
 }
 
-/* Inactive pane / inactive tab: only gently dimmed (was 0.6 / 0.7) */
-body.virtual-link-bg .workspace-tabs:not(.mod-active) .workspace-tab-header-container {
-  opacity: 0.85;
+/* Inactive pane: set apart by its own surface instead of by fading the whole
+ * container. An opacity here used to stack with the per-tab one further down
+ * (0.85 x 0.9 = 0.77), which left every label in inactive panes washed out. */
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs:not(.mod-active) .workspace-tab-header-container {
+  background-color: var(--fakelink-tab-dim);
 }
 
-body.virtual-link-bg .workspace-tab-header-container .workspace-tab-header.is-active {
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container .workspace-tab-header.is-active {
   background: var(--fakelink-tab-bg);
-  border-bottom: 3px solid var(--fakelink-tab-accent);
   color: var(--fakelink-tab-accent);
   font-weight: 600;
-  box-shadow: 0 2px 6px var(--fakelink-tab-shadow);
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* The accent underline is an inset shadow rather than a border-bottom: a real
+   * border is part of the box, so every tab switch made it appear/disappear and
+   * nudged its content up and down by 3px. An inset shadow paints inside the
+   * box and costs no layout. The drop shadow stays in the same declaration. */
+  box-shadow:
+    inset 0 -3px 0 var(--fakelink-tab-accent),
+    0 2px 6px var(--fakelink-tab-shadow);
+  border-radius: 6px 6px 0 0;
+  /* Deliberately not `transition: all`: that animates every property Obsidian
+   * touches on these elements too, including ones it changes for reasons of
+   * its own, and each extra property is work on every tab switch. */
+  transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   z-index: 2;
 }
 
 /* Keep the tab's icon in step with its label */
-body.virtual-link-bg .workspace-tab-header-container .workspace-tab-header.is-active svg {
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container .workspace-tab-header.is-active svg {
   color: var(--fakelink-tab-accent);
 }
 
-body.virtual-link-bg .workspace-tab-header:not(.is-active) {
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header:not(.is-active) {
   opacity: 0.9;
-  transition: all 0.15s ease;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
-body.virtual-link-bg .workspace-tab-header:not(.is-active):hover {
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header:not(.is-active):hover {
   background-color: rgba(0, 0, 0, 0.05);
 }
 
+/* These transitions are decoration only - skip them when the system asks for
+ * reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container,
+  body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container .workspace-tab-header.is-active,
+  body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header:not(.is-active) {
+    transition: none;
+  }
+}
+
 /* While the window is unfocused the workspace dims a little.
+ * Part switch "Unfocused mask" (virtual-link-bg-unfocused-mask).
  * 激活页面明显化.css used rgba(0, 0, 0, 0.7) here - far too dark. */
-body.virtual-link-bg:not(.is-focused) .workspace::before {
+body.virtual-link-bg.virtual-link-bg-unfocused-mask:not(.is-focused) .workspace::before {
   content: "";
   position: absolute;
   inset: 0;
