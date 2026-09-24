@@ -83,7 +83,10 @@ export interface LinkerPluginSettings {
     backgroundCursorLine: boolean;  // cursor line highlight + caret colour
     backgroundTabAccent: boolean;      // active tab header styling
     backgroundUnfocusedMask: boolean;  // mask over the workspace while unfocused
-    /** @deprecated Superseded by the two above; read once by loadSettings to migrate. */
+    // Legacy field, kept ONLY as migration input. It is not part of the current
+    // setting surface: it used to combine the accent and the mask into one
+    // switch, and loadSettings is the one place allowed to read it (see there).
+    // It can be deleted once nobody upgrades from 1.23.43 or earlier.
     backgroundTabs?: boolean;
     frontmatterExcludeProperty: string; // Frontmatter property for per-note opt-in (boolean)
     perNoteExcludeKeywords: boolean; // When enabled, excludedKeywords only apply to notes with the frontmatter property
@@ -1980,9 +1983,11 @@ export default class LinkerPlugin extends Plugin {
             console.error('[fakelink] failed to read data.json - falling back to the defaults', error);
         }
         this.settings = Object.assign({}, DEFAULT_SETTINGS, stored);
-        // "Tabs" used to be one switch for both the accent and the unfocused
-        // mask. Anyone who had it off loses both parts again - carrying this
-        // over is what keeps their appearance unchanged.
+        // Migration - "Tabs" used to be one switch for both the accent and the
+        // unfocused mask. Anyone who had it off loses both parts again; carrying
+        // this over is what keeps their appearance unchanged.
+        // Reading the legacy backgroundTabs here is deliberate, not stale usage:
+        // settings saved by 1.23.43 and earlier contain nothing else.
         if (typeof stored.backgroundTabs === 'boolean') {
             if (stored.backgroundTabAccent == null) {
                 this.settings.backgroundTabAccent = stored.backgroundTabs;
