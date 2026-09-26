@@ -14,8 +14,15 @@ const step1ab = (s: string): string => {
     const adj = (n: number) => { k = n; };
 
     // Step 1a
-    if (s.endsWith('sses')) { adj(s.length - 4); s = s.slice(0, k + 1) + 'ss'; }
-    else if (s.endsWith('ies')) { adj(s.length - 4); s = s.slice(0, k + 1) + 'i'; }
+    //
+    // The "sses" / "ies" branches build the new ending themselves, so they set
+    // k to the END of what they just built. Leaving k pointing inside the old
+    // word made the shared slice() below cut the freshly appended "ss"/"i" off
+    // again: "caresses" came out as "cares" instead of "caress", and stemming
+    // it once more produced "care" - the result moved on every pass.
+    // "sses" -> "ss" and "ies" -> "i": both are just the trailing "es" dropped
+    // (caresses -> caress, ponies -> poni).
+    if (s.endsWith('sses') || s.endsWith('ies')) { s = s.slice(0, -2); adj(s.length - 1); }
     else if (s.endsWith('ss')) { adj(s.length - 1); }
     else if (s.endsWith('s') && s.length > 2) { adj(s.length - 2); }
 

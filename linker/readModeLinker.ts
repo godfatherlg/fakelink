@@ -14,6 +14,47 @@ export class GlossaryLinker extends MarkdownRenderChild {
     settings: LinkerPluginSettings;
     linkerCache: LinkerCache;
 
+    /**
+     * Read mode renders a note as several independent blocks, and this post
+     * processor runs once per block with its own instance, so the "already
+     * linked" bookkeeping used to restart for every block: `onlyLinkOnce`
+     * linked the same note again in each paragraph, and real links collected
+     * from an earlier block were forgotten by later ones.
+     *
+     * Sharing them per file fixes that. The window is short on purpose: the
+     * blocks of one render arrive back to back, while a re-render minutes later
+     * (an edit, a settings change) must start from scratch, otherwise a stale
+     * "already linked" entry would keep new links from ever appearing.
+     */
+    private static readonly sharedTtlMs = 250;
+    private static sharedSets = new Map<string, {
+        at: number;
+        linkedFiles: Set<TFile>;
+        explicitlyLinkedFiles: Set<TFile>;
+    }>();
+
+    /** Returns the shared sets for this note, resetting them when stale. */
+    private sharedFor(sourcePath: string) {
+        const now = Date.now();
+        for (const [key, entry] of GlossaryLinker.sharedSets) {
+            if (now - entry.at > GlossaryLinker.sharedTtlMs) GlossaryLinker.sharedSets.delete(key);
+        }
+        const fresh = () => {
+            const entry = {
+                at: now,
+                linkedFiles: new Set<TFile>(),
+                explicitlyLinkedFiles: new Set<TFile>(),
+            };
+            GlossaryLinker.sharedSets.set(sourcePath, entry);
+            return entry;
+        };
+        const existing = GlossaryLinker.sharedSets.get(sourcePath);
+        if (!existing) return fresh();
+        // Still inside the same render: keep going and extend the window.
+        existing.at = now;
+        return existing;
+    }
+
     private clearExistingLinks() {
         // Restore virtual links to original text
         const virtualLinks = this.containerEl.querySelectorAll('.virtual-link');
@@ -277,10 +318,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
             tags.push('h1', 'h2', 'h3', 'h4', 'h5', 'h6');
         }
 
-        // TODO: Onload is called on the divs separately, so these sets are not stored between divs.
-        // Since divs can be rendered in arbitrary order, storing information about already linked files is not easy.
-        const linkedFiles = new Set<TFile>();
-        const explicitlyLinkedFiles = new Set<TFile>();
+        // Shared with the other blocks of this same note - see sharedFor(). The
+        // blocks are processed one by one, so "already linked" has to survive
+        // from one block to the next, or onlyLinkOnce would link the same note
+        // again in every paragraph.
+        const shared = this.sharedFor(this.ctx.sourcePath);
+        const linkedFiles = shared.linkedFiles;
+        const explicitlyLinkedFiles = shared.explicitlyLinkedFiles;
 
         // Collect files already linked by real [[...]] links so excludeLinksToRealLinkedFiles
         // works in read mode. Live mode parses these from the syntax tree; read mode parses
@@ -367,7 +411,11 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                         const nTo = node.end;
                                         const name = text.slice(nFrom, nTo);
 
-                                        // TODO: Handle multiple files
+                                        // Several notes can share one keyword, and all of them are handed
+                                        // to the VirtualMatch below: it picks the target for the link
+                                        // itself and offers the rest through the references popover.
+                                        // With context disambiguation on, the ordering above has already
+                                        // sorted them by how close each is mentioned in the text.
 
                                         // Context-aware disambiguation in read mode.
                                         let files = Array.from(node.files).filter(file => {

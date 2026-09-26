@@ -251,6 +251,16 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         const cursorPos = update.view.state.selection.main.from;
+        // Captured before lastCursorPos is refreshed: the pure-scroll test below
+        // asks "did the caret move", not "does it differ from a value we might
+        // not have updated", and refreshing it here keeps that test honest even
+        // when the rebuild is skipped.
+        const cursorMoved = this.lastCursorPos !== cursorPos;
+        this.lastCursorPos = cursorPos;
+        // Only these settings make the result depend on where the caret is. With
+        // neither of them on, a caret move used to rebuild every decoration in
+        // the visible range - a full rebuild per arrow key on a long note.
+        const cursorMatters = this.settings.excludeLinksInCurrentLine || this.settings.fixIMEProblem;
         // Prefer the last real (non-popover) view's file: a hover popover taking focus
         // changes workspace.getActiveFile() and would otherwise force a rebuild here.
         const activeFile = (this.lastRealActiveView?.file ?? this.app.workspace.getActiveFile())?.path;
@@ -264,13 +274,13 @@ class AutoLinkerPlugin implements PluginValue {
         // once something else forced a rebuild (a click moved the cursor).
         const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
 
-        if (force || this.lastCursorPos != cursorPos || update.docChanged || fileChanged || update.viewportChanged || treeChanged) {
+        if (force || (cursorMoved && cursorMatters) || update.docChanged || fileChanged || update.viewportChanged || treeChanged) {
             // Pure scroll (viewport change with no doc/cursor/file change): debounce
             // so the rebuild happens once after scrolling stops, not on every tick.
             // Links then appear "a bit later" but without the per-tick DOM churn that
             // read as jitter.
             const isPureScroll = update.viewportChanged && !update.docChanged && !fileChanged && !force
-                && this.lastCursorPos === cursorPos;
+                && !cursorMoved;
             if (isPureScroll) {
                 this.pendingScrollBuild = { view: update.view, viewIsActive: updateIsOnActiveView };
                 this.lastViewUpdate = update;
@@ -300,7 +310,6 @@ class AutoLinkerPlugin implements PluginValue {
                 this.scrollDebounceTimer = null;
                 this.pendingScrollBuild = null;
             }
-            this.lastCursorPos = cursorPos;
             this.linkerCache.updateCache(force);
             this.decorations = this.buildDecorations(update.view, updateIsOnActiveView);
             this.lastActiveFile = activeFile ?? '';

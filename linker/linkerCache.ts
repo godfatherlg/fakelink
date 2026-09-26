@@ -1374,14 +1374,8 @@ export class PrefixTree {
 
     static checkWordBoundary(char: string): boolean {
         // \p{L}: any kind of letter; \p{N}: any kind of numeric character.
-        // Digits count as word characters (the same rule isFormattingChar uses),
-        // so a name like "科目二冲刺带背3" stays a single word instead of being
-        // cut off right before the trailing digit.
-        const pattern = /[^\p{L}\p{N}]/u;
-        return pattern.test(char);
-    }
-
-    static isFormattingChar(char: string): boolean {
+        // Digits count as word characters, so a name like "科目二冲刺带背3"
+        // stays a single word instead of being cut off before the trailing digit.
         const pattern = /[^\p{L}\p{N}]/u;
         return pattern.test(char);
     }
