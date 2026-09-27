@@ -356,11 +356,11 @@ export class LinkerSettingTab extends PluginSettingTab {
                 textAreaDef(t('Heading symbol whitelist'), 'headingSymbolWhitelist', {
                     desc: t('Symbols in headings that are stripped from the virtual-link keyword (comma separated). Use this to decorate headings with markers (e.g. 🔥) without those markers affecting matching.'),
                 }),
-                toggleDef(t('Align heading after jump'), 'alignHeadingAfterJump', {
-                    desc: t('After jumping to a heading, keep nudging it back to the centre while the note is still changing height - a PDF embed or a page of display math that finishes rendering seconds later can push it out of place. Off by default: Obsidian own jump already centres the heading (clicking a real link proves it), so only notes that really drift need this.'),
+                toggleDef(t('Align heading (jump and preview)'), 'alignHeadingAfterJump', {
+                    desc: t('Centres the target heading after a jump, and inside hover previews. Jump: Obsidian already centres the heading when it navigates - clicking a real link shows this - so this only puts it back when content that finishes rendering later (a PDF embed, a page of display math) pushes it away. Preview: a popover opens at the position of the LINK, so the heading is often nowhere near the middle and is centred outright. Off by default: a real link jump is already correct, and most notes render without drifting.'),
                 }),
                 numberDef(t('Heading align watch window (seconds)'), 'headingAlignWatchSeconds', {
-                    desc: t('How long (in SECONDS) a jumped-to heading keeps being re-aligned. The heading is put back in place the moment the content above it changes height (a PDF or an image finishing, MathJax typesetting) - the watch is event-driven, so nothing polls while the page is quiet. After this many seconds the plugin stops following, so a change minutes later never moves your view. The number you type is the number of seconds (12 = 12 seconds); there is no conversion. Raise it for very slow notes (e.g. 60).'),
+                    desc: t('How long (in SECONDS) the heading keeps being watched after a jump, and while a hover preview stays open. Whenever the content above it changes height (a PDF or an image finishing, MathJax typesetting) the heading is put back - the watch is event-driven, so nothing polls while the page is quiet. After this many seconds the plugin stops following, so a change minutes later never moves your view. The number you type is the number of seconds (12 = 12 seconds); there is no conversion. Raise it for very slow notes (e.g. 60).'),
                     min: 3,
                     max: 120,
                     visible: () => s.alignHeadingAfterJump,

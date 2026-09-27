@@ -8,7 +8,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, keepScrolledHeadingAligned, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
+import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, keepScrolledHeadingAligned, markSelfInflictedLayout, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
 
@@ -16,6 +16,13 @@ import { LinkerSettingTab } from './src/settingsTab';
 // 时再请求一次；如果每次都新起一个循环，多个循环各自写滚动，表现就是"不停
 // 滚动"——预览弹窗里尤其明显。
 const activeCenterLoops = new WeakMap<EditorView, AbortController>();
+
+// A heading this close to where it belongs is left alone. Six pixels was the
+// old floor and it was too tight: content that merely settled a little moved
+// the heading ~10px and triggered a correction, which reads as the view being
+// yanked for no reason. Correcting only a real miss is the point of the whole
+// feature - not winning an argument about pixels.
+const HEADING_EPSILON_PX = 24;
 
 export interface LinkerPluginSettings {
     app?: App; // Add app instance reference
@@ -579,13 +586,18 @@ export default class LinkerPlugin extends Plugin {
             const topNow = Math.round(current);
             const stable = Number.isNaN(lastTop) || Math.abs(topNow - lastTop) <= 2;
             lastTop = topNow;
-            if (Math.abs(delta) <= 6) return;   // 已居中，收工
-            // Self-check: did the last write move the heading closer? If not
-            // twice in a row, stop - a loop that cannot win must not tug.
-            if (!Number.isNaN(lastMiss) && Math.abs(delta) >= lastMiss - 2) fails++;
-            else fails = 0;
-            lastMiss = Math.abs(delta);
-            if (fails >= 2) return;
+            if (Math.abs(delta) <= HEADING_EPSILON_PX) return;   // close enough
+            // Self-check, but judge the result ONLY while the page is holding
+            // still. While the layout keeps moving, "the heading is no closer"
+            // just means it moved again - counting those as failures made the
+            // loop give up after two passes on math-heavy notes, which is how a
+            // heading ended up visibly off-centre with nothing left to fix it.
+            if (stable) {
+                if (!Number.isNaN(lastMiss) && Math.abs(delta) >= lastMiss - 2) fails++;
+                else fails = 0;
+                lastMiss = Math.abs(delta);
+                if (fails >= 2) return;   // cannot win: stop, do not tug
+            }
             // Waiting three seconds for the page to hold still was too long: the
             // caller only asks for alignment during its own window, and in a
             // math-heavy note the layout keeps shifting well past that, so the
@@ -1491,6 +1503,9 @@ export default class LinkerPlugin extends Plugin {
                 if (known && known > 0) {
                     el.setCssStyles({ minHeight: known + 'px' });
                     el.dataset.fkEmbedReserved = '1';
+                    // Our own write changes the layout - do not let the heading
+                    // watcher read it as content landing and "correct" for it.
+                    markSelfInflictedLayout();
                 }
             };
             apply();
@@ -1523,6 +1538,9 @@ export default class LinkerPlugin extends Plugin {
                 if (el.dataset.fkEmbedReserved) {
                     el.setCssStyles({ minHeight: '' });
                     delete el.dataset.fkEmbedReserved;
+                    // Same reason as above: releasing the reservation is our own
+                    // layout change, not content arriving.
+                    markSelfInflictedLayout();
                     timer = window.setTimeout(measure, 400);
                     return;
                 }
@@ -1585,14 +1603,24 @@ export default class LinkerPlugin extends Plugin {
             // 滚动内部 scroller"（.markdown-preview-view）——只滚内部、不滚外层
             // .hover-popover，所以不会像早先那样把预览滚没/滚跳。
             for (const pop of pops) {
+                // Opt-in, exactly like the click path: one setting covers both
+                // the jump and the hover preview. (It used to run unconditionally
+                // here, so turning the setting off changed nothing on previews.)
+                if (!this.settings.alignHeadingAfterJump) continue;
                 // 用 hover 时记下的标题 id 精确定位目标（popover 打开时它可能在中部
                 // 而非顶部，按顶部猜会捡到上面的小标题）。
-                let popTarget: number | undefined;
+                //
+                // Deliberately NO baseline here, unlike the click path: a jump
+                // lands on a centred heading that is worth holding, whereas a
+                // popover opens at whatever position Obsidian chose for the LINK
+                // - often with the heading nowhere near the middle. Holding that
+                // would only preserve a wrong position, so this path CENTRES.
                 keepScrolledHeadingAligned(
                     pop, 'popover', alignWindow(),
-                    (el, h) => scrollEditor(el, h, popTarget),
+                    scrollEditor,
                     getHoveredHeadingId() ?? undefined,
-                    (o) => { popTarget = o; },
+                    undefined,
+                    'centre',
                 );
             }
         });
@@ -1618,6 +1646,7 @@ export default class LinkerPlugin extends Plugin {
                 (el, h) => scrollEditor(el, h, domTarget),
                 undefined,
                 (o) => { domTarget = o; },
+                'centre',
             ), 60);
         }, true);
 

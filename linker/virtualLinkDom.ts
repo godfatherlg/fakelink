@@ -44,7 +44,20 @@ type LinkerPluginType = import('main').default;
 const ALIGN_MAX_MS = 12000;       // call sites pass their own window
 const ALIGN_DEBOUNCE_MS = 150;    // coalesce a burst of layout changes
 const ALIGN_SAFETY_MS = 4000;     // backstop check for surfaces we cannot observe
-const ALIGN_TOLERANCE_PX = 6;     // ignore sub-pixel jitter
+// Ignore anything this close. It used to be 6 (sub-pixel jitter only), which
+// made the watcher correct offsets nobody can see - each correction costs a
+// scroll and reads as the view twitching. Matching the editor path's
+// HEADING_EPSILON_PX so both agree on what counts as "in place".
+const ALIGN_TOLERANCE_PX = 24;
+
+/**
+ * Where a heading of this height belongs when it is being actively CENTRED -
+ * used by the preview path, where a popover opens at the link's position and
+ * the heading can be anywhere (often scrolled just out of view above).
+ */
+function centeredOffset(scroller: HTMLElement, height: number): number {
+    return Math.max(12, Math.round((scroller.clientHeight - height) / 2));
+}
 // How long the layout must hold still, with every image loaded, before the
 // heading is moved. There is no event for "rendering finished" - PDF.js paints
 // embeds and MathJax typesets without announcing it - so this is the closest
@@ -84,6 +97,39 @@ const DOM_WRITE_TOTAL_BUDGET = 30;
  * formula does not create a new one, but it does not matter: the height-based
  * settled test catches that, this catches the "new formula just landed" bursts.
  */
+/**
+ * Alignment tracing. Silent unless the flag is set from the console:
+ *     window.__fakelinkDebug = true
+ * Left in the build on purpose - this area can only be diagnosed from a real
+ * hover preview, and re-adding the logging each time means shipping a build
+ * that no longer matches what the user reported.
+ */
+function traceAlign(...args: unknown[]): void {
+    if ((window as unknown as { __fakelinkDebug?: boolean }).__fakelinkDebug) {
+        console.log('[fakelink align]', ...args);
+    }
+}
+
+/**
+ * Height changes the plugin causes ITSELF.
+ *
+ * Reserving an embed's height (and releasing it again once the real content
+ * measured) changes the layout on purpose. The watcher cannot tell that from
+ * content genuinely landing - it just sees a resize - so it would "correct" a
+ * drift that the reservation was in the middle of fixing. That loop (reserve ->
+ * resize -> correct -> release -> resize -> correct) is what made alignment
+ * twitchy on notes with embeds.
+ *
+ * Mark those moments and let the watcher sit them out.
+ */
+let selfInflictedUntil = 0;
+export function markSelfInflictedLayout(ms = 500): void {
+    selfInflictedUntil = Math.max(selfInflictedUntil, Date.now() + ms);
+}
+export function isSelfInflictedLayout(): boolean {
+    return Date.now() < selfInflictedUntil;
+}
+
 export function createMathBusyWatcher(scroller: HTMLElement): () => boolean {
     let lastCount = -1;
     let changedAt = 0;
@@ -353,6 +399,15 @@ function keepAligned(
     alive: () => boolean,
     scrollEditor?: (el: HTMLElement, headingText: string) => boolean,
     onBaseline?: (offset: number) => void,
+    /**
+     * 'hold'   - keep the heading where the JUMP left it (Obsidian's centring is
+     *            known-good), only putting it back when content drifts it.
+     * 'centre' - move the heading to the middle of the surface. Needed for hover
+     *            previews: a popover opens at the position of the LINK, so its
+     *            heading is frequently nowhere near the middle - holding that
+     *            position just preserves a wrong one.
+     */
+    mode: 'hold' | 'centre' = 'hold',
 ): void {
     const abort = new AbortController();
     const { signal } = abort;
@@ -444,12 +499,19 @@ function keepAligned(
 
     function check() {
         if (signal.aborted) return;
-        if (!alive()) { stop(); return; }               // popover closed / view gone
-        if (Date.now() - startedAt > maxMs) { stop(); return; }
+        if (!alive()) { traceAlign(label, 'surface gone'); stop(); return; }
+        if (Date.now() - startedAt > maxMs) { traceAlign(label, 'window over'); stop(); return; }
+        // A resize we caused ourselves (embedding height being reserved, then
+        // released) is not content landing - let it settle and look again.
+        if (isSelfInflictedLayout()) {
+            schedule(ALIGN_DEBOUNCE_MS);
+            return;
+        }
 
         let wrote = false;
         let moved = false;
         const found = resolve();
+        traceAlign(label, 'resolve ->', found ? 'found' : 'NOT FOUND');
         if (found) {
             const scroller = findScrollableAncestor(found);
             observe(scroller);
@@ -466,15 +528,6 @@ function keepAligned(
             const offset = scroller
                 ? foundRect.top - scroller.getBoundingClientRect().top
                 : 0;
-            // First check: record where the jump left the heading (and tell the
-            // caller, so its editor-scroll can aim at the same place). Never
-            // "correct" this position itself - that is what dragged headings
-            // that were already centred out of place.
-            if (Number.isNaN(baseline)) {
-                baseline = offset;
-                onBaseline?.(offset);
-            }
-            const desired = baseline;
             if (scroller) {
                 const signature = scroller.scrollHeight + ':' + Math.round(scroller.scrollTop + offset);
                 if (signature !== lastSignature) {
@@ -491,7 +544,6 @@ function keepAligned(
                 // instead of snapping again on the next check. Waiting for the
                 // render to finish is what keeps CM6 out of its measure-restart
                 // loop (and the position is only worth setting once, anyway).
-                const miss = Math.abs(offset - desired);
                 // "Rendered" = the content height has held still AND every image
                 // in this surface has finished loading. Only then is the first
                 // scroll issued, so it lands on a page that has stopped moving.
@@ -502,6 +554,29 @@ function keepAligned(
                 const stillLoading = imgs.some((img) => !img.complete);
                 const settleReady = !stillLoading && !mathBusy?.()
                     && Date.now() - stableSince >= ALIGN_STABLE_MS;
+                // Record where the jump left the heading - but only once the
+                // surface has SETTLED. The jump is not one action: the document
+                // is loaded first (scrollTop back to 0) and Obsidian applies its
+                // own scroll afterwards. Reading during that gap captured a
+                // mid-jump position, and holding it is what parked headings at
+                // the top of the pane.
+                if (mode === 'hold' && Number.isNaN(baseline)
+                    && (settleReady || Date.now() - startedAt > 3000)) {
+                    baseline = offset;
+                    onBaseline?.(offset);
+                    traceAlign(label, 'baseline set to', Math.round(offset));
+                }
+                const desired = mode === 'centre'
+                    ? centeredOffset(scroller, foundRect.height)
+                    : baseline;
+                const miss = Math.abs(offset - desired);
+                traceAlign(label, {
+                    heading: headingText.slice(0, 24),
+                    offset: Math.round(offset), desired: Math.round(desired),
+                    miss: Math.round(miss), settleReady,
+                    imgsLoading: stillLoading, mathBusy: mathBusy?.(),
+                    baseline: Math.round(baseline),
+                });
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
                 // after a moment, correct a large miss anyway. Kept short on
@@ -520,6 +595,8 @@ function keepAligned(
                     // Obsidian makes for its own heading links). A surface
                     // without an editor handle is scrolled directly, at most a
                     // few times, so the two can never end up fighting.
+                    traceAlign(label, 'correct by', Math.round(offset - desired),
+                        'inEditor:', inEditor, 'settleReady:', settleReady);
                     const handled = inEditor && scrollEditor ? scrollEditor(found, headingText) : false;
                     const withinBudget = domWrites < DOM_WRITE_BUDGET && domWritesTotal < DOM_WRITE_TOTAL_BUDGET;
                     if (handled || !inEditor || withinBudget) {
@@ -565,6 +642,7 @@ export function keepScrolledHeadingAligned(
     scrollEditor?: (el: HTMLElement, headingText: string) => boolean,
     headingId?: string,
     onBaseline?: (offset: number) => void,
+    mode: 'hold' | 'centre' = 'hold',
 ): void {
     const requestedAt = Date.now();
     let cached: HTMLElement | null = null;
@@ -601,6 +679,7 @@ export function keepScrolledHeadingAligned(
         () => !scope || scope.isConnected,
         scrollEditor,
         onBaseline,
+        mode,
     );
 }
 
@@ -1268,6 +1347,10 @@ export class VirtualMatch {
                             keepScrolledHeadingAligned(
                                 scope, 'click-editor', alignWindow, editorScroll, headerIdToUse,
                                 (o) => { targetViewport = o; },
+                                // openLinkText lands on the ROW, not necessarily
+                                // centred (a real link's internal navigation is
+                                // the one that centres). Centre it ourselves.
+                                'centre',
                             );
                         }
 
@@ -1307,7 +1390,7 @@ export class VirtualMatch {
                         // CodeMirror editor involved, so the measured DOM
                         // alignment is both safe and accurate there.
                         if (this.settings.alignHeadingAfterJump) {
-                            keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse);
+                            keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse, undefined, 'centre');
                         }
                     }
                 }
@@ -1373,9 +1456,13 @@ export class VirtualMatch {
             span.classList.add('virtual-link-hover-lock');
             // 记住 hover 链接指向的标题，预览 popover 打开时用它精确定位，
             // 而不是按"视口顶部"猜（h1 被放到中部时那样会猜错）。
+            // Clear as well as set: a link with no heading must not leave the
+            // PREVIOUS hovered heading behind, or the next popover gets aligned
+            // to a heading the user never hovered (previews that "centre" the
+            // wrong heading entirely).
             const anchor = span.querySelector('.virtual-link-a');
             const hid = anchor?.getAttribute('data-heading-id');
-            if (hid) setHoveredHeadingId(hid);
+            setHoveredHeadingId(hid ?? null);
         });
         span.addEventListener('mouseleave', () => {
             const pending = hoverUnlockTimers.get(span);
