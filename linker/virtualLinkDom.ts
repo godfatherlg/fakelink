@@ -73,14 +73,6 @@ const DOM_WRITE_BUDGET = 6;
 // a page that never stops moving cannot be corrected forever.
 const DOM_WRITE_TOTAL_BUDGET = 30;
 
-// A jumped-to heading is CENTRED in its pane, exactly like Obsidian's own
-// heading navigation - and for a practical reason on top of matching it: a
-// centred heading sits half a pane away from the top edge, so content above it
-// reflowing (a PDF embed releasing its reserved height, MathJax finishing)
-// can never clip it behind the pane edge, which is what pinning it to the top
-// kept doing.
-const ALIGN_MIN_GAP = 12;      // floor, for panes shorter than the heading
-
 /**
  * "Is MathJax still typesetting?" - proxied by the number of finished formula
  * containers inside the surface. Images were the only "still rendering" signal
@@ -165,11 +157,6 @@ export function findHeadingElement(scope: ParentNode, headingId: string): HTMLEl
  * the scroller top - i.e. one showing only its lower half - is included on
  * purpose: that is exactly the state this code has to repair.
  */
-/** Where a heading of this height belongs: centred, never above ALIGN_MIN_GAP.
- *  No longer used as a correction target - the baseline (where the jump left
- *  the heading) is, because Obsidian's own centring is known-good. Kept out of
- *  the code rather than kept "just in case": a second definition of "centred"
- *  is how the tug-of-war started. */
 
 /**
  * Ask the CodeMirror editor that owns `el` to scroll to `headingText` - the

@@ -537,9 +537,9 @@ export default class LinkerPlugin extends Plugin {
                     const rr = el.getBoundingClientRect();
                     const sr = view.scrollDOM.getBoundingClientRect();
                     const h = Math.max(1, rr.height);
-                    // 12 = ALIGN_MIN_GAP (virtualLinkDom.ts): the same
-                    // definition of "centred" the watcher uses, so the two can
-                    // never disagree about whether the heading is in place.
+                    // 12: the old ALIGN_MIN_GAP floor, kept only as the fallback
+                    // centring for when no jump baseline exists (this function is
+                    // then used as plain "centre this heading").
                     const t = targetViewport ?? Math.max(12, Math.round((view.scrollDOM.clientHeight - h) / 2));
                     return Math.round((rr.top - sr.top) - t);
                 },
@@ -564,7 +564,8 @@ export default class LinkerPlugin extends Plugin {
             const sr = scroller.getBoundingClientRect();
             const current = r.top - sr.top;
             const height = Math.max(1, r.height);
-            // 12 = ALIGN_MIN_GAP, same reason as in measureWrite above.
+            // 12: the old ALIGN_MIN_GAP floor, used only when no jump baseline
+            // exists (plain "centre this heading" usage).
             // The caller's target is where the JUMP left the heading (baseline):
             // drift protection aims there, not at a second guess of "centred".
             const target = targetViewport ?? Math.max(12, Math.round((scroller.clientHeight - height) / 2));
