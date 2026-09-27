@@ -8,7 +8,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { buildIndentBackground, clearContextLock, getHoveredHeadingId, keepScrolledHeadingAligned, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
+import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, keepScrolledHeadingAligned, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
 
@@ -99,7 +99,14 @@ export interface LinkerPluginSettings {
     noteVirtualLinkColor: string; // Color for note/alias virtual links
     fuzzyBaseColor: string; // Base color mixed into fuzzy-match link colors
     fuzzyColorMixRatio: number; // How much base color to mix in (0-100)
-    headingAlignWatchSeconds: number; // How many seconds a jumped-to heading keeps being re-aligned
+    headingAlignWatchSeconds: number;
+    // After a jump, keep nudging the target heading back to the centre while the
+    // note keeps changing height (late-loading PDFs, embeds, typeset math).
+    // Off by default: Obsidian's own jump already centres the heading, and
+    // clicking a REAL link proves it - nothing pushes it off. Turning this on
+    // for notes that genuinely drift is what the extra machinery is for; on a
+    // note that renders fine it can only fight the view.
+    alignHeadingAfterJump: boolean; // How many seconds a jumped-to heading keeps being re-aligned
     enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
     stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
@@ -199,6 +206,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     fuzzyBaseColor: '#8e44ad',
     fuzzyColorMixRatio: 50,
     headingAlignWatchSeconds: 12,
+    alignHeadingAfterJump: false,
     enableStemming: false,
     stemmingLanguage: 'auto',
     fuzzyMatchThreshold: 80,
@@ -441,6 +449,26 @@ export default class LinkerPlugin extends Plugin {
     }
 
     /**
+     * Start a centring loop for one CodeMirror view and return its controller.
+     *
+     * Every centring path needs the same scaffolding: replace whatever loop is
+     * already running for that view (two loops writing the scroll position fight
+     * each other, which read as the page scrolling on its own), and let the user
+     * cancel by scrolling, clicking or typing. Kept in one place so the paths
+     * cannot drift apart - this area has been adjusted more than once.
+     */
+    private startCentring(cm: EditorView): AbortController {
+        activeCenterLoops.get(cm)?.abort();
+        const controller = new AbortController();
+        activeCenterLoops.set(cm, controller);
+        const stop = () => controller.abort();
+        window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
+        window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
+        window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
+        return controller;
+    }
+
+    /**
      * Keep a heading centred in the editor showing it, while the content above
      * finishes laying out.
      *
@@ -454,10 +482,10 @@ export default class LinkerPlugin extends Plugin {
      *     mid-measure makes CodeMirror restart its measure loop until it gives
      *     up rendering the document entirely.
      */
-    public centerHeadingLine(view: MarkdownView, line: number, maxMs = 10000): void {
+    public centerHeadingLine(view: MarkdownView, line: number, maxMs = 10000, targetViewport?: number): void {
         const cmEl = view.contentEl.querySelector('.cm-editor');
         const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
-        if (cm) this.centerCmLine(cm, line, maxMs);
+        if (cm) this.centerCmLine(cm, line, maxMs, targetViewport);
     }
 
     /**
@@ -468,7 +496,7 @@ export default class LinkerPlugin extends Plugin {
      * knows its editor (EditorView.findFromDOM) and its own position
      * (posAtDOM), which is exact and needs no metadata lookup at all.
      */
-    public centerHeadingElement(el: HTMLElement, maxMs = 8000): boolean {
+    public centerHeadingElement(el: HTMLElement, maxMs = 8000, targetViewport?: number): boolean {
         const cmEl = el.closest('.cm-editor');
         const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
         if (!cm) return false;
@@ -481,36 +509,92 @@ export default class LinkerPlugin extends Plugin {
 
         // 后到的请求替换先前的循环（同一处反复请求时只保留最后一个，避免多个
         // 循环同时写滚动）。
-        activeCenterLoops.get(cm)?.abort();
-        const controller = new AbortController();
-        activeCenterLoops.set(cm, controller);
-        const stop = () => controller.abort();
-        window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
-        window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
-        window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
+        const controller = this.startCentring(cm);
 
         const startedAt = Date.now();
         let passes = 0;
+        let lastTop = Number.NaN;
+        // Scroll strategy: the measured write, and nothing else.
+        //
+        // An EditorView.scrollIntoView effect was measured on a math-heavy note
+        // (scrollTop hook): Obsidian lands the jump EXACTLY via
+        // setEphemeralState (0 -> 22749), then our effect moved it to 23666 and
+        // every retry pushed it further (23615, 23142). Reason: scrollIntoView
+        // centres a POSITION, and while display math keeps re-typesetting,
+        // CodeMirror's idea of where that position sits on screen is an
+        // estimate - so the "correction" itself was the drift.
+        //
+        // getBoundingClientRect() inside the measure cycle is the rendered
+        // truth, so the write lands where the heading IS. The self-check stays:
+        // if two writes in a row do not move the heading closer, stop - a loop
+        // that cannot win must not tug at the view.
+        let fails = 0;
+        let lastMiss = Number.NaN;
+        const measureWrite = () => {
+            cm.requestMeasure({
+                read: (view) => {
+                    if (!el.isConnected) return null;
+                    const rr = el.getBoundingClientRect();
+                    const sr = view.scrollDOM.getBoundingClientRect();
+                    const h = Math.max(1, rr.height);
+                    // 12 = ALIGN_MIN_GAP (virtualLinkDom.ts): the same
+                    // definition of "centred" the watcher uses, so the two can
+                    // never disagree about whether the heading is in place.
+                    const t = targetViewport ?? Math.max(12, Math.round((view.scrollDOM.clientHeight - h) / 2));
+                    return Math.round((rr.top - sr.top) - t);
+                },
+                write: (d, view) => {
+                    if (d === null) return;
+                    view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + d);
+                },
+            });
+        };
         const tick = () => {
             if (controller.signal.aborted) return;
-            if (Date.now() - startedAt > maxMs || passes > 12) return;
+            // Few writes, each one accurate. Every write makes CodeMirror measure
+            // again, and while display math is still being typeset that means the
+            // two keep taking the wheel from each other - which is what "it
+            // centres and then gets pulled back" is. Writing is therefore capped,
+            // and later height changes are handled by the caller instead:
+            // keepAligned watches with a ResizeObserver and calls this again.
+            if (Date.now() - startedAt > maxMs || passes > 6) return;
             if (!el.isConnected) return;   // 元素被 CM 回收了，交给调用方重新找
 
             const r = el.getBoundingClientRect();
             const sr = scroller.getBoundingClientRect();
             const current = r.top - sr.top;
             const height = Math.max(1, r.height);
-            const target = Math.max(6, Math.round((scroller.clientHeight - height) / 2));
+            // 12 = ALIGN_MIN_GAP, same reason as in measureWrite above.
+            // The caller's target is where the JUMP left the heading (baseline):
+            // drift protection aims there, not at a second guess of "centred".
+            const target = targetViewport ?? Math.max(12, Math.round((scroller.clientHeight - height) / 2));
             const delta = Math.round(current - target);
+            // Is the page still moving? MathJax typesets $$...$$ asynchronously,
+            // so a note full of it shifts the heading every few hundred ms.
+            // Writing into a moving page is what produces the tug-of-war, so wait
+            // for it to hold still - but never for ever: after a few seconds the
+            // current reading is acted on regardless, so a page that never quite
+            // settles still ends up centred.
+            const topNow = Math.round(current);
+            const stable = Number.isNaN(lastTop) || Math.abs(topNow - lastTop) <= 2;
+            lastTop = topNow;
             if (Math.abs(delta) <= 6) return;   // 已居中，收工
+            // Self-check: did the last write move the heading closer? If not
+            // twice in a row, stop - a loop that cannot win must not tug.
+            if (!Number.isNaN(lastMiss) && Math.abs(delta) >= lastMiss - 2) fails++;
+            else fails = 0;
+            lastMiss = Math.abs(delta);
+            if (fails >= 2) return;
+            // Waiting three seconds for the page to hold still was too long: the
+            // caller only asks for alignment during its own window, and in a
+            // math-heavy note the layout keeps shifting well past that, so the
+            // write often never happened. Wait briefly, then act anyway.
+            if (!stable && Date.now() - startedAt < 1200) {
+                window.setTimeout(tick, 500);
+                return;
+            }
 
-            // 只在 CM 的 measure 周期里写，避免被它下一次 measure 覆盖。
-            cm.requestMeasure({
-                read: () => delta,
-                write: (d, view) => {
-                    view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + d);
-                },
-            });
+            measureWrite();
             passes++;
             window.setTimeout(tick, 500);
         };
@@ -518,27 +602,43 @@ export default class LinkerPlugin extends Plugin {
         return true;
     }
 
-    private centerCmLine(cm: EditorView, line: number, maxMs: number): void {
+    private centerCmLine(cm: EditorView, line: number, maxMs: number, targetViewport?: number): void {
         // 给这个视图的 dispatch 装保护（幂等）：Obsidian 偶尔会拿超界 selection
         // 去 dispatch，这里捕获后 clamp 到文档长度内重试，真正化解而不是隐藏。
         patchDispatchClamp(cm);
 
         // 后到的请求替换先前的循环：同一处反复请求时只保留最后一个，避免多个
         // 循环同时写滚动（预览里"不停滚动"就是它们互相打架）。
-        activeCenterLoops.get(cm)?.abort();
-        const controller = new AbortController();
-        activeCenterLoops.set(cm, controller);
-
+        const controller = this.startCentring(cm);
         const scroller = cm.scrollDOM;
 
-        const stop = () => controller.abort();
-        window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
-        window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
-        window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
-
         const startedAt = Date.now();
+        // The window can be extended: display math ($$...$$) is rendered
+        // asynchronously by MathJax, and a note full of it keeps changing height
+        // for well over ten seconds. Ending the loop on schedule there leaves
+        // the heading exactly "a bit off" - the reported symptom.
+        let deadline = startedAt + maxMs;
+        let extensions = 0;
         let passes = 0;
         let lastCurrent = Number.NaN;
+        // "还有图片没加载完吗"不能每次检查都全量扫一遍：这类笔记里嵌着几百张
+        // 图，而这个循环每 700ms 就要问一次 —— 十来轮下来是几千次查询。列表
+        // 最多每 1.5 秒重读一次，和 keepAligned 里的处理保持一致。
+        let imgs: HTMLImageElement[] = [];
+        let imgsAt = 0;
+        const mathBusy = createMathBusyWatcher(scroller);
+        const stillLoading = (): boolean => {
+            const now = Date.now();
+            if (now - imgsAt > 1500) {
+                imgs = Array.from(scroller.querySelectorAll('img'));
+                imgsAt = now;
+            }
+            return imgs.some((img) => !img.complete) || mathBusy();
+        };
+        // How many passes in a row the heading has sat inside the tolerance.
+        // Once it holds, the loop only needs a slow backstop (see the end of
+        // tick), not a check every 700ms.
+        let settledPasses = 0;
         // Minimal intervention, because the experiment was unambiguous: without
         // this code the editor kept rendering but the heading was pushed out of
         // place, with it the view could stop rendering altogether. So: give the
@@ -587,7 +687,18 @@ export default class LinkerPlugin extends Plugin {
 
         const tick = () => {
             if (controller.signal.aborted) return;
-            if (Date.now() - startedAt > maxMs || passes > 24) return;
+            if (passes > 24) return;
+            if (Date.now() > deadline) {
+                // Readings still moving means content is still landing. Extend a
+                // couple of times instead of giving up; once it holds still
+                // (settledPasses > 0) there is nothing left to wait for.
+                if (extensions < 2 && settledPasses === 0) {
+                    extensions++;
+                    deadline = Date.now() + 5000;
+                } else {
+                    return;
+                }
+            }
             const m = measure(cm);
             if (!m) {
                 // 行号超界（跳转后 CM6 还在装载新文档、或行号来自旧状态）：
@@ -596,7 +707,7 @@ export default class LinkerPlugin extends Plugin {
                 window.setTimeout(tick, 700);
                 return;
             }
-            const target = Math.max(6, Math.round((scroller.clientHeight - m.height) / 2));
+            const target = targetViewport ?? Math.max(12, Math.round((scroller.clientHeight - m.height) / 2));
             const current = Math.round(m.current);
             // A tight tolerance, but only readings that HOLD STILL are acted on:
             // while CodeMirror is still measuring a region its line positions
@@ -607,15 +718,24 @@ export default class LinkerPlugin extends Plugin {
             // half-heading offset "close enough" and left it alone.
             const tolerance = Math.max(6, Math.round(scroller.clientHeight * 0.04));
             const unreliable = current < -scroller.clientHeight;   // CM6 mid-remit
-            const stillLoading = Array.from(scroller.querySelectorAll('img'))
-                .some((img) => !img.complete);
-            const settled = current === lastCurrent && !stillLoading;
+            // Requiring the two readings to be EXACTLY equal was too strict: a
+            // sub-pixel wobble left "settled" false forever, so the only thing
+            // that could still correct was the impatient valve (4s in, and only
+            // past 60px) - which is exactly how an off-by-a-bit heading stayed
+            // off by a bit. Two pixels of noise is not the page still moving.
+            const settled = Math.abs(current - lastCurrent) <= 2 && !stillLoading();
             lastCurrent = current;
             const miss = Math.abs(current - target);
             // Safety valve: a surface that never settles (something animating
             // above) would otherwise never be corrected at all.
-            const impatient = Date.now() - startedAt > 4000 && miss > 60;
+            // After four seconds the reading is trusted even if it never holds
+            // perfectly still. It used to also demand miss > 60, so a heading
+            // sitting 40px off - the "almost centred" case, typical of a note
+            // whose math is still rendering - was never corrected at all.
+            const impatient = Date.now() - startedAt > 4000;
             const shouldAct = miss > tolerance && (settled || impatient);
+            if (settled && miss <= tolerance) settledPasses++;
+            else settledPasses = 0;
             const oldEnough = Date.now() - startedAt >= MIN_FIRST_WRITE_MS;
             if (!unreliable && shouldAct && oldEnough && passes < MAX_WRITES) {
                 // requestMeasure is CodeMirror's own hook for adjusting the
@@ -637,7 +757,7 @@ export default class LinkerPlugin extends Plugin {
                         write: (mm, view) => {
                             if (!mm) return;
                             const delta = mm.current
-                                - Math.max(6, Math.round((view.scrollDOM.clientHeight - mm.height) / 2));
+                                - (targetViewport ?? Math.max(12, Math.round((view.scrollDOM.clientHeight - mm.height) / 2)));
                             view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + delta);
                         },
                     });
@@ -648,8 +768,9 @@ export default class LinkerPlugin extends Plugin {
             // right: CodeMirror can STALL (its measure-restart limit), which
             // makes the page hold still while nothing is rendered - so "it looks
             // settled" is not proof that it is finished, and the position has to
-            // be re-checked when rendering resumes.
-            window.setTimeout(tick, 700);
+            // be re-checked when rendering resumes. Once it has held still for a
+            // couple of passes that check runs at a slower cadence instead.
+            window.setTimeout(tick, settledPasses >= 2 ? 2000 : 700);
         };
         window.setTimeout(tick, 400);
     }
@@ -1436,14 +1557,14 @@ export default class LinkerPlugin extends Plugin {
         // treatment as a click on a heading link). Writing scrollTop into a
         // cm-scroller instead gets overwritten by the view's next measurement,
         // which is what left a preview popover showing half a heading.
-        const scrollEditor = (el: HTMLElement, headingText: string): boolean => {
+        const scrollEditor = (el: HTMLElement, headingText: string, targetViewport?: number): boolean => {
             // The element's own editor first: it works for a hover popover,
             // whose view is not in the workspace's leaf list at all.
-            if (this.centerHeadingElement(el, 8000)) return true;
+            if (this.centerHeadingElement(el, 8000, targetViewport)) return true;
             // Otherwise resolve through the workspace + metadata cache.
             const target = resolveHeadingTarget(this.app, el, headingText, null);
             if (!target) return false;
-            this.centerHeadingLine(target.view, target.line, 8000);
+            this.centerHeadingLine(target.view, target.line, 8000, targetViewport);
             return true;
         };
 
@@ -1465,7 +1586,13 @@ export default class LinkerPlugin extends Plugin {
             for (const pop of pops) {
                 // 用 hover 时记下的标题 id 精确定位目标（popover 打开时它可能在中部
                 // 而非顶部，按顶部猜会捡到上面的小标题）。
-                keepScrolledHeadingAligned(pop, 'popover', alignWindow(), scrollEditor, getHoveredHeadingId() ?? undefined);
+                let popTarget: number | undefined;
+                keepScrolledHeadingAligned(
+                    pop, 'popover', alignWindow(),
+                    (el, h) => scrollEditor(el, h, popTarget),
+                    getHoveredHeadingId() ?? undefined,
+                    (o) => { popTarget = o; },
+                );
             }
         });
         // Everything has registered by now, so start watching: starting earlier
@@ -1481,7 +1608,16 @@ export default class LinkerPlugin extends Plugin {
             if (!el || el.closest('.cm-editor')) return;      // editor: the widget owns it
             if (!el.closest('.virtual-link, a.virtual-link-a')) return;
             const scope = el.closest<HTMLElement>('.hover-popover, .workspace-leaf');
-            window.setTimeout(() => keepScrolledHeadingAligned(scope, 'dom-click', alignWindow(), scrollEditor), 60);
+            // Same opt-in as the editor path: an unmodified Obsidian jump already
+            // centres the heading, and a real link proves it stays there.
+            if (!this.settings.alignHeadingAfterJump) return;
+            let domTarget: number | undefined;
+            window.setTimeout(() => keepScrolledHeadingAligned(
+                scope, 'dom-click', alignWindow(),
+                (el, h) => scrollEditor(el, h, domTarget),
+                undefined,
+                (o) => { domTarget = o; },
+            ), 60);
         }, true);
 
 

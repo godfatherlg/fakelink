@@ -81,6 +81,31 @@ const DOM_WRITE_TOTAL_BUDGET = 30;
 // kept doing.
 const ALIGN_MIN_GAP = 12;      // floor, for panes shorter than the heading
 
+/**
+ * "Is MathJax still typesetting?" - proxied by the number of finished formula
+ * containers inside the surface. Images were the only "still rendering" signal
+ * before, and a page of $$...$$ moves the layout for seconds without a single
+ * one of them: the height keeps changing while every img reports complete.
+ *
+ * The check itself is throttled (one querySelectorAll at most every 800ms) and
+ * only reacts to the COUNT of containers changing - typesetting an existing
+ * formula does not create a new one, but it does not matter: the height-based
+ * settled test catches that, this catches the "new formula just landed" bursts.
+ */
+export function createMathBusyWatcher(scroller: HTMLElement): () => boolean {
+    let lastCount = -1;
+    let changedAt = 0;
+    return () => {
+        const now = Date.now();
+        if (now - changedAt > 800) {
+            const n = scroller.querySelectorAll('mjx-container').length;
+            if (lastCount >= 0 && n !== lastCount) changedAt = now;
+            lastCount = n;
+        }
+        return now - changedAt < 1200;
+    };
+}
+
 function normalizeHeading(s: string): string {
     return s
         .replace(/^#+\s*/, '')                              // live preview keeps the markup text
@@ -140,10 +165,11 @@ export function findHeadingElement(scope: ParentNode, headingId: string): HTMLEl
  * the scroller top - i.e. one showing only its lower half - is included on
  * purpose: that is exactly the state this code has to repair.
  */
-/** Where a heading of this height belongs: centred, never above ALIGN_MIN_GAP. */
-function centeredOffset(scroller: HTMLElement, height: number): number {
-    return Math.max(ALIGN_MIN_GAP, Math.round((scroller.clientHeight - height) / 2));
-}
+/** Where a heading of this height belongs: centred, never above ALIGN_MIN_GAP.
+ *  No longer used as a correction target - the baseline (where the jump left
+ *  the heading) is, because Obsidian's own centring is known-good. Kept out of
+ *  the code rather than kept "just in case": a second definition of "centred"
+ *  is how the tug-of-war started. */
 
 /**
  * Ask the CodeMirror editor that owns `el` to scroll to `headingText` - the
@@ -339,6 +365,7 @@ function keepAligned(
     maxMs: number,
     alive: () => boolean,
     scrollEditor?: (el: HTMLElement, headingText: string) => boolean,
+    onBaseline?: (offset: number) => void,
 ): void {
     const abort = new AbortController();
     const { signal } = abort;
@@ -349,6 +376,12 @@ function keepAligned(
 
     const startedAt = Date.now();
     let lastSignature = '';
+    // Where the jump left the heading. Recorded on the FIRST check only: that
+    // position is Obsidian's own centring, which is known-good (a real link
+    // jump is stable). Everything after that is drift protection - put the
+    // heading back when content changes move it - and never a second guess at
+    // "where centred should be", which is what pulled correct headings off.
+    let baseline = Number.NaN;
     let stableSince = Date.now();
     let settledInMs = -1;
     let domWrites = 0;         // direct writes in the current episode
@@ -369,6 +402,7 @@ function keepAligned(
     // content container (its first element child) that has to be observed.
     let observed: Element | null = null;
     let ro: ResizeObserver | null = null;
+    let mathBusy: (() => boolean) | null = null;
     let debounce: number | null = null;     // coalesces a burst of observer hits
     let pending: number | null = null;      // a check that is already queued
     let rearm: number | null = null;        // follow-up while something settles
@@ -408,6 +442,7 @@ function keepAligned(
         ro?.disconnect();
         ro = null;
         observed = target;
+        mathBusy = scroller ? createMathBusyWatcher(scroller) : null;
         if (target) {
             ro = new ResizeObserver(() => {
                 if (debounce !== null) window.clearTimeout(debounce);
@@ -444,9 +479,15 @@ function keepAligned(
             const offset = scroller
                 ? foundRect.top - scroller.getBoundingClientRect().top
                 : 0;
-            // Where the heading belongs: centred in the pane, like Obsidian's
-            // own heading navigation - and impossible to clip from above.
-            const desired = scroller ? centeredOffset(scroller, foundRect.height) : 0;
+            // First check: record where the jump left the heading (and tell the
+            // caller, so its editor-scroll can aim at the same place). Never
+            // "correct" this position itself - that is what dragged headings
+            // that were already centred out of place.
+            if (Number.isNaN(baseline)) {
+                baseline = offset;
+                onBaseline?.(offset);
+            }
+            const desired = baseline;
             if (scroller) {
                 const signature = scroller.scrollHeight + ':' + Math.round(scroller.scrollTop + offset);
                 if (signature !== lastSignature) {
@@ -472,13 +513,20 @@ function keepAligned(
                     imgsAt = Date.now();
                 }
                 const stillLoading = imgs.some((img) => !img.complete);
-                const settleReady = !stillLoading && Date.now() - stableSince >= ALIGN_STABLE_MS;
+                const settleReady = !stillLoading && !mathBusy?.()
+                    && Date.now() - stableSince >= ALIGN_STABLE_MS;
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
                 // after a moment, correct a large miss anyway. Kept short on
                 // purpose: in media-heavy notes settleReady may not hold for
                 // seconds, and waiting 4s just reads as "it takes ages to snap".
-                const impatient = Date.now() - startedAt > 1200 && miss > 60;
+                // A note full of display math never satisfies settleReady while
+                // MathJax is still typesetting, and demanding miss > 60 on top
+                // meant a heading sitting 40px off was never handed to the
+                // alignment at all - so it simply stayed off-centre. After a
+                // couple of seconds any real miss is worth acting on; the
+                // tolerance test just above is what keeps jitter out.
+                const impatient = Date.now() - startedAt > 2500;
                 if (miss > ALIGN_TOLERANCE_PX && (settleReady || impatient)) {
                     // Inside a CodeMirror editor the view owns the scroll, so the
                     // job is handed to the editor (centred - the same call
@@ -529,6 +577,7 @@ export function keepScrolledHeadingAligned(
     maxMs = ALIGN_MAX_MS,
     scrollEditor?: (el: HTMLElement, headingText: string) => boolean,
     headingId?: string,
+    onBaseline?: (offset: number) => void,
 ): void {
     const requestedAt = Date.now();
     let cached: HTMLElement | null = null;
@@ -564,6 +613,7 @@ export function keepScrolledHeadingAligned(
 
         () => !scope || scope.isConnected,
         scrollEditor,
+        onBaseline,
     );
 }
 
@@ -1209,14 +1259,30 @@ export class VirtualMatch {
                         // setting), and it moves the view through the editor's own
                         // API - never through a synthetic scroll, which is what made
                         // CodeMirror give up rendering a PDF-heavy note.
+                        // Set once the running alignment actually reaches the
+                        // heading. The late re-navigation below must not fire
+                        // then: it is a full jump + re-render that lands on
+                        // Obsidian's own position, which is exactly the "it
+                        // centres and then gets pulled back" symptom.
+                        let alignmentWorking = false;
+                        let targetViewport: number | undefined;
                         const editorScroll = (el: HTMLElement, headingText: string): boolean => {
-                            if (this.plugin?.centerHeadingElement?.(el, alignWindow)) return true;
+                            alignmentWorking = true;
+                            if (this.plugin?.centerHeadingElement?.(el, alignWindow, targetViewport)) return true;
                             const target = resolveHeadingTarget(this.plugin.app, el, headingText, null);
                             if (!target) return false;
-                            this.plugin.centerHeadingLine(target.view, target.line, alignWindow);
+                            this.plugin.centerHeadingLine(target.view, target.line, alignWindow, targetViewport);
                             return true;
                         };
-                        keepScrolledHeadingAligned(scope, 'click-editor', alignWindow, editorScroll, headerIdToUse);
+                        // A real [[link]] lands centred and stays there, so the
+                        // whole correction pass is opt-in (see the
+                        // "Align heading after jump" setting).
+                        if (this.settings.alignHeadingAfterJump) {
+                            keepScrolledHeadingAligned(
+                                scope, 'click-editor', alignWindow, editorScroll, headerIdToUse,
+                                (o) => { targetViewport = o; },
+                            );
+                        }
 
                         const abort = new AbortController();
                         const stop = () => abort.abort();
@@ -1227,12 +1293,24 @@ export class VirtualMatch {
                             if (delay > alignWindow) break;
                             window.setTimeout(() => {
                                 if (abort.signal.aborted) return;
+                                // Same opt-in as the alignment above: a late
+                                // re-navigation is a full jump of its own.
+                                if (!this.settings.alignHeadingAfterJump) return;
                                 if (alreadyFramed()) return;
                                 // The measured alignment is already running. If it
                                 // can find the heading it will correct the position,
                                 // so a re-navigation would only re-render the whole
                                 // note and fight it. Re-navigate only when the
                                 // alignment has nothing to work with.
+                                //
+                                // Ask the alignment itself whether that is so,
+                                // rather than looking the heading up again here:
+                                // findHeadingElement() misses it in notes whose
+                                // DOM keeps being rebuilt (MathJax typesetting a
+                                // page of display math), and every miss turned
+                                // into a re-navigation that yanked the view back
+                                // to Obsidian's own position.
+                                if (alignmentWorking) return;
                                 if (findHeadingElement(document.body, headerIdToUse)) return;
                                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
                             }, delay);
@@ -1241,7 +1319,9 @@ export class VirtualMatch {
                         // Rendered surface (reading view, HTML popover): no
                         // CodeMirror editor involved, so the measured DOM
                         // alignment is both safe and accurate there.
-                        keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse);
+                        if (this.settings.alignHeadingAfterJump) {
+                            keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse);
+                        }
                     }
                 }
                 }

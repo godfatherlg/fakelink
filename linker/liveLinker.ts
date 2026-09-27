@@ -538,7 +538,21 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         const dom = view.dom;
-        const mappedFile = this.viewUpdateDomToFileMap.get(dom);
+        let mappedFile = this.viewUpdateDomToFileMap.get(dom);
+        // A missing mapping must NOT be left to getCurrentMatchNodes, which falls
+        // back to workspace.getActiveFile(). Hover Editor focuses the note it
+        // opened, so while one of its windows has focus the "active file" is that
+        // note - and it would then be excluded as if it were the file being
+        // rendered. The visible effect: keywords whose only exact target is the
+        // note open in the floating window lose their exact match and fall back
+        // to a fuzzy one.
+        // Prefer the last real (non-floating) view, and when even that is unknown
+        // pass null (exclude nothing) rather than let it guess. Views inside a
+        // floating window keep the fallback below, where getActiveFile() is
+        // actually the right answer for them.
+        if (mappedFile === undefined && !isInHoverPopover(dom)) {
+            mappedFile = this.lastRealActiveView?.file ?? null;
+        }
 
         // Check if the file is inside excluded folders
         const excludedFolders = this.settings.excludedDirectoriesForLinking;

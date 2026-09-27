@@ -124,6 +124,8 @@ const zhCN: Record<string, string> = {
     'Tag to explicitly include the file for the linker.': '给文件添加此标签后，该文件将被显式包含。',
     'Tag to ignore file': '排除文件的标签',
     'Tag to ignore the file for the linker.': '给文件添加此标签后，该文件将被排除。',
+    'Align heading after jump': '跳转后保持标题位置',
+    'After jumping to a heading, put it back where the jump left it whenever content changes move it away - a PDF embed or a page of display math that finishes rendering seconds later can push it out of place. The position Obsidian jumps to is treated as correct and is never second-guessed. Off by default: most notes render without drifting.': '跳转到标题后，若笔记高度仍在变化（PDF 嵌入、整页公式几秒后才渲染完，会把标题挤走），把标题放回跳转时所在的位置。Obsidian 跳转后的位置被视为正确，绝不会二次改动。默认关闭：大多数笔记渲染时不会漂移。',
     'Exclude self-links to the current note': '排除指向自身的链接',
     'If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically.': '启用后，指向当前笔记自身的链接将被排除。开启「允许在标题中显示虚拟链接」时会自动开启此项。',
     'Excluded directories for generating virtual links': '不生成链接的目录',

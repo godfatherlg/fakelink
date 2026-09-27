@@ -1,49 +1,49 @@
-# 1.23.46
+# 1.23.47
 
 ## 中文
 
-**Live Preview 打字更流畅**
+**修复：Hover Editor 悬浮窗口会让精准匹配变成模糊匹配**
 
-以前每按一次方向键、每移动一下光标，都会把可见区域的虚拟链接全部重算一遍 —— 长笔记上这是明显的掉帧来源。现在只有真正依赖光标位置的设置（「排除当前行的链接」、IME 相关）开启时，光标移动才会触发重建；否则只由文档变化、滚动、切换笔记触发。
+悬浮窗口获得焦点后，`workspace` 的"当前文件"变成窗口里打开的那篇。主笔记渲染时若拿不到自己的文件映射，会回退用"当前文件"做排除 —— 于是窗口里那篇被当成"自己"排除掉，指向它的精准匹配消失，只剩模糊匹配。
 
-**读模式下「只链接一次」真正生效**
+现在缺失映射时优先使用最后一个真实（非悬浮）视图的文件；连它也未知时不排除任何文件。
 
-读模式是把一篇笔记分成若干块分别渲染的，而每块都是独立实例，记录"已经链过哪些笔记"的集合每块都会清空。结果是「只链接一次」形同虚设：同一个目标在每个段落里都会被再链一次；前一块收集到的真实 `[[链接]]` 也会被后一块遗忘。
+**改动：跳转后标题对齐改为"保持位置"（防漂移）**
 
-现在这些集合按笔记共享（250 毫秒窗口）：同一次渲染的连续几块共享，间隔较久的重渲染则重新开始 —— 否则残留的"已链接"记录会让新链接永远不再出现。
+跳转到标题后，Obsidian 本来就把标题放到了居中位置 —— 点击真实链接可以验证它放得又准又稳。旧实现对那个位置再做一次"按插件自己的居中公式"的修正，反而把正确的位置挤偏（在公式较多的笔记里尤其明显）。
 
-**词干还原修复：不再每跑一次就变短**
+新行为：
 
-`caresses` 的正确词干是 `caress`。旧实现先拼好新结尾、随后又按旧下标截断一次，把刚拼上的 `ss` 砍掉一个，于是结果是 `cares`，再跑一次又变 `care` —— 每处理一次就更短一点。`press`、`access`、`process` 这类以 `s` 结尾的词同样受影响（例如 `press` 被削成 `pres`）。
+- 跳转后首次检查只**记录** Obsidian 放置的位置作为基准，绝不对它二次调整；
+- 之后仅当内容变化把标题推离基准时（PDF 嵌入、图片、整页公式在几秒后才渲染完成），才把标题放回基准位置；
+- 该功能默认关闭，新设置「跳转后保持标题位置」；「标题对齐观察窗」只在它打开时显示。
 
-现在按规则直接截断（`sses → ss`、`ies → i` 都是去掉末尾的 `es`），结果稳定不变。只影响开启了「词干还原匹配」且匹配到这类单词的用户，且是从错误结果改为正确结果。
+**居中判定的完善**（仅开启上述开关时参与）：
 
-**新增单元测试**
-
-`npm test` 可运行，覆盖词干还原、`stripHeadingNumber`、`checkWordBoundary`。其中一条是防回归的：用章节号形状的对抗性输入断言耗时上限，防止把标题编号剥离改回那种会指数回溯、导致预览卡死的正则写法。
-
-另：删除了一个定义了却从未被调用的方法（`isFormattingChar`），并与读模式里一条已经过时的 TODO 注释做了澄清。
+- MathJax 排版期间视为"仍在渲染"（以公式容器数量变化为信号），不再在布局移动时出手；
+- 连续两次写入没有让标题更接近目标就停止 —— 一个赢不了的循环不应该拉扯视图；
+- 移除了基于位置的 `scrollIntoView` 方案：实测（`scrollTop` 拦截）确认它才是"居中后又被挤下去"的来源 —— 它按估算的位置居中，而公式排版期间估算会偏出近千像素。
 
 ## English
 
-**Smoother typing in Live Preview**
+**Fixed: Hover Editor focus turned exact matches into fuzzy ones**
 
-Moving the caret used to rebuild every decoration in the visible range - a full rebuild per arrow key, and a real source of stutter on long notes. A caret move now triggers a rebuild only when a setting that depends on the caret position is on ("exclude links in the current line", or the IME workaround); otherwise rebuilds come from document changes, scrolling and switching notes.
+When a Hover Editor window takes focus, the workspace's "current file" becomes the note opened in it. If the main note's renderer could not resolve its own file mapping it fell back to that "current file", which excluded the hovered note as if it were self - so keywords pointing at it lost their exact match and fell back to fuzzy.
 
-**"Link only once" now works in reading mode**
+A missing mapping now prefers the last real (non-floating) view's file, and excludes nothing when even that is unknown.
 
-Reading mode renders a note as several blocks, each processed by its own instance, so the "already linked" bookkeeping was emptied for every block. "Link only once" therefore linked the same target again in each paragraph, and real `[[links]]` collected in an earlier block were forgotten by later ones.
+**Changed: post-jump heading alignment is now "hold the position" (drift protection)**
 
-Those sets are now shared per note within a 250 ms window: consecutive blocks of one render share them, while a re-render much later starts fresh - otherwise a stale "already linked" entry would keep new links from ever appearing.
+After a jump, Obsidian already puts the heading at the centred position - clicking a real link proves it lands exactly there. The old pass re-adjusted that position with the plugin's own idea of "centred", which dragged correctly-placed headings off (most visible in notes full of display math).
 
-**Stemming fix: the result no longer shrinks on every pass**
+New behaviour:
 
-The correct stem of `caresses` is `caress`. The old code built the new ending and then sliced again using the stale index, cutting one of the two `s` characters it had just appended: the result was `cares`, and stemming it again gave `care` - a little shorter every time. Words ending in `s` were affected the same way (`press` was trimmed to `pres`).
+- The first check only RECORDS where the jump left the heading, as the baseline. It is never re-adjusted.
+- Afterwards, only when content changes push the heading away from that baseline (a PDF embed, an image, a page of display math finishing seconds later) is it put back.
+- Off by default, as the new setting "Align heading after jump"; the "Heading align watch window" slider only appears while it is on.
 
-It now truncates directly (`sses -> ss` and `ies -> i` both just drop the trailing `es`), so results are stable. Only users with stemming enabled and matching such words are affected, and they move from a wrong stem to the right one.
+**Alignment refinements** (only active with the switch above):
 
-**Unit tests added**
-
-`npm test` covers stemming, `stripHeadingNumber` and `checkWordBoundary`. One of them guards against a regression: it asserts a time limit for a heading-number-shaped input, so stripping heading numbers can never go back to the exponential-backtracking regexp that used to freeze the preview.
-
-Also removed a method that was defined but never called (`isFormattingChar`), and clarified a TODO in reading mode that had already been implemented.
+- MathJax typesetting now counts as "still rendering" (signalled by the count of formula containers changing), so corrections no longer fire mid-layout;
+- Two writes in a row that do not move the heading closer stop the loop - a loop that cannot win must not tug at the view;
+- Removed the position-based `scrollIntoView` approach: a `scrollTop` hook on a math-heavy note showed it was the source of "centred then pulled down" - it centres a position, and while math re-typesets that position's on-screen estimate drifts by hundreds of pixels.
