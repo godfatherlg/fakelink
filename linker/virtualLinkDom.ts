@@ -98,19 +98,6 @@ const DOM_WRITE_TOTAL_BUDGET = 30;
  * settled test catches that, this catches the "new formula just landed" bursts.
  */
 /**
- * Alignment tracing. Silent unless the flag is set from the console:
- *     window.__fakelinkDebug = true
- * Left in the build on purpose - this area can only be diagnosed from a real
- * hover preview, and re-adding the logging each time means shipping a build
- * that no longer matches what the user reported.
- */
-function traceAlign(...args: unknown[]): void {
-    if ((window as unknown as { __fakelinkDebug?: boolean }).__fakelinkDebug) {
-        console.log('[fakelink align]', ...args);
-    }
-}
-
-/**
  * Height changes the plugin causes ITSELF.
  *
  * Reserving an embed's height (and releasing it again once the real content
@@ -499,8 +486,8 @@ function keepAligned(
 
     function check() {
         if (signal.aborted) return;
-        if (!alive()) { traceAlign(label, 'surface gone'); stop(); return; }
-        if (Date.now() - startedAt > maxMs) { traceAlign(label, 'window over'); stop(); return; }
+        if (!alive()) { stop(); return; }               // popover closed / view gone
+        if (Date.now() - startedAt > maxMs) { stop(); return; }
         // A resize we caused ourselves (embedding height being reserved, then
         // released) is not content landing - let it settle and look again.
         if (isSelfInflictedLayout()) {
@@ -511,7 +498,6 @@ function keepAligned(
         let wrote = false;
         let moved = false;
         const found = resolve();
-        traceAlign(label, 'resolve ->', found ? 'found' : 'NOT FOUND');
         if (found) {
             const scroller = findScrollableAncestor(found);
             observe(scroller);
@@ -564,19 +550,11 @@ function keepAligned(
                     && (settleReady || Date.now() - startedAt > 3000)) {
                     baseline = offset;
                     onBaseline?.(offset);
-                    traceAlign(label, 'baseline set to', Math.round(offset));
                 }
                 const desired = mode === 'centre'
                     ? centeredOffset(scroller, foundRect.height)
                     : baseline;
                 const miss = Math.abs(offset - desired);
-                traceAlign(label, {
-                    heading: headingText.slice(0, 24),
-                    offset: Math.round(offset), desired: Math.round(desired),
-                    miss: Math.round(miss), settleReady,
-                    imgsLoading: stillLoading, mathBusy: mathBusy?.(),
-                    baseline: Math.round(baseline),
-                });
                 // Safety valve: a page that never stops changing (an animation,
                 // a playing video) would otherwise never be positioned at all -
                 // after a moment, correct a large miss anyway. Kept short on
@@ -595,8 +573,6 @@ function keepAligned(
                     // Obsidian makes for its own heading links). A surface
                     // without an editor handle is scrolled directly, at most a
                     // few times, so the two can never end up fighting.
-                    traceAlign(label, 'correct by', Math.round(offset - desired),
-                        'inEditor:', inEditor, 'settleReady:', settleReady);
                     const handled = inEditor && scrollEditor ? scrollEditor(found, headingText) : false;
                     const withinBudget = domWrites < DOM_WRITE_BUDGET && domWritesTotal < DOM_WRITE_TOTAL_BUDGET;
                     if (handled || !inEditor || withinBudget) {
