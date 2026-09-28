@@ -8,7 +8,7 @@ import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
 import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, keepScrolledHeadingAligned, markSelfInflictedLayout, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
+import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, headingElementByLine, headingRowElement, keepScrolledHeadingAligned, markSelfInflictedLayout, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
 
@@ -541,18 +541,25 @@ export default class LinkerPlugin extends Plugin {
             cm.requestMeasure({
                 read: (view) => {
                     if (!el.isConnected) return null;
-                    const rr = el.getBoundingClientRect();
+                    // Measure the ROW, not the inline heading span - see
+                    // headingRowElement in virtualLinkDom.
+                    const rr = headingRowElement(el).getBoundingClientRect();
                     const sr = view.scrollDOM.getBoundingClientRect();
                     const h = Math.max(1, rr.height);
-                    // 12: the old ALIGN_MIN_GAP floor, kept only as the fallback
-                    // centring for when no jump baseline exists (this function is
-                    // then used as plain "centre this heading").
                     const t = targetViewport ?? Math.max(12, Math.round((view.scrollDOM.clientHeight - h) / 2));
                     return Math.round((rr.top - sr.top) - t);
                 },
                 write: (d, view) => {
                     if (d === null) return;
-                    view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + d);
+                    // A centre can be PHYSICALLY out of reach - see the note in
+                    // tick(). Clamp to the scrollable range and do nothing when
+                    // that leaves no movement: the current position is then the
+                    // closest the heading can get to the middle.
+                    const dom = view.scrollDOM;
+                    const maxTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+                    const want = Math.min(Math.max(0, dom.scrollTop + d), maxTop);
+                    if (Math.abs(want - dom.scrollTop) < 2) return;
+                    dom.scrollTop = want;
                 },
             });
         };
@@ -567,7 +574,10 @@ export default class LinkerPlugin extends Plugin {
             if (Date.now() - startedAt > maxMs || passes > 6) return;
             if (!el.isConnected) return;   // 元素被 CM 回收了，交给调用方重新找
 
-            const r = el.getBoundingClientRect();
+            // The ROW, not the inline span (see headingRowElement): decorations
+            // like Heading Decorator's padding live on the row, and the span-only
+            // measurement aimed the centre a few dozen pixels off.
+            const r = headingRowElement(el).getBoundingClientRect();
             const sr = scroller.getBoundingClientRect();
             const current = r.top - sr.top;
             const height = Math.max(1, r.height);
@@ -587,6 +597,17 @@ export default class LinkerPlugin extends Plugin {
             const stable = Number.isNaN(lastTop) || Math.abs(topNow - lastTop) <= 2;
             lastTop = topNow;
             if (Math.abs(delta) <= HEADING_EPSILON_PX) return;   // close enough
+            // Is the centre even reachable? A heading near the END of a short
+            // note has too little content below it to sit in the middle, and one
+            // near the start has too little above. Obsidian's own jump respects
+            // that and leaves the heading at the closest reachable spot - which
+            // is why it looks "almost centred". Writing without that check
+            // scrolled into the edge and carried the heading away from the
+            // middle: "it was basically centred and then something moved it".
+            // Already at the limit => this IS the best position; stop touching it.
+            const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+            const wantTop = Math.min(Math.max(0, scroller.scrollTop + delta), maxTop);
+            if (Math.abs(wantTop - scroller.scrollTop) < 2) return;
             // Self-check, but judge the result ONLY while the page is holding
             // still. While the layout keeps moving, "the heading is no closer"
             // just means it moved again - counting those as failures made the
@@ -771,7 +792,13 @@ export default class LinkerPlugin extends Plugin {
                             if (!mm) return;
                             const delta = mm.current
                                 - (targetViewport ?? Math.max(12, Math.round((view.scrollDOM.clientHeight - mm.height) / 2)));
-                            view.scrollDOM.scrollTop = Math.max(0, view.scrollDOM.scrollTop + delta);
+                            // Clamp to the scrollable range (see centerHeadingElement):
+                            // the centre may be out of reach near either end of the note.
+                            const dom = view.scrollDOM;
+                            const maxTop = Math.max(0, dom.scrollHeight - dom.clientHeight);
+                            const want = Math.min(Math.max(0, dom.scrollTop + delta), maxTop);
+                            if (Math.abs(want - dom.scrollTop) < 2) return;
+                            dom.scrollTop = want;
                         },
                     });
                 } catch { return; }
@@ -1621,6 +1648,9 @@ export default class LinkerPlugin extends Plugin {
                     getHoveredHeadingId() ?? undefined,
                     undefined,
                     'centre',
+                    // Same line-number fallback as the click paths: a decorated
+                    // row in a Hover Editor popover does not match by text.
+                    (id) => headingElementByLine(this.app, pop, id),
                 );
             }
         });
@@ -1628,14 +1658,27 @@ export default class LinkerPlugin extends Plugin {
         // would run an incomplete handler list for the first insertions.
         insertObserver.observe(document.body, { childList: true, subtree: true });
 
-        // Rendered-DOM clicks (reading view, popovers rendered as HTML) have no
-        // widget and therefore no onclick of their own - navigation is done by
-        // Obsidian. Watch those surfaces the same way: no href parsing, nothing
-        // prevented or stopped, only the alignment afterwards.
+        // Rendered-DOM clicks outside the editor (reading view, popovers
+        // rendered as HTML). A link built by this plugin carries its own
+        // onclick (getLinkAnchorElement): that handler navigates AND aligns,
+        // and it knows which heading the link points at.
+        //
+        // This watcher used to start a SECOND alignment for the same click -
+        // one with no heading name, so keepAligned falls back to "whichever
+        // heading sits nearest the top". Right after a jump the linked heading
+        // is not that one (it is being centred, so a neighbouring heading is
+        // still at the top), so the second loop centred a NEIGHBOURING heading
+        // instead: that is the "it centres and then lands somewhere wrong"
+        // symptom. Two loops writing one scroller also fight each other - one
+        // writes, the other pulls back - which is the jumping. So step in only
+        // when the anchor has no handler of its own, e.g. a node that was
+        // cloned (cloneNode copies attributes, but not the onclick property).
         this.registerDomEvent(document, 'click', (evt) => {
             const el = evt.target as HTMLElement | null;
             if (!el || el.closest('.cm-editor')) return;      // editor: the widget owns it
             if (!el.closest('.virtual-link, a.virtual-link-a')) return;
+            const anchor = el.closest<HTMLAnchorElement>('a.virtual-link-a');
+            if (anchor?.onclick) return;                      // it navigates and aligns itself
             const scope = el.closest<HTMLElement>('.hover-popover, .workspace-leaf');
             // Same opt-in as the editor path: an unmodified Obsidian jump already
             // centres the heading, and a real link proves it stays there.

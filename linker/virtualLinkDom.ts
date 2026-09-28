@@ -131,6 +131,19 @@ export function createMathBusyWatcher(scroller: HTMLElement): () => boolean {
     };
 }
 
+/**
+ * The ROW that carries a heading, which is what Obsidian actually positions.
+ *
+ * In Live Preview the heading element is an inline span around the text only,
+ * while the row (`.cm-line`) is what gets centred - and what heading decoration
+ * plugins (padding, borders, icons) enlarge. Measuring the span aims a few
+ * dozen pixels off, which reads as "not quite centred" and gets worse the more
+ * decoration a heading carries.
+ */
+export function headingRowElement(el: HTMLElement): HTMLElement {
+    return el.closest<HTMLElement>('.cm-line, h1, h2, h3, h4, h5, h6') ?? el;
+}
+
 function normalizeHeading(s: string): string {
     return s
         .replace(/^#+\s*/, '')                              // live preview keeps the markup text
@@ -256,7 +269,65 @@ export function resolveHeadingTarget(
     return pick ? { view: pick.view, line: pick.line } : null;
 }
 
+/**
+ * The rendered ROW element of a heading, resolved through its metadata line
+ * number instead of through its text.
+ *
+ * Text lookup is what breaks inside a CodeMirror surface: the row carries
+ * decorations (heading decorator icons, a virtual-link suffix), so its
+ * textContent is not the heading text. The line number comes from Obsidian's
+ * metadata cache and stays exact no matter how the row is decorated, and
+ * CodeMirror can return the row element for it.
+ *
+ * The editor is taken from `scope` itself, not from the view the line number
+ * came from: a hover popover hosts its own editor and that view is not in the
+ * workspace's leaf list at all, so it would always resolve to the main pane -
+ * and centring a row in the wrong pane is exactly the kind of move this
+ * function exists to avoid. Returns null while the row is not rendered (yet);
+ * the caller then leaves the view alone and asks again.
+ */
+export function headingElementByLine(app: App, scope: HTMLElement | null, headingId: string): HTMLElement | null {
+    const want = normalizeHeading(headingId);
+    if (!want) return null;
+    // Only the LINE NUMBER is taken from the metadata cache here (see above for
+    // why its view is not used).
+    const target = resolveHeadingTarget(app, scope, headingId, null);
+    if (!target) return null;
+    const root: ParentNode = scope ?? activeDocument.body;
+    const cmEl = root.querySelector('.cm-editor');
+    const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
+    if (!cm) return null;
 
+    const lineNumber = Math.min(target.line + 1, cm.state.doc.lines);
+    // Verify the line by its SOURCE text - the rendered row carries decorations
+    // (heading decorator icons, a virtual-link suffix), the source does not.
+    // This is what turns a line number that belongs to a different file (the
+    // same heading name can exist in two notes) into a miss instead of a move.
+    const source = normalizeHeading(cm.state.doc.line(lineNumber).text);
+    if (!source || (source !== want && !source.startsWith(want) && !want.endsWith(source))) return null;
+
+    // BlockInfo carries no element in these typings, so go through domAtPos -
+    // and then VERIFY the row: a position outside the viewport resolves to the
+    // nearest rendered edge, and centring THAT row would be the very "wrong
+    // neighbour" this function exists to prevent. posAtDOM tells us which line
+    // the element really is, so a mismatch (or a node CodeMirror does not know)
+    // simply means "not rendered right now" and the caller leaves the view
+    // alone until a later check finds it in the viewport.
+    const pos = cm.state.doc.line(lineNumber).from;
+    const at = cm.domAtPos(pos);
+    const node = at.node.nodeType === Node.TEXT_NODE ? at.node.parentElement : (at.node as HTMLElement | null);
+    const row = node?.closest<HTMLElement>('.cm-line') ?? null;
+    if (!row) return null;
+    try {
+        if (cm.state.doc.lineAt(cm.posAtDOM(row)).number !== lineNumber) return null;
+    } catch {
+        return null;
+    }
+    // Last line of defence: never hand back a row outside the surface that is
+    // being aligned.
+    if (scope && scope.isConnected && !scope.contains(row)) return null;
+    return row;
+}
 
 /**
  * Centre a heading through the editor itself, waiting for the document to
@@ -510,7 +581,9 @@ function keepAligned(
             const headingText = found.getAttribute('data-heading') ?? found.textContent ?? '';
             const inEditor = !!found.closest('.cm-editor');
 
-            const foundRect = found.getBoundingClientRect();
+            // Measure the ROW, not the inline heading span (see headingRowElement):
+            // the row is what gets centred, and decorations live on it.
+            const foundRect = headingRowElement(found).getBoundingClientRect();
             const offset = scroller
                 ? foundRect.top - scroller.getBoundingClientRect().top
                 : 0;
@@ -577,8 +650,18 @@ function keepAligned(
                     const withinBudget = domWrites < DOM_WRITE_BUDGET && domWritesTotal < DOM_WRITE_TOTAL_BUDGET;
                     if (handled || !inEditor || withinBudget) {
                         if (!handled) {
-                            scroller.scrollTop = Math.max(0, scroller.scrollTop + offset - desired);
-                            if (inEditor) { domWrites++; domWritesTotal++; }
+                            // Same reachability rule as the editor path: never
+                            // scroll past the end. A heading near either end of
+                            // the note cannot be centred, and forcing it carried
+                            // the view into the edge and the heading away from
+                            // the middle. At the limit, the position is already
+                            // the best one - leave it.
+                            const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+                            const want = Math.min(Math.max(0, scroller.scrollTop + offset - desired), maxTop);
+                            if (Math.abs(want - scroller.scrollTop) >= 2) {
+                                scroller.scrollTop = want;
+                                if (inEditor) { domWrites++; domWritesTotal++; }
+                            }
                         }
                         lastSignature = '';
                         if (settledInMs < 0) settledInMs = Date.now() - startedAt;
@@ -619,8 +702,15 @@ export function keepScrolledHeadingAligned(
     headingId?: string,
     onBaseline?: (offset: number) => void,
     mode: 'hold' | 'centre' = 'hold',
+    /**
+     * Last-resort lookup for a heading whose NAME is known. Text matching in a
+     * CodeMirror surface fails as soon as the row carries decorations (heading
+     * decorator icons, a virtual-link suffix), so the caller may supply a
+     * lookup that goes through the metadata line number instead. Consulted
+     * only when the text lookups found nothing; returning null is fine.
+     */
+    resolveByName?: (id: string) => HTMLElement | null,
 ): void {
-    const requestedAt = Date.now();
     let cached: HTMLElement | null = null;
     // 预览弹窗没有 headingId，只能靠"当前最靠顶的标题"猜。但一旦滚动起来，顶部
     // 就换成了另一个标题，猜出来的目标跟着换 → 追着不同标题滚个不停。所以第一次
@@ -634,13 +724,21 @@ export function keepScrolledHeadingAligned(
             const lookupId = headingId ?? pinnedId;
             if (lookupId) {
                 const byName = (scope && scope.isConnected ? findHeadingElement(scope, lookupId) : null)
-                    ?? findHeadingElement(document.body, lookupId);
+                    ?? findHeadingElement(document.body, lookupId)
+                    ?? resolveByName?.(lookupId)
+                    ?? null;
                 if (byName) { cached = byName; return cached; }
-                // Not rendered yet: keep waiting for THAT heading instead of
-                // latching onto a neighbour (which would be centred instead).
-                if (Date.now() - requestedAt < 4000) return null;
-                // 名字已固定过：宁可继续等它渲染，也别改去居中旁边的标题。
-                if (pinnedId) return null;
+                // The heading is known BY NAME but its element is not in the DOM
+                // (yet). Never fall back to the "nearest the top" guess here: that
+                // is a DIFFERENT heading, and centring it moves the view off the
+                // one that was linked to. This is exactly what used to happen a
+                // few seconds after a jump into a CodeMirror surface - the row's
+                // text is not the heading text once a decorator renders inside
+                // it, the text lookup kept failing, and the fallback centred a
+                // neighbour. Returning null leaves the position Obsidian chose
+                // (which is the right one), and the next check - the safety pass
+                // keeps those coming - looks again.
+                return null;
             }
             const top = findHeadingAtTop(scope, false);
             if (top && !headingId && !pinnedId) {
@@ -1327,6 +1425,11 @@ export class VirtualMatch {
                                 // centred (a real link's internal navigation is
                                 // the one that centres). Centre it ourselves.
                                 'centre',
+                                // A decorated row (heading decorator icon, a
+                                // virtual-link suffix) does not carry the heading
+                                // text, so the text lookup can fail here - the
+                                // line number cannot.
+                                (id) => (this.plugin ? headingElementByLine(this.plugin.app, scope, id) : null),
                             );
                         }
 
@@ -1366,7 +1469,11 @@ export class VirtualMatch {
                         // CodeMirror editor involved, so the measured DOM
                         // alignment is both safe and accurate there.
                         if (this.settings.alignHeadingAfterJump) {
-                            keepScrolledHeadingAligned(scope, 'click', alignWindow, undefined, headerIdToUse, undefined, 'centre');
+                            keepScrolledHeadingAligned(
+                                scope, 'click', alignWindow, undefined, headerIdToUse, undefined, 'centre',
+                                // Same line-number fallback as the editor path.
+                                (id) => (this.plugin ? headingElementByLine(this.plugin.app, scope, id) : null),
+                            );
                         }
                     }
                 }
