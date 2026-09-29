@@ -258,6 +258,17 @@ html body .virtual-link-in-header a {
     text-decoration: line-through;
 }
 
+/* "What is new" dialog shown once after an update */
+.fakelink-whats-new ul.fakelink-whats-new-list {
+    padding-left: 1.2em;
+    margin: 0.4em 0 1em;
+}
+
+.fakelink-whats-new ul.fakelink-whats-new-list li {
+    margin-bottom: 0.55em;
+    line-height: 1.5;
+}
+
 /* Virtual links in tables */
 table th .virtual-link,
 table th .virtual-link-span {

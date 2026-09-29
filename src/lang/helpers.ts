@@ -223,6 +223,10 @@ const zhCN: Record<string, string> = {
     'Used when the method is "By tag": a note carrying this tag renders no virtual links at all. Put it in the frontmatter (tags: [linker-ignore]) or anywhere in the note as #linker-ignore.': '当方式为「按标签」时，带有该标签的笔记完全不渲染虚拟链接。可写在 frontmatter（tags: [linker-ignore]）或正文任意处（#linker-ignore），也支持层级标签（如 #linker-ignore/xxx）。',
     'Opt-out property name': '禁用属性名',
     'Used when the method is "By frontmatter property": a note with this property set to true renders no virtual links at all. Usage: add "linker-ignore: true" to the note frontmatter.': '当方式为「按 Frontmatter 属性」时，该属性设为 true 的笔记完全不渲染虚拟链接。用法：在笔记 frontmatter 添加 "linker-ignore: true"。',
+
+    'What is new': '更新了什么',
+    'See the full release notes': '查看完整更新说明',
+    'After an update a small dialog now lists what changed in the new version, with a button to the full release notes. It appears once per update - never on a fresh install, and never on every startup.': '更新后会弹出一个小窗口，列出本版的更新要点，并可跳转到完整更新说明。每次更新只弹一次——首次安装不弹，也不会每次启动都弹。',
 };
 
 export function t(text: string): string {

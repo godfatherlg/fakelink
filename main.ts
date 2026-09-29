@@ -11,6 +11,7 @@ import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
 import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, headingElementByLine, headingRowElement, keepScrolledHeadingAligned, markSelfInflictedLayout, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
+import { WhatsNewModal, WHATS_NEW_VERSION } from './src/whatsNew';
 
 // 同一编辑器只允许一个居中循环在跑。调用方（keepAligned）会在每次 miss 超容差
 // 时再请求一次；如果每次都新起一个循环，多个循环各自写滚动，表现就是"不停
@@ -69,6 +70,8 @@ export interface LinkerPluginSettings {
      * cells keep their links.
      */
     tableLinkSuppression: boolean;
+    /** Version this plugin last ran as, so "what is new" can be shown once. */
+    lastSeenVersion: string;
     onlyLinkOnce: boolean;
     excludeLinksToRealLinkedFiles: boolean;
     includeAliases: boolean;
@@ -181,6 +184,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     fixIMEProblem: true,
     excludeLinksInCurrentLine: true,
     tableLinkSuppression: true,
+    lastSeenVersion: '',
     onlyLinkOnce: false,
     excludeLinksToRealLinkedFiles: false,
     includeAliases: true,
@@ -2129,6 +2133,20 @@ export default class LinkerPlugin extends Plugin {
                         });
                 });
             }
+        }
+        // Show "what is new" once, right after an update - never on a fresh
+        // install, where notes about past releases are of no use to anyone.
+        // Delayed a moment so it does not compete with Obsidian's own startup,
+        // and only when the notes really belong to this version, so a release
+        // that forgot to update them stays quiet instead of showing stale text.
+        const currentVersion = this.manifest.version;
+        if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
+            && WHATS_NEW_VERSION === currentVersion) {
+            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
+        }
+        if (this.settings.lastSeenVersion !== currentVersion) {
+            this.settings.lastSeenVersion = currentVersion;
+            void this.saveData(this.settings);
         }
     }
 
