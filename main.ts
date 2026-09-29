@@ -63,6 +63,12 @@ export interface LinkerPluginSettings {
     excludeLinksToOwnNote: boolean;
     fixIMEProblem: boolean;
     excludeLinksInCurrentLine: boolean;
+    /**
+     * While a table cell is open for editing, render no virtual links inside it,
+     * so the text stays plain and can be typed into normally. The surrounding
+     * cells keep their links.
+     */
+    tableLinkSuppression: boolean;
     onlyLinkOnce: boolean;
     excludeLinksToRealLinkedFiles: boolean;
     includeAliases: boolean;
@@ -174,6 +180,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludeLinksToOwnNote: false,
     fixIMEProblem: true,
     excludeLinksInCurrentLine: true,
+    tableLinkSuppression: true,
     onlyLinkOnce: false,
     excludeLinksToRealLinkedFiles: false,
     includeAliases: true,

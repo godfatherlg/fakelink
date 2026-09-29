@@ -514,6 +514,11 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'),
                     visible: () => s.enableFrontmatterExcludeList,
                 }),
+                // 表格单元格一进入编辑，链接会挡住光标、还可能误触跳转；这个开关让
+                // 正在编辑的那一格不渲染链接，纯文本、可正常输入。
+                toggleDef(t('No links in the cell being edited'), 'tableLinkSuppression', {
+                    desc: t('While a table cell is open for editing, no virtual links are rendered inside that cell, so the text stays plain and can be typed into normally. The other cells keep their links. Everything comes back when you leave the cell. Live Preview tables only.'),
+                }),
             ]),
 
             // ---------- Special syntax ----------

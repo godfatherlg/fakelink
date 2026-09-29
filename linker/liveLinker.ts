@@ -537,6 +537,13 @@ class AutoLinkerPlugin implements PluginValue {
             return builder.finish();
         }
 
+        // Editing a table cell: render NOTHING inside that cell editor, so its
+        // text behaves like plain text and can be typed into. The other cells of
+        // the configured range are only restyled, via markSuppressedTableCells.
+        if (this.settings.tableLinkSuppression && isInTableCellEditor(view.dom)) {
+            return builder.finish();
+        }
+
         const dom = view.dom;
         let mappedFile = this.viewUpdateDomToFileMap.get(dom);
         // A missing mapping must NOT be left to getCurrentMatchNodes, which falls

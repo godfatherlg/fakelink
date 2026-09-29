@@ -19,6 +19,8 @@ const zhCN: Record<string, string> = {
     'Background': '背景',
     'Failed to save settings. The change may be lost when Obsidian reloads.': '设置保存失败，更改可能在重启 Obsidian 后丢失。',
 
+    'No links in the cell being edited': '编辑中的单元格不显示链接',
+    'While a table cell is open for editing, no virtual links are rendered inside that cell, so the text stays plain and can be typed into normally. The other cells keep their links. Everything comes back when you leave the cell. Live Preview tables only.': '当某个表格单元格处于编辑状态时，这一格内不渲染虚拟链接，文字保持纯文本、可正常输入；其他单元格的链接不受影响，退出编辑后全部恢复。仅对实时预览（Live Preview）中的表格生效。',
     'Background tint strength': '背景着色强度',
     'Opacity of the light blue tint on list / indented / table / callout lines. 10 is the default.': '列表 / 缩进 / 表格 / 调用块行的淡蓝底色的不透明度。默认 10。',
     'Cursor line strength': '光标行强度',
