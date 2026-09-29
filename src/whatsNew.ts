@@ -12,7 +12,7 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.23.53';
+export const WHATS_NEW_VERSION = '1.23.54';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI

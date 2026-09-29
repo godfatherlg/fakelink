@@ -881,6 +881,21 @@ export default class LinkerPlugin extends Plugin {
         // re-run later for windows that did not exist yet at startup.
         this.applyBackgroundStyles();
 
+        // Show "what is new" once, right after an update - never on a fresh
+        // install, where notes about past releases are of no use to anyone.
+        // Delayed a moment so it does not compete with Obsidian's own startup,
+        // and only when the notes really belong to this version, so a release
+        // that forgot to update them stays quiet instead of showing stale text.
+        const currentVersion = this.manifest.version;
+        if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
+            && WHATS_NEW_VERSION === currentVersion) {
+            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
+        }
+        if (this.settings.lastSeenVersion !== currentVersion) {
+            this.settings.lastSeenVersion = currentVersion;
+            void this.saveData(this.settings);
+        }
+
         // Always set link colors (header vs note)
         activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
         activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
@@ -2133,20 +2148,6 @@ export default class LinkerPlugin extends Plugin {
                         });
                 });
             }
-        }
-        // Show "what is new" once, right after an update - never on a fresh
-        // install, where notes about past releases are of no use to anyone.
-        // Delayed a moment so it does not compete with Obsidian's own startup,
-        // and only when the notes really belong to this version, so a release
-        // that forgot to update them stays quiet instead of showing stale text.
-        const currentVersion = this.manifest.version;
-        if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
-            && WHATS_NEW_VERSION === currentVersion) {
-            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
-        }
-        if (this.settings.lastSeenVersion !== currentVersion) {
-            this.settings.lastSeenVersion = currentVersion;
-            void this.saveData(this.settings);
         }
     }
 
