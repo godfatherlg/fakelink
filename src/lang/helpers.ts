@@ -226,7 +226,8 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'After an update a small dialog now lists what changed in the new version, with a button to the full release notes. It appears once per update - never on a fresh install, and never on every startup.': '更新后会弹出一个小窗口，列出本版的更新要点，并可跳转到完整更新说明。每次更新只弹一次——首次安装不弹，也不会每次启动都弹。',
+    'Fixed: the first hover preview after startup was left uncentred - it now waits for the index to finish building before aligning.': '修复：启动后的第一次悬浮预览不会居中——现在会等索引构建完成后再对齐。',
+    'Creating, deleting or renaming a note now refreshes the index straight away, so a newly created note can be linked without switching notes or restarting.': '新建、删除或重命名笔记后会立即刷新索引，新建的笔记无需切换文件或重启即可被链接。',
 };
 
 export function t(text: string): string {

@@ -12,14 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.23.54';
+export const WHATS_NEW_VERSION = '1.23.55';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'After an update a small dialog now lists what changed in the new version, with a button to the full release notes. It appears once per update - never on a fresh install, and never on every startup.',
+    'Fixed: the first hover preview after startup was left uncentred - it now waits for the index to finish building before aligning.',
+    'Creating, deleting or renaming a note now refreshes the index straight away, so a newly created note can be linked without switching notes or restarting.',
 ];
 
 export class WhatsNewModal extends Modal {

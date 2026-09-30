@@ -921,6 +921,37 @@ export default class LinkerPlugin extends Plugin {
         // refresh the decorations so the newly excluded note stops linking.
         LinkerCache.getInstance(this.app, this.settings).onIndexChanged = () => this.updateManager.update();
 
+        // Keep the index in step with the vault: a note that is created, deleted
+        // or renamed changes which terms can be linked, and without this the
+        // change only showed up after switching notes or restarting.
+        //
+        // Only these three events are watched, deliberately NOT 'modify': a save
+        // happens every few seconds while typing, and each refresh rebuilds the
+        // index, which would stutter on a large vault. Creation, deletion and
+        // renaming are rare enough that even a full rebuild goes unnoticed, and
+        // a burst of them (a folder dropped in) is coalesced into one refresh.
+        let indexRefreshTimer: number | null = null;
+        const scheduleIndexRefresh = (): void => {
+            if (indexRefreshTimer !== null) window.clearTimeout(indexRefreshTimer);
+            indexRefreshTimer = window.setTimeout(() => {
+                indexRefreshTimer = null;
+                this.updateManager.update();
+            }, 800);
+        };
+        // Attachments and folders cannot become link targets, so they are
+        // ignored: dropping a folder of images must not trigger a rebuild.
+        const isNote = (file: TAbstractFile): boolean =>
+            file instanceof TFile && file.extension === 'md';
+        this.registerEvent(this.app.vault.on('create', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+        this.registerEvent(this.app.vault.on('delete', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+        this.registerEvent(this.app.vault.on('rename', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+
         // Register the glossary linker for the read mode
         this.registerMarkdownPostProcessor((element, context) => {
             context.addChild(new GlossaryLinker(this.app, this.settings, context, element, this));
@@ -1668,16 +1699,31 @@ export default class LinkerPlugin extends Plugin {
                 // popover opens at whatever position Obsidian chose for the LINK
                 // - often with the heading nowhere near the middle. Holding that
                 // would only preserve a wrong position, so this path CENTRES.
-                keepScrolledHeadingAligned(
-                    pop, 'popover', alignWindow(),
-                    scrollEditor,
-                    getHoveredHeadingId() ?? undefined,
-                    undefined,
-                    'centre',
-                    // Same line-number fallback as the click paths: a decorated
-                    // row in a Hover Editor popover does not match by text.
-                    (id) => headingElementByLine(this.app, pop, id),
-                );
+                const startPopoverAlign = (): void => {
+                    // The popover may already be gone by the time this runs.
+                    if (!pop.isConnected) return;
+                    keepScrolledHeadingAligned(
+                        pop, 'popover', alignWindow(),
+                        scrollEditor,
+                        getHoveredHeadingId() ?? undefined,
+                        undefined,
+                        'centre',
+                        // Same line-number fallback as the click paths: a decorated
+                        // row in a Hover Editor popover does not match by text.
+                        (id) => headingElementByLine(this.app, pop, id),
+                    );
+                };
+                // The index is built asynchronously (in chunks), so right after
+                // startup the popover's content is not rendered yet and the
+                // heading cannot be found - the first preview of a session then
+                // silently ended up uncentred, while later ones were fine. Wait
+                // for the index before starting to align.
+                const cache = LinkerCache.getInstance(this.app, this.settings);
+                if (cache.cache.isReady) {
+                    startPopoverAlign();
+                } else {
+                    void cache.cache.readyPromise.then(startPopoverAlign);
+                }
             }
         });
         // Everything has registered by now, so start watching: starting earlier

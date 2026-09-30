@@ -1,31 +1,33 @@
-# 1.23.54
+# 1.23.55
 
 ## 中文
 
-**修复：「更新了什么」提示窗口没有真正生效**
+**修复：启动后第一次悬浮预览不会居中**
 
-上一版（1.23.53）新增了"插件更新后弹出一个窗口，列出本版更新了什么"的功能，但那段代码被放错了位置 —— 它落在右键菜单的处理函数里，只有右键时才会执行，所以实际使用中这个窗口不会弹出。本版把它移回插件启动流程，功能才真正生效。
+插件的索引是分块异步构建的，大库在启动后一小段时间内索引还是空的。这时弹出的悬浮预览里内容尚未渲染，对齐逻辑找不到目标标题，于是静默放弃 —— 表现为"第一次预览没居中，换一个链接或等一会儿就好了"。现在对齐会先等索引构建完成再开始。
 
-功能本身（上一版已加入、本版才正常工作）：
+**新增：新建 / 删除 / 重命名笔记后立即刷新索引**
 
-- 每次更新后弹一次，列出本版更新要点
-- 底部按钮可跳转到该版本的完整更新说明
-- **只在版本变化时弹一次**，不会每次启动都打扰
-- **首次安装不弹**
-- 内容跟随界面语言（中文 / 英文）
-- 内容内置，**不联网**，离线可用
+以前新建一篇笔记后，它要等"切换文件"或"重启插件"才会进入索引 —— 也就是说，新建的术语笔记在原文里不会立刻被链上。现在这三个操作会立刻触发索引刷新（约 1 秒后生效）。
+
+为了不影响性能，这里做了三点约束：
+
+- **不监听"保存"事件** —— 编辑时每隔几秒就保存一次，绑上去会导致频繁重建索引，大库会卡
+- **只认 Markdown 文件** —— 拖入图片、附件或新建文件夹不会触发重建
+- **800 毫秒防抖** —— 连续多个操作（比如一次拖入一批文件）合并成一次刷新
 
 ## English
 
-**Fixed: the "what is new" dialog was never actually shown**
+**Fixed: the first hover preview after startup was left uncentred**
 
-The previous release (1.23.53) added a dialog that lists what changed after an update, but the code landed inside a context-menu handler, so it only ran on right-click - in normal use the dialog never appeared. It now runs as part of plugin startup, and the feature finally works.
+The index is built asynchronously in chunks, so for a short while after startup it is still empty. A hover preview opened during that window had no rendered content to align to, and the alignment silently gave up — which read as "the first preview is not centred, later ones are". It now waits for the index to finish building before it starts.
 
-The feature itself (added last release, working from this one):
+**New: the index refreshes right after a note is created, deleted or renamed**
 
-- Shown once after each update, listing what changed
-- A button opens the full release notes for that version
-- **Shown once per update** - not on every startup
-- **Not shown on a fresh install**
-- Follows the UI language (Chinese / English)
-- The notes are built in, so it works **offline**
+Previously a newly created note only entered the index once you switched notes or restarted — so a freshly created term was not linked in existing notes. These three operations now refresh the index immediately (visible after about a second).
+
+Three deliberate limits keep this cheap:
+
+- **The "modify" (save) event is NOT watched** — saving happens every few seconds while typing, and rebuilding on each one would stutter a large vault
+- **Markdown files only** — dropping in images, attachments or a folder does not trigger a rebuild
+- **800 ms debounce** — a burst of changes (e.g. a batch of dropped files) becomes a single refresh
