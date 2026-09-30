@@ -6,7 +6,7 @@ import { stem } from './stemmer';
 
 // Irregular English verbs: map inflected forms to their base/infinitive so that
 // Porter stemming (which cannot handle irregular verbs) still aligns them.
-// e.g. ran -> run, went -> go, was -> be. Used by fuzzy (词义模糊) matching.
+// e.g. ran -> run, went -> go, was -> be. Used by fuzzy matching.
 const FUZZY_IRREGULAR_VERBS: Record<string, string> = {
     // be
     am: 'be', is: 'be', are: 'be', was: 'be', were: 'be', been: 'be', being: 'be',
@@ -118,7 +118,7 @@ const FUZZY_IRREGULAR_VERBS: Record<string, string> = {
     wears: 'wear', wore: 'wear', worn: 'wear', wearing: 'wear',
 };
 
-// Chinese function words / particles to strip for fuzzy (词义模糊) matching.
+// Chinese function words / particles to strip for fuzzy matching.
 const FUZZY_ZH_STOPWORDS: string[] = [
     '的', '了', '吗', '呢', '吧', '啊', '呀', '哦', '嘛', '罢',
     '和', '与', '及', '跟', '同', '或', '而', '但', '却',
@@ -252,11 +252,11 @@ export class PrefixTree {
     private lastAutoExcludeSignature: string = '';
 
     // Fuzzy-match index: normalized keyword (lowercased) -> candidate entries.
-    // Built alongside the prefix tree when fuzzy (词义模糊) matching is enabled.
+    // Built alongside the prefix tree when fuzzy matching is enabled.
     fuzzyKeywordMap: Map<string, { files: Set<TFile>; headerId?: string; canonical?: string }[]> = new Map();
 
     // Keywords that exist in the exact-match tree ONLY because something was
-    // normalized away: a stemmed / stopword-stripped variant (词义模糊) or a
+    // normalized away: a stemmed / stopword-stripped variant or a
     // heading keyword whose leading number was stripped. A hit on one of these
     // is already an exact tree match, but it is not what the user wrote
     // verbatim - so it is reported as a FUZZY match and gets the fuzzy colour
@@ -714,7 +714,7 @@ export class PrefixTree {
             this.mapFileHeaderIds.set(file.path, existingIds);
         }
 
-        // Register fuzzy (词义模糊) keywords so that words with similarity >=
+        // Register fuzzy keywords so that words with similarity >=
         // threshold can still link. Every keyword reaching this point is indexed,
         // including ones that normalization left unchanged (e.g. "科目二冲刺带背3"
         // has no function words to strip). Indexing only the "changed" ones meant
@@ -1008,7 +1008,7 @@ export class PrefixTree {
         if (this.settings.enableStemming) {
             const lang = this.settings.stemmingLanguage;
             const addStem = (name: string) => {
-                // "词义模糊匹配" (fuzzy match): reduce a keyword to a normalized
+                // Fuzzy match: reduce a keyword to a normalized
                 // form so that inflected forms / function words link to the same
                 // note or heading.
                 //   - English: stem each word individually + apply an irregular
@@ -1414,11 +1414,13 @@ export class PrefixTree {
      * markers (e.g. 🔥) without those markers becoming part of the keyword.
      */
     private headingKeyword(heading: string): string {
-        // Only the leading NUMBER counts as normalisation. Symbols from the
-        // whitelist (e.g. 🔥) are ignored ON PURPOSE - the user asked for that -
-        // so such a match stays an exact match, with or without the symbol.
+        // Stripping the leading NUMBER is pure formatting, not derivation: the
+        // user writes the heading's content verbatim, the number is only its
+        // layout prefix. So a hit on the stripped keyword stays an EXACT match
+        // (unlike a stemmed variant, which addFileWithName reports as fuzzy).
+        // Symbols from the whitelist (e.g. 🔥) are ignored ON PURPOSE - the
+        // user asked for that - so such a match stays exact too.
         const withoutNumber = PrefixTree.stripHeadingNumber(heading);
-        const numberStripped = withoutNumber.trim().toLowerCase() !== heading.trim().toLowerCase();
 
         let s = withoutNumber;
         const symbols = this.settings.headingSymbolWhitelist;
@@ -1426,11 +1428,6 @@ export class PrefixTree {
             for (const sym of symbols) {
                 if (sym) s = s.split(sym).join('');
             }
-        }
-        // A heading number was removed, so a hit on this keyword is normalised
-        // rather than verbatim - report it as a fuzzy match.
-        if (numberStripped) {
-            this.derivedKeywords.add(s.toLowerCase());
         }
         return s;
     }

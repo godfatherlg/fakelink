@@ -12,14 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.0';
+export const WHATS_NEW_VERSION = '1.24.2';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Internal cleanup complete: line jumping, the context menu and the embed/PDF/preview sizing now live in their own modules, and plugin startup is a 21-line checklist. No behaviour changes.',
+    'Fix: exact matches against numbered headings (e.g. "1. Title") no longer show the fuzzy-match colour. Also: the batch-convert dialogs now follow the app language instead of hardcoded Chinese.',
 ];
 
 export class WhatsNewModal extends Modal {

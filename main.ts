@@ -14,9 +14,10 @@ import { copyLineUri, jumpToLine, openFileOnly } from './src/lineJump';
 import { addContextMenuItem } from './src/contextMenu';
 import { registerEmbedReservation } from './src/embedReserve';
 
-// 同一编辑器只允许一个居中循环在跑。调用方（keepAligned）会在每次 miss 超容差
-// 时再请求一次；如果每次都新起一个循环，多个循环各自写滚动，表现就是"不停
-// 滚动"——预览弹窗里尤其明显。
+// Only one centring loop may run per editor. The caller (keepAligned) requests
+// again each time a miss exceeds the tolerance; if every request started a new
+// loop, the loops would each write the scroll and the symptom is "keeps
+// scrolling" - most visible in preview popovers.
 const activeCenterLoops = new WeakMap<EditorView, AbortController>();
 
 // A heading this close to where it belongs is left alone. Six pixels was the
@@ -86,7 +87,7 @@ export interface LinkerPluginSettings {
     allowLinksInHeaders: boolean; // Allow virtual links in headers
     colorOnlyDisplay: boolean; // Use color-only display for virtual links
     disableVirtualLinkPreview: boolean; // Do not let virtual links trigger the page preview / Hover Editor popover
-    // One switch for the whole "背景" look: faint tint, list / Tab-indented
+    // One switch for the whole "background" look: faint tint, list / Tab-indented
     // lines (and the line above them), tables, callouts, the cursor line, the
     // tab headers and a gentle mask while the window is unfocused.
     backgroundHighlight: boolean;
@@ -124,7 +125,7 @@ export interface LinkerPluginSettings {
     // for notes that genuinely drift is what the extra machinery is for; on a
     // note that renders fine it can only fight the view.
     alignHeadingAfterJump: boolean; // How many seconds a jumped-to heading keeps being re-aligned
-    enableStemming: boolean; // 词义模糊匹配 (fuzzy meaning matching)
+    enableStemming: boolean; // fuzzy meaning matching
     stemmingLanguage: string; // Language for fuzzy matching ('en' | 'zh' | 'auto')
     fuzzyMatchThreshold: number; // Minimum similarity (0-100) for fuzzy matching to create a link (only used when enableStemming is on)
     fuzzyMinLength: number; // Minimum normalized length of a title/note name to be considered for fuzzy matching (shorter ones are skipped)
@@ -217,8 +218,9 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     frontmatterExcludeListProperty: 'fakelink-exclude-keywords',
     linkIgnoreMode: 'tag',
     linkIgnoreTag: 'linker-ignore',
-    // 属性也用 linker- 前缀，和 linker-exclude / linker-ignore-case / linker-match-case
-    // 保持一致。两种方式是二选一（linkIgnoreMode），所以同名不会冲突。
+    // The property also uses the linker- prefix, consistent with linker-exclude /
+    // linker-ignore-case / linker-match-case. The two mechanisms are mutually
+    // exclusive (linkIgnoreMode), so the same name cannot collide.
     linkIgnoreProperty: 'linker-ignore',
     headerVirtualLinkColor: '#517ea0',
     noteVirtualLinkColor: '#c0392b',
@@ -358,14 +360,18 @@ export default class LinkerPlugin extends Plugin {
         const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
         if (!cm) return false;
 
-        // 直接按元素自身的 DOM 实测居中。getBoundingClientRect 是渲染后的真相，
-        // 与外层 keepAligned 用的是同一个元素、同一套坐标，所以一次 delta 就能
-        // 写到位；之前走 coordsAtPos/lineBlockAt 会因高度估算不一致差出几像素，
-        // 表现为"差一点不居中"或反复拉扯。属性面板多高、是否折叠都不影响。
+        // Centre directly from the element's own measured DOM.
+        // getBoundingClientRect is the rendered truth, and it is the same element
+        // and the same coordinate space the outer keepAligned uses, so one delta
+        // lands exactly; the previous coordsAtPos/lineBlockAt path differed by a
+        // few pixels because the height estimates disagreed, showing up as "just
+        // off-centre" or back-and-forth tugging. The properties panel height and
+        // whether it is folded do not matter.
         const scroller = cm.scrollDOM;
 
-        // 后到的请求替换先前的循环（同一处反复请求时只保留最后一个，避免多个
-        // 循环同时写滚动）。
+        // A later request replaces the previous loop (only the last survives when
+        // the same spot is requested repeatedly, avoiding several loops writing
+        // the scroll at once).
         const controller = this.startCentring(cm);
 
         const startedAt = Date.now();
@@ -422,7 +428,7 @@ export default class LinkerPlugin extends Plugin {
             // and later height changes are handled by the caller instead:
             // keepAligned watches with a ResizeObserver and calls this again.
             if (Date.now() - startedAt > maxMs || passes > 6) return;
-            if (!el.isConnected) return;   // 元素被 CM 回收了，交给调用方重新找
+            if (!el.isConnected) return;   // element was reclaimed by CM, let the caller look it up again
 
             // The ROW, not the inline span (see headingRowElement): decorations
             // like Heading Decorator's padding live on the row, and the span-only
@@ -487,12 +493,14 @@ export default class LinkerPlugin extends Plugin {
     }
 
     private centerCmLine(cm: EditorView, line: number, maxMs: number, targetViewport?: number): void {
-        // 给这个视图的 dispatch 装保护（幂等）：Obsidian 偶尔会拿超界 selection
-        // 去 dispatch，这里捕获后 clamp 到文档长度内重试，真正化解而不是隐藏。
+        // Arm this view's dispatch guard (idempotent): Obsidian occasionally
+        // dispatches an out-of-range selection, so catch it, clamp it into the
+        // document length and retry - defusing the error rather than hiding it.
         patchDispatchClamp(cm);
 
-        // 后到的请求替换先前的循环：同一处反复请求时只保留最后一个，避免多个
-        // 循环同时写滚动（预览里"不停滚动"就是它们互相打架）。
+        // A later request replaces the previous loop: only the last survives when
+        // the same spot is requested repeatedly, avoiding several loops writing
+        // the scroll at once (the preview "keeps scrolling" is them fighting).
         const controller = this.startCentring(cm);
         const scroller = cm.scrollDOM;
 
@@ -505,9 +513,10 @@ export default class LinkerPlugin extends Plugin {
         let extensions = 0;
         let passes = 0;
         let lastCurrent = Number.NaN;
-        // "还有图片没加载完吗"不能每次检查都全量扫一遍：这类笔记里嵌着几百张
-        // 图，而这个循环每 700ms 就要问一次 —— 十来轮下来是几千次查询。列表
-        // 最多每 1.5 秒重读一次，和 keepAligned 里的处理保持一致。
+        // "Are there images still loading?" cannot rescan everything on every
+        // check: such notes embed hundreds of images and this loop asks every
+        // 700ms - a dozen rounds is thousands of queries. Re-read the list at
+        // most every 1.5s, matching keepAligned's handling.
         let imgs: HTMLImageElement[] = [];
         let imgsAt = 0;
         const mathBusy = createMathBusyWatcher(scroller);
@@ -528,8 +537,9 @@ export default class LinkerPlugin extends Plugin {
         // place, with it the view could stop rendering altogether. So: give the
         // view time to recover from the jump, wait for the page to stop moving,
         // and then write ONCE - never touching the scroll again afterwards.
-        // 800ms（原 2000ms）：调用方已经先等了它自己的一轮，再让用户多等 2 秒
-        // 才动手，观感就是"好久才跳一下拉正"。
+        // 800ms (was 2000ms): the caller already waited a round of its own, and
+        // making the user wait another 2s felt like "a long pause before it
+        // finally jumps and straightens".
         const MIN_FIRST_WRITE_MS = 800;
         // The page can move more than once after the first correction: a PDF
         // embed releases its reserved height seconds later, which shrinks
@@ -538,12 +548,15 @@ export default class LinkerPlugin extends Plugin {
         // safe - the loop keeps the heading in place until the window ends.
         const MAX_WRITES = 24;
 
-        // 测标题行当前的视口位置（相对 .cm-scroller 视口顶部）与高度。用
-        // coordsAtPos（基于已渲染行的实测坐标）而不是 lineBlockAt：后者是 CM 的
-        // 内容坐标，和滚动所在的 .cm-scroller 差着 properties / inline title 的
-        // 高度（日志里 355px）。视口坐标里直接算差值，属性面板有几行、是否折叠
-        // 都不需要额外假设；行在视口外拿不到坐标时，才退回内容坐标 + 上方偏移，
-        // 先把视口滚过去。
+        // Measure the heading line's current viewport position (relative to the
+        // .cm-scroller viewport top) and height. Use coordsAtPos (measured
+        // coordinates of the rendered line) rather than lineBlockAt: the latter is
+        // CodeMirror's content coordinate, offset from the .cm-scroller that owns
+        // the scroll by the properties / inline-title height (355px in the logs).
+        // Computing the delta in viewport coordinates needs no assumption about the
+        // properties panel; only when the line is off-screen and has no coordinates
+        // does it fall back to content coordinates plus a top offset to scroll
+        // there first.
         const measure = (view: EditorView): { current: number; height: number } | null => {
             let pos: number;
             try {
@@ -585,9 +598,11 @@ export default class LinkerPlugin extends Plugin {
             }
             const m = measure(cm);
             if (!m) {
-                // 行号超界（跳转后 CM6 还在装载新文档、或行号来自旧状态）：
-                // 继续重试到 maxMs，不要在这一步 return —— 那样整个居中循环会在
-                // 第一次 tick 就悄悄停掉，标题就停在 Obsidian 默认的位置。
+                // Line number out of range (CM6 is still loading the new document
+                // after a jump, or the number comes from a stale state): keep
+                // retrying until maxMs rather than returning here - returning would
+                // silently stop the whole centring loop on its first tick and leave
+                // the heading at Obsidian's default position.
                 window.setTimeout(tick, 700);
                 return;
             }
@@ -633,8 +648,9 @@ export default class LinkerPlugin extends Plugin {
                 //     until it gives up laying the document out.
                 // requestMeasure does neither: it runs in the measure cycle, so
                 // the position is applied after the view has decided its own.
-                // 写入用"实测位置 - 目标位置"的差值（与上面判断同一套视口坐标），
-                // 属性面板多高、是否折叠都不影响；read 阶段重新测一次拿最新布局。
+                // Write the "measured - target" delta (the same viewport coordinate
+                // space used above), so the properties panel height does not matter;
+                // re-measure in the read phase to get the latest layout.
                 try {
                     cm.requestMeasure({
                         read: (view) => measure(view),
@@ -1083,11 +1099,11 @@ export default class LinkerPlugin extends Plugin {
             name: 'Convert all virtual links in selection to real links',
             editorCallback: (editor: Editor, view: MarkdownView) => {
                 if (!editor.somethingSelected()) {
-                    new Notice('请先选择一段文本，再运行此命令。');
+                    new Notice(t('Select some text first, then run this command.'));
                     return;
                 }
                 if (!this.settings.linkerActivated) {
-                    new Notice('虚拟链接功能当前已关闭，请先在设置中启用。');
+                    new Notice(t('Virtual links are currently disabled. Enable them in the settings first.'));
                     return;
                 }
                 const fromPos = editor.getCursor('from');

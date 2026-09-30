@@ -361,15 +361,18 @@ class AutoLinkerPlugin implements PluginValue {
         docPos: number,
         view: EditorView
     ): { files: TFile[]; distances: Map<string, number> } {
-        // 距离也要带出去：消歧没能缩小到唯一候选时，[1|2|3] 会用它在同一档位内部
-        // 排序（正文里提得更近的那篇排前面）。
+        // Carry the distance out too: when disambiguation does not narrow to one
+        // candidate, [1|2|3] uses it to order within the same tier (the note
+        // mentioned nearer in the body ranks first).
         const distances = new Map<string, number>();
         if (files.length <= 1) return { files, distances };
 
         const doc = view.state.doc;
-        // 上下文范围 = 整篇（文档开头到当前匹配位置）。原来只看"当前段落"，
-        // 但需求是"文章里提到过谁，谁就更受重视"—— 整篇更稳定，也不受段落
-        // 怎么划分的影响。
+        // Context scope = the whole document (from its start to the current match
+        // position). It used to look only at the "current paragraph", but the
+        // requirement is "whoever is mentioned in the article gets more weight" -
+        // the whole document is more stable and independent of how paragraphs are
+        // split.
         const context = doc.sliceString(0, docPos).toLowerCase();
         if (context.trim().length === 0) return { files, distances };
 
@@ -576,8 +579,8 @@ class AutoLinkerPlugin implements PluginValue {
             if (excludedFolders.includes(path ?? '')) return builder.finish();
         }
 
-        // 单篇禁用：笔记自己声明了不渲染任何虚拟链接（标签或 frontmatter 属性，
-        // 用哪种由 linkIgnoreMode 决定）
+        // Per-note disable: the note declares it renders no virtual link (a tag or
+        // a frontmatter property - which one is decided by linkIgnoreMode).
         const ignoreFile = mappedFile ?? this.app.workspace.getActiveFile();
         if (isLinkingDisabledInNote(ignoreFile, this.app, this.settings)) return builder.finish();
 
@@ -678,8 +681,9 @@ class AutoLinkerPlugin implements PluginValue {
                                     node.headerId
                                 );
 
-                                // 把上下文距离交给渲染层：同一档位的目标按"正文里提得
-                                // 更近的在前"排序。
+                                // Hand the context distance to the render layer: targets
+                                // in the same tier are ordered by "mentioned nearer in
+                                // the body first".
                                 if (ctxDistances) {
                                     for (const [p, d] of ctxDistances) virtualMatch.setFileContextDistance(p, d);
                                 }
@@ -1055,10 +1059,12 @@ class AutoLinkerPlugin implements PluginValue {
                 matches = VirtualMatch.sort(matches);
             }
 
-            // 按位置顺序，给每个匹配打一份"在它之前已经链接过的文件"快照，然后
-            // 才把它自己加进集合。排序时用这份快照判断"文章里是否已经指向过这篇
-            // 笔记"（含精准和模糊匹配）—— 快照必须在它自己之前取，否则同一组
-            // 候选会互相把对方算成"已链接"，加权就失效了。
+            // In position order, snapshot "files linked before this match" for each
+            // match, then add it to the set. Sorting uses the snapshot to decide
+            // "has the article already pointed to this note" (exact and fuzzy both
+            // count) - the snapshot must be taken BEFORE adding itself, otherwise
+            // candidates in the same group would count each other as "linked" and
+            // the weighting breaks.
             matches.forEach((addition) => {
                 addition.setAlreadyLinkedFiles(new Set(alreadyLinkedFiles));
                 addition.files.forEach((f) => alreadyLinkedFiles.add(f));

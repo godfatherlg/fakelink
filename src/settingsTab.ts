@@ -449,9 +449,11 @@ export class LinkerSettingTab extends PluginSettingTab {
                     placeholder: 'List of directory names (separated by new line)',
                     visible: adv,
                 }),
-                // 上面那项是"按目录"关闭链接生成，下面这组是"按单篇" —— 两者都是源侧
-                // 排除（笔记自己不生成链接），与 Exclusions 组里那些"让笔记不被链接到"
-                // 的目标侧排除相反，所以放在这里而不是 Exclusions 组。
+                // The item above turns link generation off "by directory"; this
+                // group does it "per note" - both are source-side exclusions (the
+                // note produces no links), the opposite of the target-side
+                // exclusions in the Exclusions group (which keep a note from being
+                // linked to). That is why they live here, not in Exclusions.
                 dropdownDef(t('Single-note opt-out'), 'linkIgnoreMode', {
                     off: t('Off — no note can opt out'),
                     tag: t('By tag'),
@@ -514,8 +516,10 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('The frontmatter property name for per-note excluded keyword lists. Default: fakelink-exclude-keywords.'),
                     visible: () => s.enableFrontmatterExcludeList,
                 }),
-                // 表格单元格一进入编辑，链接会挡住光标、还可能误触跳转；这个开关让
-                // 正在编辑的那一格不渲染链接，纯文本、可正常输入。
+                // While a table cell is open for editing, links block the cursor and
+                // can be mis-tapped into a jump; this switch makes the cell being
+                // edited render no link, so its text stays plain and can be typed
+                // into normally.
                 toggleDef(t('No links in the cell being edited'), 'tableLinkSuppression', {
                     desc: t('While a table cell is open for editing, no virtual links are rendered inside that cell, so the text stays plain and can be typed into normally. The other cells keep their links. Everything comes back when you leave the cell. Live Preview tables only.'),
                 }),
@@ -648,7 +652,7 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('Color for note and alias virtual links (e.g., #c0392b).'),
                 }),
                 colorDef(t('Fuzzy link base color'), 'fuzzyBaseColor', {
-                    desc: t('Base color for fuzzy (词义模糊) matches. It is mixed with the header / note color, so a fuzzy link looks like a tinted version of its exact-match counterpart.'),
+                    desc: t('Base color for fuzzy matches. It is mixed with the header / note color, so a fuzzy link looks like a tinted version of its exact-match counterpart.'),
                 }),
                 sliderDef(t('Fuzzy color mix'), 'fuzzyColorMixRatio', 0, 100, 5, {
                     desc: t('How much of the fuzzy base color is mixed in. 0% = fuzzy links use the normal colors (feature off); 100% = fuzzy links use the base color only; 50% = an even blend, keeping the header/note hue while tinting it.'),

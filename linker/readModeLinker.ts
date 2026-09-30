@@ -211,14 +211,16 @@ export class GlossaryLinker extends MarkdownRenderChild {
         textNode: Node,
         offset: number
     ): { files: TFile[]; distances: Map<string, number> } {
-        // 距离也要带出去：消歧没能缩小到唯一候选时，[1|2|3] 会用它在同一档位内部
-        // 排序（正文里提得更近的那篇排前面）。
+        // Carry the distance out too: when disambiguation does not narrow to one
+        // candidate, [1|2|3] uses it to order within the same tier (the note
+        // mentioned nearer in the body ranks first).
         const distances = new Map<string, number>();
         if (files.length <= 1 || !textNode) return { files, distances };
 
-        // 上下文范围 = 整篇（当前渲染容器内、匹配位置之前的全部文本）。原来只看
-        // 当前块元素（P/LI/TD/TH），现在按"文章里提到过谁，谁就更受重视"的规则
-        // 扩大到整篇。
+        // Context scope = the whole document (all text before the match position
+        // within the current render container). It used to look only at the current
+        // block element (P/LI/TD/TH); now it widens to the whole document under the
+        // rule "whoever is mentioned in the article gets more weight".
         const context = this.getTextBeforeNode(this.containerEl, textNode, offset).toLowerCase();
         if (context.trim().length === 0) return { files, distances };
 
@@ -293,8 +295,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
             }
         }
 
-        // 单篇禁用：笔记自己声明了不渲染任何虚拟链接（标签或 frontmatter 属性，
-        // 用哪种由 linkIgnoreMode 决定）
+        // Per-note disable: the note declares it renders no virtual link (a tag or
+        // a frontmatter property - which one is decided by linkIgnoreMode).
         const ignoreFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
         if (ignoreFile instanceof TFile && isLinkingDisabledInNote(ignoreFile, this.app, this.settings)) {
             this.clearExistingLinks();
@@ -452,8 +454,9 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 headerId
                                             );
 
-                                            // 把上下文距离交给渲染层：同一档位的目标按
-                                            // "正文里提得更近的在前"排序。
+                                            // Hand the context distance to the render layer:
+                                            // targets in the same tier are ordered by
+                                            // "mentioned nearer in the body first".
                                             if (ctxDistances) {
                                                 for (const [p, d] of ctxDistances) match.setFileContextDistance(p, d);
                                             }
@@ -755,9 +758,10 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             let lastTo = 0;
 
                             matches.forEach((match) => {
-                                // 先把"到目前为止已链接过的文件"快照交给本次排序
-                                // （不含它自己这一批，否则每个候选都会觉得自己已被
-                                // 链接），再渲染，最后才把它自己加进集合。
+                                // First hand the "files linked so far" snapshot to this
+                                // sort (excluding its own batch, otherwise every
+                                // candidate would think it is already linked), then
+                                // render, and only then add itself to the set.
                                 match.setAlreadyLinkedFiles(new Set(linkedFiles));
 
                                 const span = match.getCompleteLinkElement();

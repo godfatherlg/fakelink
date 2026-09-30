@@ -141,13 +141,13 @@ export async function openFileOnly(
 function alignTallLine(view: MarkdownView, line: number, pass = 0): void {
     const cmEl = view.contentEl.querySelector('.cm-editor');
     const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
-    if (!cm) return;                                  // 拿不到视图就保持原行为
+    if (!cm) return;                                  // no view: keep the original behaviour
     const scroller = cm.scrollDOM;
     try {
         const block = cm.lineBlockAt(cm.state.doc.line(line + 1).from);
         const tooTall = block.height > scroller.clientHeight * 0.8;
         const headHidden = block.top < scroller.scrollTop;
-        if (!tooTall && !headHidden) return;           // 普通行：不干预
+        if (!tooTall && !headHidden) return;           // ordinary line: leave it alone
         scroller.scrollTop = block.top - 16;
     } catch {
         return;

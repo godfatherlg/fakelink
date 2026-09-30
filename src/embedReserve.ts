@@ -563,17 +563,20 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
         const pops = node.matches('.hover-popover')
             ? [node]
             : Array.from(node.querySelectorAll<HTMLElement>('.hover-popover'));
-        // 有编辑器（Hover Editor）的 popover 走 scrollEditor（编辑器 API）；
-        // 纯 HTML 的核心 Page Preview 没有编辑器，keepAligned 会自动走"直接
-        // 滚动内部 scroller"（.markdown-preview-view）——只滚内部、不滚外层
-        // .hover-popover，所以不会像早先那样把预览滚没/滚跳。
+        // A popover with an editor (Hover Editor) goes through scrollEditor (the
+        // editor API); the plain-HTML core Page Preview has no editor, so
+        // keepAligned automatically scrolls the inner scroller
+        // (.markdown-preview-view) directly - only the inside, never the outer
+        // .hover-popover, so the preview is no longer scrolled away / jumped as it
+        // used to be.
         for (const pop of pops) {
             // Opt-in, exactly like the click path: one setting covers both
             // the jump and the hover preview. (It used to run unconditionally
             // here, so turning the setting off changed nothing on previews.)
             if (!plugin.settings.alignHeadingAfterJump) continue;
-            // 用 hover 时记下的标题 id 精确定位目标（popover 打开时它可能在中部
-            // 而非顶部，按顶部猜会捡到上面的小标题）。
+            // Use the heading id remembered on hover to locate the target exactly
+            // (when the popover opens it may sit mid-view rather than at the top,
+            // and guessing by the top would pick up a smaller heading above it).
             //
             // Deliberately NO baseline here, unlike the click path: a jump
             // lands on a centred heading that is worth holding, whereas a

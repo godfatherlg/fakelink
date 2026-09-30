@@ -175,9 +175,11 @@ export function findHeadingElement(scope: ParentNode, headingId: string): HTMLEl
     const wantSlug = want.replace(/\s+/g, '-').toLowerCase();
     for (const el of candidates) if (textOf(el).replace(/\s+/g, '-').toLowerCase() === wantSlug) return el;
     for (const el of candidates) if (textOf(el).startsWith(want)) return el;
-    // 链接的 headingId 可能带章节号前缀（如"（六）牙痛"），而渲染出的标题是去掉
-    // 章节号后的"牙痛"（章节号由 heading decorator 单独渲染）。用"want 以候选结尾"
-    // 兜底，且前缀必须很短（章节号通常是"（六）"这种 3~6 字符）。
+    // A link's headingId can carry a chapter-number prefix ("（六）牙痛") while
+    // the rendered heading is the stripped "牙痛" (the chapter number is rendered
+    // separately by the heading decorator). Fall back to "want ends with the
+    // candidate", and the prefix must be short (a chapter number like "（六）" is
+    // 3-6 chars).
     for (const el of candidates) {
         const t = textOf(el);
         if (t && want.endsWith(t) && want.length - t.length <= 8) return el;
@@ -226,7 +228,7 @@ export function resolveHeadingTarget(
         if (candidate === want) return true;
         if (candidate.startsWith(want)) return true;
         if (want.startsWith(candidate) && want.length - candidate.length <= 12) return true;
-        // 章节号前缀："（六）牙痛"（want）匹配"牙痛"（candidate）。
+        // Chapter-number prefix: "（六）牙痛" (want) matches "牙痛" (candidate).
         return want.endsWith(candidate) && want.length - candidate.length <= 8;
     };
     const findLine = (file: TFile): number => {
@@ -389,8 +391,10 @@ export function findHeadingAtTop(scope: HTMLElement | null, allowGlobalFallback 
         const inScope = search(scope);
         if (inScope) return inScope;
     }
-    // 全局兜底只在调用方明确允许时用：预览 popover 的目标标题一定在 popover 内，
-    // 内容没渲染完时若是兜底到 document.body，会把别的 leaf 里的标题捡过来对齐。
+    // The global fallback is used only when the caller explicitly allows it: a
+    // preview popover's target heading always lives inside the popover, and if we
+    // fell back to document.body while its content was still rendering we would
+    // pick up a heading from another leaf and align to that.
     return allowGlobalFallback ? search(document.body) : null;
 }
 
@@ -410,19 +414,21 @@ const HEADING_SEL = 'h1, h2, h3, h4, h5, h6, [data-heading], [class*="HyperMD-he
 export const MULTI_REFERENCE_HOVER_GRACE_MS = 400;
 export const hoverUnlockTimers = new WeakMap<HTMLElement, number>();
 
-// 右键菜单打开期间被锁定的链接（用 key 标识，和 DOM 无关）。虚拟链接的 widget
-// 会在右键后被 CodeMirror 整体重建，旧 span 上的 lock 类随旧 DOM 一起消失；
-// 这个集合让新 span 在重建时能自动恢复 lock，[1|2|3] 就不会收起。
+// Links locked while the context menu is open (identified by key, independent of
+// the DOM). A virtual-link widget is rebuilt wholesale by CodeMirror after a
+// right-click, and the lock class on the old span dies with the old DOM; this set
+// lets the new span restore its lock when rebuilt, so [1|2|3] does not collapse.
 export const contextLockedLinks = new Set<string>();
 
-/** 移除某个 key 的右键锁定（渲染表格路径的 file-menu 菜单关闭时也用它解锁）。 */
+/** Remove the right-click lock for a key (also used to unlock when the rendered-table file-menu closes). */
 export function clearContextLock(key: string): void {
     contextLockedLinks.delete(key);
 }
 
-// 最近一次 hover 的虚拟链接指向的标题 id。预览 popover 打开时（onInsert）用它
-// 精确找目标标题，而不是按"视口顶部"猜——h1 等被 Obsidian 放到视口中部时，
-// 按顶部猜会捡到它上面的小标题。
+// Heading id the most recently hovered virtual link points at. The preview
+// popover (onInsert) uses it to find the target exactly instead of guessing by
+// "top of the viewport" - when Obsidian centres an h1 mid-view, guessing by the
+// top picks up a smaller heading above it.
 let lastHoveredHeadingId: string | null = null;
 export function setHoveredHeadingId(id: string | null): void { lastHoveredHeadingId = id; }
 export function getHoveredHeadingId(): string | null { return lastHoveredHeadingId; }
@@ -700,9 +706,11 @@ export function keepScrolledHeadingAligned(
     resolveByName?: (id: string) => HTMLElement | null,
 ): void {
     let cached: HTMLElement | null = null;
-    // 预览弹窗没有 headingId，只能靠"当前最靠顶的标题"猜。但一旦滚动起来，顶部
-    // 就换成了另一个标题，猜出来的目标跟着换 → 追着不同标题滚个不停。所以第一次
-    // 猜中后把它的名字固定下来，之后按名字找，目标就不再漂移。
+    // A preview popover has no headingId, so it can only guess by "the heading
+    // nearest the top". But once it scrolls, the top becomes a different heading
+    // and the guessed target changes with it - chasing different headings forever.
+    // So the first guess pins its name, and later lookups go by name, so the
+    // target stops drifting.
     let pinnedId: string | null = null;
     keepAligned(
         () => {
@@ -793,12 +801,14 @@ export function isInTableCellEditor(el: Element | null): boolean {
 }
 
 /**
- * 单篇禁用（源侧）：让这一篇笔记自己不渲染任何虚拟链接。
- * 用哪种方式由设置里的 linkIgnoreMode 决定：
- *   'off'      —— 不启用
- *   'tag'      —— 带指定标签即禁用（frontmatter 的 tags 和正文里的 #tag 都算，
- *                 也支持层级标签，如 #linker-ignore/xxx）
- *   'property' —— frontmatter 里指定属性为 true 即禁用（如 fakelink-ignore: true）
+ * Per-note disable (source side): stop this one note from rendering any virtual
+ * link. Which mechanism is used is decided by the linkIgnoreMode setting:
+ *   'off'      - disabled
+ *   'tag'      - disabled when it carries the configured tag (both frontmatter
+ *                tags and #tags in the body count; nested tags such as
+ *                #linker-ignore/xxx are supported)
+ *   'property' - disabled when the configured frontmatter property is true
+ *                (e.g. fakelink-ignore: true)
  */
 export function isLinkingDisabledInNote(
     file: TFile | null | undefined,
@@ -811,18 +821,19 @@ export function isLinkingDisabledInNote(
     const cache = app.metadataCache.getFileCache(file);
     if (!cache) return false;
 
-    // 用显式标注而非 as：cache.frontmatter 本身已是兼容的索引类型，断言不改变
-    // 类型（lint 会报 unnecessary assertion）；同时把 any 收窄成 unknown，
-    // 后面取值时不会把 any 传播出去。
+    // Use an explicit annotation instead of `as`: cache.frontmatter is already a
+    // compatible index type, so an assertion would not change the type (the lint
+    // flags it as unnecessary); it also narrows any to unknown so downstream
+    // accesses do not propagate any.
     const fm: Record<string, unknown> | undefined = cache.frontmatter;
 
     if (mode === 'property') {
         const prop = settings.linkIgnoreProperty;
         if (!prop || !fm) return false;
         const raw = fm[prop];
-        // 宽松判定：YAML 里写成 linker-ignore: "true"（带引号）时解析出来是字符串，
-        // 只认布尔 true 的话用户会觉得"明明设了却没生效"。这里 true / "true" /
-        // "True" 都算开启。
+        // Lenient check: linker-ignore: "true" (quoted) in YAML parses as a
+        // string, and accepting only boolean true would look like "I set it but it
+        // does nothing". true / "true" / "True" all count as enabled here.
         return raw === true
             || (typeof raw === 'string' && raw.trim().toLowerCase() === 'true');
     }
@@ -832,8 +843,9 @@ export function isLinkingDisabledInNote(
     if (!tag) return false;
     const want = tag.replace(/^#/, '').toLowerCase();
 
-    // 正文里的 #tag（cache.tags）和 frontmatter 的 tags 都要看：不同 Obsidian
-    // 版本对"frontmatter 里的 tags 是否并入 cache.tags"处理不一致，两边都查才稳。
+    // Check both the body #tags (cache.tags) and the frontmatter tags: Obsidian
+    // versions differ on whether frontmatter tags are merged into cache.tags, so
+    // checking both sides is the reliable path.
     const candidates: string[] = [];
     for (const t of cache.tags ?? []) candidates.push(t.tag);
     const fmTags = fm?.tags;
@@ -856,10 +868,11 @@ type DispatchSelectionLike = {
 };
 
 /**
- * 给某个 CodeMirror 视图的 dispatch 装一层保护：Obsidian 在复杂布局（大表格 /
- * PDF-heavy note）里偶尔会拿一个超界的 selection 去 dispatch，抛
- * "Selection points outside of document"。这里捕获它，把 selection clamp 到
- * 文档长度内重试 —— 真正化解，而不是把报错藏起来。幂等，重复调用只挂一次。
+ * Arm one CodeMirror view's dispatch with a guard: in a complex layout (big
+ * table / PDF-heavy note) Obsidian occasionally dispatches an out-of-range
+ * selection and throws "Selection points outside of document". Catch it here,
+ * clamp the selection into the document length and retry - actually defusing the
+ * error rather than hiding it. Idempotent; calling it again only arms once.
  */
 export function patchDispatchClamp(cm: EditorView): void {
     const cmAny = cm as unknown as {
@@ -890,7 +903,7 @@ export function patchDispatchClamp(cm: EditorView): void {
     };
 }
 
-/** 给当前文档里所有 CodeMirror 编辑器装上 dispatch 保护。 */
+/** Arm the dispatch guard on every CodeMirror editor in the current document. */
 export function patchAllEditorsDispatchClamp(): void {
     const doc: Document = (typeof activeDocument !== 'undefined' ? activeDocument : document);
     Array.from(doc.querySelectorAll('.cm-editor')).forEach((el) => {
@@ -917,13 +930,14 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
         e.preventDefault();
         e.stopPropagation();
 
-        // 多引用列表（[1][2][3]）平时靠 hover 展开，鼠标一移开就折叠。右键时
-        // 必须先锁住它，否则鼠标移到菜单项上列表就收起、菜单也跟着消失。
+        // The reference list ([1][2][3]) expands on hover and collapses when the
+        // mouse leaves. A right-click must lock it first, otherwise moving to a
+        // menu item collapses the list and takes the menu with it.
         const holder = span.closest<HTMLElement>('.virtual-link-span') ?? span;
         holder.classList.add('virtual-link-hover-lock');
-        // 打上标记，让 mouseleave 在菜单打开期间不要解锁。
+        // Flag it so mouseleave does not unlock while the menu is open.
         holder.dataset.fkContextLock = '1';
-        // 加入锁定集：右键后 CodeMirror 重建 widget 时，新 span 靠它恢复 lock。
+        // Add to the lock set: when CodeMirror rebuilds the widget after the right-click, the new span restores its lock from it.
         const lockKey = match.getLockKey();
         contextLockedLinks.add(lockKey);
         const unlock = () => {
@@ -945,9 +959,10 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
                 });
         });
 
-        // 用右键命中的那个链接（[1]/[2]/[3] 里具体哪一个），而不是格子里第一个
-        // 链接 —— 这样右键 [2] 转换到的就是第 2 个文件。菜单里仍只有一个
-        // "Convert to real link"，只是目标文件跟着右键命中的编号走。
+        // Use the link that was actually right-clicked (which of [1]/[2]/[3]),
+        // not the first link in the cell - so right-clicking [2] converts the
+        // second file. The menu still has a single "Convert to real link"; the
+        // target file just follows the reference number that was clicked.
         const hit = (e.target as HTMLElement | null)?.closest?.('.virtual-link-a') as Element | null;
         const anchor = (hit && span.contains(hit)) ? hit : span.querySelector('.virtual-link-a');
 
@@ -965,9 +980,11 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
             }
         }
 
-        // 只在菜单真正关闭时解锁。之前加了个 10s 定时兜底，结果菜单还开着、
-        // 用户还没选完，列表就被定时解掉了（这正是"10s 收起"的来源）。
-        // 去掉定时，改为完全依赖 onHide：菜单不关，列表就一直展开。
+        // Unlock only when the menu actually closes. A 10s timer fallback used to
+        // unlock the list while the menu was still open and the user had not
+        // chosen yet (that was the source of the "collapses after 10s" symptom).
+        // Drop the timer and rely entirely on onHide: the list stays expanded as
+        // long as the menu is open.
         menu.onHide(unlock);
 
         menu.showAtMouseEvent(e);

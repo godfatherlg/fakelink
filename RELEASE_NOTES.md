@@ -1,60 +1,19 @@
-# 1.24.1
+# 1.24.2
 
 ## 中文
 
-**死代码清理，功能完全不变**
+**修复 + 全量代码英文化**
 
-清掉 lint 报告里的未使用导入，以及两个早已没有调用者的函数。
-
-- 未使用的导入：
-  - `main.ts` —— `EditorPosition`、`TFolder`、`LinkerMetaInfoFetcher`、`convertVirtualLinkToReal`，
-    以及上一版把嵌入尺寸逻辑搬进 `src/embedReserve.ts` 后遗留的 6 个
-    （`clearContextLock`、`getHoveredHeadingId`、`headingElementByLine`、
-    `keepScrolledHeadingAligned`、`markSelfInflictedLayout`、`resolveHeadingTarget`）
-  - `linker/virtualLinkDom.ts` —— `IntervalTree`、`getLinkpath`、`MatchType`、`PrefixTree`、`t`
-  - `linker/virtualLinkMatch.ts` —— `App`、`Menu`、`convertVirtualLinkToReal`、
-    `clearContextLock`、`isInTableCellEditor`
-  - `src/contextMenu.ts` —— `Notice`、`TFile`、`LinkerPluginSettings`、`t`
-- 删除两个从未被调用的函数：`isInTableEnvironment`、`isPosWithinRange`（`src/contextMenu.ts`，共 42 行）
-- 修正一处注释错位：解释"为什么用 `activeDocument.createElement` 而非 `createEl`"的那段
-  说明原本写在 `virtualLinkDom.ts`，但那个文件并没有 `createElement` 调用（`VirtualMatch`
-  类搬走时代码走了、注释留下）。已移到真正使用它的 `virtualLinkMatch.ts`
-
-`virtualLinkMatch.ts` 里的 10 处 `activeDocument.createElement` **保留不变**：虚拟链接的
-widget 必须分离构建后再交给 CodeMirror，`createEl` 会立即把它插入文档，且被某些插件
-（Media Extended）替换后会抛 `HierarchyRequestError`。理由已写在代码注释里。
-
-5 个文件，+31 / −70（净减 39 行）。编译、12 个单元测试与 lint 均通过。
+- **修复**：正文里的词与**带编号的标题**匹配时（如正文写「核心公式」、标题是「1. 核心公式」），不再被错误地显示为模糊匹配的颜色 —— 编号只是标题的排版前缀，这样的匹配就是精确匹配，现在显示精确色。只要笔记库里有任何一个带编号标题，其剥离编号后的词就会被全局标为模糊色，连带影响所有该词的精确匹配；这一误标已移除
+- **i18n 补全**：批量转换对话框（单篇 / 多篇）里的所有提示文案原先硬编码为中文，现在全部接入 `t()` 翻译体系，跟随应用语言显示
+- **代码英文化**：全部源码注释由中文译为英文（约 130 处），并清掉了注释里冗余的中文词（如「词义模糊」——旁边本就有英文）；`src/contextMenu.ts` 的缩进从类方法风格修正为模块函数风格
+- 保留的中文：`helpers.ts` 翻译表（译文值）、中文停用词列表（算法数据）、演示中文匹配场景的示例词
 
 ## English
 
-**Dead code cleanup, no behaviour changes**
+**Fix + full code de-sinicization**
 
-Removed the unused imports flagged by the linter, plus two functions that had no
-callers left.
-
-- Unused imports:
-  - `main.ts` — `EditorPosition`, `TFolder`, `LinkerMetaInfoFetcher`,
-    `convertVirtualLinkToReal`, and the 6 left behind when the embed-sizing code
-    moved into `src/embedReserve.ts` last release (`clearContextLock`,
-    `getHoveredHeadingId`, `headingElementByLine`, `keepScrolledHeadingAligned`,
-    `markSelfInflictedLayout`, `resolveHeadingTarget`)
-  - `linker/virtualLinkDom.ts` — `IntervalTree`, `getLinkpath`, `MatchType`,
-    `PrefixTree`, `t`
-  - `linker/virtualLinkMatch.ts` — `App`, `Menu`, `convertVirtualLinkToReal`,
-    `clearContextLock`, `isInTableCellEditor`
-  - `src/contextMenu.ts` — `Notice`, `TFile`, `LinkerPluginSettings`, `t`
-- Deleted two never-called functions: `isInTableEnvironment` and
-  `isPosWithinRange` (`src/contextMenu.ts`, 42 lines together)
-- Fixed a misplaced comment: the explanation of why `activeDocument.createElement`
-  is used instead of `createEl` sat in `virtualLinkDom.ts`, which has no
-  `createElement` call at all (the code moved out with the `VirtualMatch` class,
-  the comment stayed). It now lives in `virtualLinkMatch.ts`, which does use it
-
-The 10 `activeDocument.createElement` calls in `virtualLinkMatch.ts` are
-**deliberately kept**: a virtual-link widget must be built detached and handed to
-CodeMirror afterwards, while `createEl` inserts it into the document immediately
-and throws `HierarchyRequestError` once a plugin such as Media Extended replaces
-that helper. The reasoning is written into the code.
-
-5 files, +31 / −70 (39 lines fewer). Build, 12 unit tests and the linter all pass.
+- **Fix**: a word in the body that matches a **numbered heading** (body says "核心公式", heading is "1. 核心公式") no longer shows the fuzzy-match colour — the number is just the heading's layout prefix, so this is an exact match and now paints as one. As soon as any numbered heading existed in the vault, its number-stripped keyword was globally flagged as derived, which recoloured every exact match of that word; that flagging is removed
+- **i18n completed**: every message in the batch-convert dialogs (single / multiple notes) was hardcoded Chinese; they now go through `t()` and follow the app language
+- **Code de-sinicized**: all source comments were translated from Chinese to English (~130 spots) and redundant Chinese words inside comments were dropped (e.g.「词义模糊」next to the English "fuzzy"); `src/contextMenu.ts` indentation corrected from class-method style to module-function style
+- Chinese kept on purpose: the `helpers.ts` translation table (translated values), the Chinese stop-word list (algorithm data), and example words demonstrating Chinese matching scenarios

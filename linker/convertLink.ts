@@ -41,12 +41,12 @@ function relative(from: string, to: string): string {
     return downPath ? upPath + downPath : upPath.slice(0, -1); // Remove trailing '/'
 }
 
-/** 表格分隔行（如 | --- | :---: |）判断 */
+/** Whether a row is a table separator row (| --- |, | :---: |, ...). */
 function isSeparatorRow(line: string): boolean {
     return /^\|[\s\-:|]+\|$/.test(line.trim());
 }
 
-/** 拆分表格行为单元格数组，处理嵌套 wikilink 里的 |（避免误拆） */
+/** Split a table row into cells, keeping the | inside nested wikilinks intact. */
 function splitTableRow(line: string): string[] {
     const cells: string[] = [];
     let cur = '';
@@ -64,20 +64,23 @@ function splitTableRow(line: string): string[] {
 }
 
 /**
- * 把一段单元格文本规范化，用于 DOM 侧和源码侧互相比较。源码里的 markdown 语法
- * （**加粗**、==高亮==、~~删除线~~、`代码`、<br>、转义 \|）在 DOM 里都被渲染掉了，
- * 所以比较前先把它们抹平：<br> 换成换行，其余语法标记直接去掉，空白归一化。
+ * Normalize a cell's text so the DOM side and the source side can be compared.
+ * Markdown syntax in the source (**bold**, ==highlight==, ~~strike~~, `code`,
+ * <br>, escaped \|) is gone in the rendered DOM, so it is flattened first:
+ * <br> becomes a newline, the other markers are stripped, whitespace is
+ * normalized.
  */
 function normalizeForCompare(s: string): string {
     return s
-        // 链接：DOM 里已渲染成纯显示文本，源码必须先还原成显示文本才能对上。
-        // 表格单元格里大量是 [[Media Note...]] 这类 wikilink，不还原的话签名
-        // 永远不匹配，整块会被跳过，导致绝大多数转换定位失败。
-        .replace(/!\[\[[^\]]*\]\]/g, '')                 // 嵌入 ![[图片]] → 无文本
-        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')            // 嵌入 ![](url) → 无文本
-        .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')   // [[笔记|显示文本]] → 显示文本
-        .replace(/\[\[([^\]]+)\]\]/g, '$1')              // [[笔记]] → 笔记
-        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')         // [文本](url) → 文本
+        // Links: the DOM renders them as plain display text, so the source must
+        // be reduced to display text first to match. Table cells are full of
+        // wikilinks like [[Media Note...]]; without this reduction the signature
+        // never matches and whole blocks get skipped, breaking most conversions.
+        .replace(/!\[\[[^\]]*\]\]/g, '')                 // embed ![[image]] -> no text
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '')            // embed ![](url) -> no text
+        .replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2')   // [[note|display]] -> display
+        .replace(/\[\[([^\]]+)\]\]/g, '$1')              // [[note]] -> note
+        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')         // [text](url) -> text
         .replace(/<br\s*\/?>/gi, '\n')
         .replace(/\*\*/g, '')
         .replace(/==/g, '')
@@ -89,9 +92,10 @@ function normalizeForCompare(s: string): string {
 }
 
 /**
- * 提取 DOM 单元格的"纯文本"：保留 <br> 换行，但排除虚拟链接渲染出来的引用列表
- * （[1][2]… / […]）和 suffix 图标，否则它们会把源码里根本没有的内容掺进比较，
- * 导致同名单元格匹配不上。
+ * Extract the "plain text" of a DOM cell: keep <br> newlines but drop the
+ * reference list ([1][2]... / [...]) and suffix icon that a virtual link
+ * renders, otherwise they inject content that never existed in the source and
+ * same-name cells fail to match.
  */
 function getCellPlainText(td: Element): string {
     let result = '';
@@ -116,19 +120,22 @@ function getCellPlainText(td: Element): string {
     };
     collect(td);
 
-    // 点进单元格（cell editor 激活）时，td 里会同时存在原始文本和 cell editor
-    // 渲染的文本，遍历整格就把内容取了两遍 —— 两份只在空白上有差异（一份 <br>
-    // 带空格，一份是 CodeMirror 行直接拼接无空格）。检测到重复就只保留前一半：
-    // 前一半是带空白的那份，才对应源码里的 <br>。
-    // 用开头一段（取到第一个空白为止 —— 这段两份都有、且不含空白）当标记，
-    // 找它第二次出现的位置，那之前就是完整的第一份。不能用"取一半长度"，
-    // 因为两份长度不同（一份带空白），按长度切会把第一份切坏。
+    // While a cell is open for editing (cell editor active), the td holds both
+    // the original text and the cell-editor text, so walking the cell reads the
+    // content twice. The two copies differ only in whitespace (one has spaces
+    // around <br>, the other is CodeMirror lines joined without them). When a
+    // duplicate is detected keep only the first half - the whitespace-bearing
+    // one, which is what corresponds to the <br> in the source.
+    // Use the leading run (up to the first whitespace - present in both copies
+    // and whitespace-free) as a marker, then find its second occurrence: what
+    // precedes it is the complete first copy. "Half the length" does not work
+    // because the two copies differ in length (one carries whitespace).
     const firstSpace = result.search(/\s/);
     const markEnd = firstSpace > 0 ? firstSpace : Math.min(16, result.length);
     const mark = result.slice(0, markEnd);
     if (mark.length >= 8) {
         const second = result.indexOf(mark, mark.length);
-        // 第二次出现且落在后半段，才认定是重复
+        // Only a second occurrence in the latter half counts as a duplicate
         if (second > 0 && second >= result.length / 2 - mark.length) {
             result = result.slice(0, second);
         }
@@ -138,9 +145,10 @@ function getCellPlainText(td: Element): string {
 }
 
 /**
- * DOM 侧的一行（tr）签名：所有单元格纯文本，非空的用 | 拼接。用它去源码里找
- * 对应表格块，比单看一个单元格区分度更高——两个表格可以都含"莱布尼茨判别法"，
- * 但整行（含其他列）几乎不可能完全一样。
+ * Signature of a DOM row (tr): the plain text of every cell, non-empty ones
+ * joined with |. Matching this against the source is far more distinctive than
+ * a single cell - two tables can both contain "Leibniz criterion", but a whole
+ * row (with its other columns) almost never matches.
  */
 function getRowSignature(tr: Element): string {
     return Array.from(tr.children)
@@ -149,7 +157,7 @@ function getRowSignature(tr: Element): string {
         .join('|');
 }
 
-/** 源码侧的一行签名：单元格数组抹平 markdown 语法后，非空的用 | 拼接。 */
+/** Signature of a source row: cells flattened of markdown syntax, non-empty ones joined with |. */
 function getSourceRowSignature(cells: string[]): string {
     return cells
         .map(c => normalizeForCompare(c))
@@ -158,16 +166,19 @@ function getSourceRowSignature(cells: string[]): string {
 }
 
 /**
- * 定位表格单元格里 origin-text 的 { line, ch } 位置。readMode 渲染的表格虚拟
- * 链接，from/to 是单元格内 text-node 偏移，无法直接用于 editor 替换；这里按
- * DOM 行列定位到源码表格的对应单元格，再在单元格内搜索 origin-text 算出
- * { line, ch }。直接返回 position 而不是 offset，避免 cell editor 下
- * offsetToPos 因文档被临时改动而算出超界位置。
+ * Locate the { line, ch } of an origin-text inside a table cell. A read-mode
+ * table link's from/to are text-node offsets within the cell, which cannot be
+ * used for an editor replacement directly; resolve them to a source cell via the
+ * DOM row/column, then search origin-text inside that cell. Returns a position
+ * rather than an offset so offsetToPos cannot produce an out-of-range position
+ * under a cell editor whose document has been temporarily rewritten.
  *
- * 一个文档里可能有多个表格，且 DOM 渲染出的 table 数量和源码表格块数量未必
- * 一致（如折叠/特殊渲染的表格不会出现在 DOM 里），所以不能用「DOM 第几个 table」
- * 去对应「源码第几个表格块」。这里改为：遍历源码所有表格块，对每个块用 DOM 行列
- * 定位并用 origin-text 校验，第一个校验通过的块就是目标块。
+ * A document can hold several tables, and the number of tables rendered in the
+ * DOM does not have to equal the number of source table blocks (folded /
+ * specially rendered tables are absent from the DOM), so "the Nth table in the
+ * DOM" cannot map to "the Nth source block". Instead every source block is
+ * tried: locate by DOM row/column and verify with origin-text; the first block
+ * that verifies is the target.
  */
 function locateTableCellPosition(linkElement: Element, editor: Editor): { from: EditorPosition; to: EditorPosition } | null {
     const td = linkElement.closest('td, th');
@@ -176,7 +187,7 @@ function locateTableCellPosition(linkElement: Element, editor: Editor): { from: 
     const table = td?.closest('table') ?? null;
     if (!td || !originText || !tr || !table) return null;
 
-    // DOM 行列
+    // DOM row / column
     const cellIndex = Array.from(tr.children).indexOf(td);
     const allRows = Array.from(table.querySelectorAll('tr'));
     const domRowIndex = allRows.indexOf(tr);
@@ -184,17 +195,19 @@ function locateTableCellPosition(linkElement: Element, editor: Editor): { from: 
 
     const lines = editor.getValue().split('\n');
 
-    // DOM 单元格的纯文本（含 <br> 换行、去掉引用列表/suffix），用作完整匹配的锚点。
+    // Plain text of the DOM cell (with <br> newlines, reference list / suffix removed), used as the full-match anchor.
     const domCellText = getCellPlainText(td);
 
-    // 同一单元格里可能有多个同名虚拟链接。只按 origin-text 搜会永远命中第一个，
-    // 所以先确认"用户点的是该格里第几个同名链接"，定位时跳过前面几个。
+    // A cell can contain several virtual links with the same name. Searching by
+    // origin-text alone would always hit the first, so first determine WHICH
+    // same-name link was clicked (its index within the cell) and skip the
+    // preceding ones while locating.
     const cellLinks = Array.from(td.querySelectorAll('.virtual-link-a'))
         .filter(a => a.getAttribute('origin-text') === originText);
     let occurrence = cellLinks.indexOf(linkElement);
     if (occurrence < 0) occurrence = 0;
 
-    // 拆分源码表格块（连续 `|` 行构成一个块）
+    // Split the source into table blocks (a block is consecutive `|` rows)
     const blocks: { start: number; end: number }[] = [];
     let inBlock = false;
     let start = -1;
@@ -205,14 +218,16 @@ function locateTableCellPosition(linkElement: Element, editor: Editor): { from: 
     }
     if (inBlock) blocks.push({ start, end: lines.length });
 
-    // 当前 table 的「表头行签名」（第一个 tr）。用它去源码里匹配对应表格块，
-    // 再在该块内定位——比逐个块用单元格试错更稳，同名表格也不会错配到第一个块。
+    // Signature of this table's header row (the first tr). Match it against the
+    // source to find the right block, then locate inside it - steadier than
+    // trial-and-error per cell, and same-name tables no longer get mistaken for
+    // the first block.
     const headerTr = table.querySelector('tr');
     const tableSignature = headerTr ? getRowSignature(headerTr) : '';
 
-    // 逐个块尝试：先比对表头签名（整行内容），匹配的块才进去做行列定位。
+    // Try each block: compare the header-row signature first, and only locate by row/column inside the block that matches.
     for (const block of blocks) {
-        // 块的表头行 = 块内第一个非分隔行
+        // The block's header row = its first non-separator row
         let headerLine = -1;
         for (let i = block.start; i < block.end; i++) {
             if (!isSeparatorRow(lines[i])) { headerLine = i; break; }
@@ -228,9 +243,10 @@ function locateTableCellPosition(linkElement: Element, editor: Editor): { from: 
 }
 
 /**
- * 在单个源码表格块内，按 DOM 行列（domRowIndex / cellIndex）定位，并用
- * origin-text 校验。校验失败（该块对应行列的单元格不含 origin-text）返回 null，
- * 让调用方尝试下一个块。
+ * Locate inside one source table block by DOM row/column (domRowIndex /
+ * cellIndex) and verify with origin-text. Returns null when the verification
+ * fails (that row/column cell does not contain origin-text), so the caller can
+ * try the next block.
  */
 function locateInTableBlock(
     lines: string[],
@@ -241,7 +257,7 @@ function locateInTableBlock(
     domCellText: string,
     occurrence: number,
 ): { from: EditorPosition; to: EditorPosition } | null {
-    // 块内第 domRowIndex 个非分隔行（分隔行不渲染成 tr，需跳过）
+    // The domRowIndex-th non-separator row in the block (separator rows do not render as tr, so they are skipped)
     let rowCounter = 0;
     let targetDocLine = -1;
     for (let i = block.start; i < block.end; i++) {
@@ -254,34 +270,39 @@ function locateInTableBlock(
 
     const targetLine = lines[targetDocLine];
     const cells = splitTableRow(targetLine);
-    const mdCellIndex = cellIndex + 1; // cells[0] 是行首 | 之前的空串
+    const mdCellIndex = cellIndex + 1; // cells[0] is the empty string before the leading |
     if (mdCellIndex >= cells.length) return null;
 
     const rawCell = cells[mdCellIndex];
     const cellContent = rawCell.trim();
 
-    // 单元格校验：只要 origin-text 能在该单元格里找到就接受。
-    // 之前还要求"抹平 markdown 后整格内容必须和 DOM 完全一致"，但点进单元格
-    // 时 DOM 侧会取到重复文本（原始 + cell editor 两份），整格永远对不上，
-    // 于是大量正常转换被误杀。表格块的正确性已由表头签名锁定（同名表格也
-    // 不会错配），这里不再卡死整格一致。
+    // Cell verification: accept as soon as origin-text is found in the cell.
+    // It used to also require the whole flattened cell to equal the DOM exactly,
+    // but while a cell is open for editing the DOM side reads duplicate text
+    // (original + cell editor), so a full match never holds and many valid
+    // conversions were wrongly rejected. The block is already pinned by its
+    // header signature (same-name tables cannot be mismatched), so full-cell
+    // equality is no longer required.
     //
-    // 同一格里可能有多个同名链接：跳过前面 occurrence 个，命中用户点的那个，
-    // 否则永远只会转换格子里最前面的那个。
+    // A cell can hold several same-name links: skip the first `occurrence` and
+    // hit the one the user clicked, otherwise only the first link in the cell
+    // would ever be converted.
     let cellTextIndex = -1;
     let searchFrom = 0;
     for (let k = 0; k <= occurrence; k++) {
         const idx = cellContent.indexOf(originText, searchFrom);
-        // 格子里没有那么多同名出现（比如 DOM 侧多算了 wikilink 路径里的词）：
-        // 用最后一个找到的兜底，不要直接放弃，否则会变成"转化不了"。
+        // The cell has fewer same-name occurrences (e.g. the DOM side also
+        // counted a word inside a wikilink path): fall back to the last one
+        // found rather than giving up, which would look like "cannot convert".
         if (idx < 0) break;
         cellTextIndex = idx;
         searchFrom = idx + 1;
     }
     if (cellTextIndex < 0) return null;
 
-    // 单元格内容在行内的起始：第 mdCellIndex 个 | 之后，跳过前导空格。
-    // 必须和 splitTableRow 一样跳过 wikilink 里的 | 和转义的 \|。
+    // Start of the cell content within the row: after the mdCellIndex-th |,
+    // skipping leading spaces. Must skip | inside wikilinks and escaped \| just
+    // like splitTableRow does.
     let cellStartCh = 0;
     let pipeCount = 0;
     let inLink = false;
@@ -290,7 +311,7 @@ function locateInTableBlock(
         const nx = targetLine[c + 1];
         if (ch === '[' && nx === '[') { inLink = true; }
         else if (ch === ']' && nx === ']' && inLink) { inLink = false; }
-        else if (ch === '\\' && nx === '|') { c++; continue; }   // 跳过转义的 \|
+        else if (ch === '\\' && nx === '|') { c++; continue; }   // skip escaped \|
         else if (ch === '|' && !inLink) {
             pipeCount++;
             if (pipeCount === mdCellIndex) {
@@ -412,22 +433,26 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
     let fromEditorPos: EditorPosition | undefined;
     let toEditorPos: EditorPosition | undefined;
 
-    // 表格单元格：readMode 渲染的 from/to 是 cell 内 text-node 偏移，无法直接
-    // 用于 editor 替换；这里按 DOM 行列定位，直接算出 { line, ch }。用 position
-    // 而不是 offsetToPos，避免 cell editor 下文档被临时改动导致 offsetToPos 超界。
+    // Table cell: a read-mode link's from/to are text-node offsets within the
+    // cell and cannot be used for an editor replacement; resolve to { line, ch }
+    // via DOM row/column. Use a position rather than offsetToPos so a cell
+    // editor whose document is temporarily rewritten cannot yield an
+    // out-of-range offset.
     if (linkElement.closest('td, th') && editor) {
         const pos = locateTableCellPosition(linkElement, editor);
         if (!pos) {
-            // 定位失败时绝不能回退到下面的 offsetToPos(from/to)：那两个值是
-            // 单元格内的 text-node 偏移（很小的数值），会被当成文档绝对偏移，
-            // 于是把链接转到文档最开头。宁可不转，也不要转错位置。
+            // On failure never fall back to offsetToPos(from/to) below: those
+            // two values are in-cell text-node offsets (tiny numbers) and would
+            // be read as absolute document offsets, moving the link to the very
+            // top of the document. Better not to convert than to convert in the
+            // wrong place.
             return;
         }
         fromEditorPos = pos.from;
         toEditorPos = pos.to;
     }
 
-    // 非表格场景：from/to 是文档绝对偏移，用 offsetToPos 换算
+    // Non-table case: from/to are absolute document offsets, convert with offsetToPos
     if (!fromEditorPos || !toEditorPos) {
         fromEditorPos = editor?.offsetToPos(from);
         toEditorPos = editor?.offsetToPos(to);
@@ -437,9 +462,11 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
         return;
     }
 
-    // 表格单元格：wikilink 里的 | 需要转义成 \|，否则会被表格当成列分隔符拆走；
-    // 且点进单元格时 editor.replaceRange 会被路由到 cell editor 导致 position 超界。
-    // 直接用 vault.modify 改文件内容，彻底绕开编辑器（含 cell editor）。
+    // Table cell: a | inside the wikilink must be escaped to \| or the table
+    // treats it as a column separator; and while a cell is open for editing,
+    // editor.replaceRange is routed to the cell editor and the position goes out
+    // of range. Write the file with vault.modify instead, bypassing the editor
+    // (including the cell editor) entirely.
     if (linkElement.closest('td, th') && activeFile && editor) {
         const doc = editor.getValue();
         const fromOffset = editor.posToOffset(fromEditorPos);

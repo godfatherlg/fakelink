@@ -39,9 +39,11 @@ type LinkerPluginType = import('main').default;
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
 
-    // 上下文距离：该文件（名或别名）在正文里离本次匹配有多近，越小越近。
-    // 只在"上下文感知的标题消歧"开启且算出了距离时才有值，用于在同一档位
-    // （例如都是"标题精准"）内部再排序 —— 正文里提得更近的那篇排前面。
+    // Context distance: how close this file (name or alias) appears in the body
+    // to this match; smaller is nearer. Set only when context-aware heading
+    // disambiguation is on and produced a distance; used to reorder matches
+    // within the same tier (e.g. both "exact heading") so the note mentioned
+    // nearest in the body ranks first.
     private fileContextDistances: Map<string, number> = new Map();
 
     setFileContextDistance(path: string, distance: number) {
@@ -52,17 +54,19 @@ export class VirtualMatch {
         return this.fileContextDistances.get(path);
     }
 
-    // 本文档里"在本次匹配之前"已经被链接过的文件（精准和模糊匹配都算）。
-    // 排序时它压过档位：文章里已经指向过某篇笔记，说明它和当前上下文强相关。
+    // Files already linked earlier in this document (exact and fuzzy matches
+    // both count). This outranks the tier when sorting: an earlier link to a
+    // note means it is strongly related to the current context.
     private alreadyLinkedFiles: Set<TFile> | undefined;
 
     setAlreadyLinkedFiles(files: Set<TFile>) {
         this.alreadyLinkedFiles = files;
     }
 
-    // 正文里是否已经"提到过"这篇笔记：要么前面已经有一条指向它的链接
-    // （精准或模糊匹配，模糊那种靠字符串比对是抓不到的），要么它的文件名/
-    // 别名在文中出现过（fileContextDistances 由消歧阶段填入）。
+    // Whether the body has already "mentioned" this note: either an earlier link
+    // points to it (exact or fuzzy - the fuzzy kind cannot be caught by string
+    // comparison), or its file name / alias appeared in the text
+    // (fileContextDistances is filled by the disambiguation stage).
     private isMentioned(file: TFile): boolean {
         if (this.alreadyLinkedFiles?.has(file)) return true;
         return this.fileContextDistances.has(file.path);
@@ -139,9 +143,11 @@ export class VirtualMatch {
      * Callers that need it cheaper can memoise it per widget instance.
      */
     getLockKey(): string {
-        // 只用 originText：cell editor 失焦提交后，虚拟链接从编辑态切回渲染态，
-        // from/to 会变（cell 偏移 → text-node 偏移），带偏移的 key 就失效了。
-        // 同名链接会被一起锁定，但无害（只是多展开一会儿，菜单关了就恢复）。
+        // Use originText only: after a cell editor blurs and commits, the link
+        // switches from editing back to rendered, and from/to change (cell offset
+        // -> text-node offset), so an offset-bearing key goes stale. Same-name
+        // links get locked together, which is harmless (they stay expanded a
+        // moment longer and collapse when the menu closes).
         return this.originText;
     }
 
@@ -156,13 +162,14 @@ export class VirtualMatch {
             .map((f) => `${f.path}=${this.fileHeaderIds.get(f.path) ?? ''}`)
             .sort()
             .join('\u0001');
-        // 上下文距离也影响 [1|2|3] 的排列，必须进签名，否则 eq() 会以为 DOM
-        // 还能复用，顺序变了也不重绘。
+        // The context distance affects the [1|2|3] order too, so it must be part
+        // of the signature; otherwise eq() thinks the DOM is reusable and does
+        // not repaint when the order changes.
         const ctxDistances = this.files
             .map((f) => `${f.path}=${this.fileContextDistances.get(f.path) ?? ''}`)
             .sort()
             .join('\u0001');
-        // "此前是否已被链接"同样影响 [1|2|3] 的排序，也必须进签名。
+        // "Linked earlier" affects the [1|2|3] order as well, so it must be in the signature too.
         const linkedFlags = this.files
             .map((f) => `${f.path}=${this.alreadyLinkedFiles?.has(f) ? 1 : 0}`)
             .sort()
@@ -216,15 +223,18 @@ export class VirtualMatch {
             return emptySpan;
         }
 
-        // 三层排序：
-        //   1) 档位：文件名精准 → 文件名包含 → 别名 → 标题原文相等 →
-        //      标题去章节号后相等 → 标题仅包含；
-        //   2) 上下文距离：正文里提到该笔记名字的位置离匹配点越近越优先；
-        //   3) 时间兜底：最后改动时间越新越优先。新建笔记的 mtime 就等于 ctime，
-        //      所以"新建的"和"后来改过的"都算新；重命名不更新这两个时间戳，
-        //      因此识别不了改名。
+        // Three-level sort:
+        //   1) tier: exact file name -> file name contains -> alias -> heading
+        //      text equals -> heading equals after the chapter number is stripped
+        //      -> heading merely contains;
+        //   2) context distance: the nearer the note name is mentioned to the
+        //      match, the higher it ranks;
+        //   3) recency fallback: the newer the mtime the higher it ranks. A new
+        //      note's mtime equals its ctime, so "just created" and "later edited"
+        //      both count as new; renaming updates neither timestamp, so renames
+        //      are not detected.
         const sortedFiles = [...this.files].sort((a, b) => {
-            // 0) 正文里已经提到过（有链接，或名字出现过）→ 压过档位排前面
+            // 0) already mentioned in the body (a link, or the name appeared) -> outranks the tier
             const mentionedA = this.isMentioned(a);
             const mentionedB = this.isMentioned(b);
             if (mentionedA !== mentionedB) return mentionedA ? -1 : 1;
@@ -275,31 +285,36 @@ export class VirtualMatch {
         return span;
     }
 
-    // 多指向链接（[1|2|3]）里各目标文件的排列顺序，越精准越靠前：
-    //   0 文件名与关键词精准相同   ┐ 文章匹配
-    //   1 文件名包含关键词         ┘
-    //   2 别名匹配
-    //   3 标题本身就是关键词（"# 牙痛"）        ┐
-    //   4 标题去掉章节号后才是关键词（"（六）牙痛"）│ 标题匹配
-    //   5 标题只是包含关键词                     ┘
-    // 三个要点：
-    //   - 必须先看"文件名是否匹配"，再看"有没有标题 id"。原来的写法先判
-    //     fileHeaderIds.has()，于是一个文件名正好等于关键词、同时又带标题匹配的
-    //     文件会被当成 Header 排到最后。
-    //   - 标题匹配内部要按"接近原文的程度"分档：原文相等 > 去章节号后相等 >
-    //     只是包含。原来全都归成一个值，同分后只能沿用索引里的原始顺序，
-    //     于是"（六）牙痛"可能排在"牙痛"前面。
-    //   - 比较前要剥掉标题外面包的标记符号（起始/结束符号）：索引里的关键词不带
-    //     符号，标题原文带，不剥会把精准命中误判成"只是包含"。
+    // Order of the target files inside a multi-reference link ([1|2|3]); the more
+    // precise, the earlier:
+    //   0 file name equals the keyword exactly   ┐ article match
+    //   1 file name contains the keyword         ┘
+    //   2 alias match
+    //   3 the heading IS the keyword ("# 牙痛")              ┐
+    //   4 the heading equals the keyword only after the      │ heading match
+    //     chapter number is stripped ("（六）牙痛")            │
+    //   5 the heading merely contains the keyword            ┘
+    // Three points:
+    //   - Check "file name matches" before "has a heading id". The old code
+    //     checked fileHeaderIds.has() first, so a file whose name equals the
+    //     keyword AND has a heading match was treated as a Header and sorted last.
+    //   - Heading matches are tiered by "how close to the original text": exact
+    //     text > equals after chapter number stripped > merely contains. The old
+    //     code collapsed these into one value, so ties fell back to the index's
+    //     original order and "（六）牙痛" could sort before "牙痛".
+    //   - Strip the marker symbols (start/end) wrapping the heading before
+    //     comparing: the index keyword carries no symbols while the heading text
+    //     does, and without stripping an exact hit is misjudged as "merely
+    //     contains".
     private getFileTypeOrder(file: TFile): number {
         const key = this.originText.toLowerCase();
         const base = file.basename.toLowerCase();
-        if (base === key) return 0;                 // 文件名精准
-        if (base.includes(key)) return 1;           // 文件名包含
+        if (base === key) return 0;                 // file name exact
+        if (base.includes(key)) return 1;           // file name contains
 
         const headerId = this.fileHeaderIds.get(file.path);
         if (headerId) {
-            // 剥掉标题外层的标记符号后再比较。
+            // Strip the marker symbols wrapping the heading before comparing.
             let hk = headerId.trim();
             const ss = this.settings.headerMatchStartSymbol;
             const es = this.settings.headerMatchEndSymbol;
@@ -309,14 +324,14 @@ export class VirtualMatch {
             }
             hk = hk.toLowerCase();
 
-            // 标题本身就等于关键词（"# 牙痛"）→ 最精准。
+            // The heading equals the keyword ("# 牙痛") -> most precise.
             if (hk === key) return 3;
-            // 去掉章节号前缀后才等于关键词（"（六）牙痛"）→ 次之。
+            // The heading equals the keyword after its chapter-number prefix is stripped ("（六）牙痛") -> next.
             if (PrefixTree.stripHeadingNumber(hk).trim().toLowerCase() === key) return 4;
-            // 标题只是包含关键词 → 最后。
+            // The heading merely contains the keyword -> last.
             return 5;
         }
-        return 2;                                   // 别名
+        return 2;                                   // alias
     }
 
 
@@ -375,9 +390,10 @@ export class VirtualMatch {
             const targetFile = file || (this.files.length > 0 ? this.files[0] : null);
             if (!targetFile) return false;
 
-            // 点进单元格（cell editor 激活）时，直接导航会触发 cell editor 的焦点
-            // 恢复（setCellFocus）报错（Selection points outside of document）。
-            // 先 blur 掉 cell editor，延迟到它提交退出后再导航。
+            // While a cell is open for editing (cell editor active), navigating
+            // directly makes the cell editor's focus restore (setCellFocus) throw
+            // "Selection points outside of document". Blur the cell editor first,
+            // then delay the navigation until it has committed and exited.
             const active = activeDocument.activeElement as HTMLElement | null;
             const inCellEditor = Boolean(active && active.closest('.table-cell-wrapper'));
 
@@ -391,11 +407,12 @@ export class VirtualMatch {
                 const scope = (clicked?.closest?.('.hover-popover') as HTMLElement | null)
                     ?? (clicked?.closest?.('.workspace-leaf') as HTMLElement | null);
 
-                // 跳转前给所有编辑器装上 dispatch 保护：大表格 / PDF-heavy note
-                // 里，跳转后的滚动与重新渲染会让 Obsidian 拿超界 selection 去
-                // dispatch，抛 "Selection points outside of document"（这是
-                // Obsidian 内部算错的位置，插件改不了源头，只能在这里拦住并
-                // clamp 到合法范围重试）。
+                // Arm the dispatch guard on every editor before jumping: in a big
+                // table / PDF-heavy note, the post-jump scrolling and re-render
+                // makes Obsidian dispatch an out-of-range selection and throw
+                // "Selection points outside of document" (a position Obsidian
+                // mis-computes internally - the plugin cannot fix the source, only
+                // catch it here and clamp to a legal range before retrying).
                 patchAllEditorsDispatchClamp();
 
                 void this.plugin.app.workspace.openLinkText(fullPath, '', false, { active: true });
@@ -532,8 +549,9 @@ export class VirtualMatch {
 
             if (inCellEditor) {
                 active!.blur();
-                // 把焦点交还给主 editor，让 cell editor 彻底退出，避免导航后
-                // Obsidian 恢复 cell editor 焦点（setCellFocus）时用失效的 selection 报错。
+                // Return focus to the main editor so the cell editor fully exits,
+                // avoiding the post-navigation error when Obsidian restores the
+                // cell editor's focus (setCellFocus) with a stale selection.
                 this.plugin?.app.workspace.getActiveViewOfType(MarkdownView)?.editor.focus();
                 window.setTimeout(doNav, 250);
             } else {
@@ -556,8 +574,9 @@ export class VirtualMatch {
         const span = activeDocument.createElement('span');
         span.classList.add('virtual-link', 'virtual-link-span');
 
-        // 这个链接正被右键锁定（菜单打开中）时，恢复 lock 状态。widget 可能
-        // 在右键后被 CodeMirror 整体重建，这些类不会自己跟过来。
+        // Restore the lock when this link is being right-click-locked (menu open).
+        // CodeMirror may rebuild the widget wholesale after a right-click, and
+        // these classes do not carry over by themselves.
         if (contextLockedLinks.has(this.getLockKey())) {
             span.classList.add('virtual-link-hover-lock');
             span.dataset.fkContextLock = '1';
@@ -587,8 +606,9 @@ export class VirtualMatch {
                 hoverUnlockTimers.delete(span);
             }
             span.classList.add('virtual-link-hover-lock');
-            // 记住 hover 链接指向的标题，预览 popover 打开时用它精确定位，
-            // 而不是按"视口顶部"猜（h1 被放到中部时那样会猜错）。
+            // Remember which heading the hovered link points at, so the preview
+            // popover can locate it exactly instead of guessing by "top of the
+            // viewport" (which guesses wrong when the h1 is centred mid-view).
             // Clear as well as set: a link with no heading must not leave the
             // PREVIOUS hovered heading behind, or the next popover gets aligned
             // to a heading the user never hovered (previews that "centre" the
@@ -600,21 +620,25 @@ export class VirtualMatch {
         span.addEventListener('mouseleave', () => {
             const pending = hoverUnlockTimers.get(span);
             if (pending !== undefined) window.clearTimeout(pending);
-            // 右键菜单打开期间不要解锁：鼠标移向菜单项就会离开这个 span，
-            // 一旦解锁 [1|2|3] 立刻收起，右键菜单也跟着断掉。
+            // Do not unlock while the context menu is open: moving the mouse to a
+            // menu item leaves this span, and unlocking would collapse [1|2|3]
+            // immediately, taking the menu down with it.
             if (span.dataset.fkContextLock) return;
             hoverUnlockTimers.set(span, window.setTimeout(() => {
                 hoverUnlockTimers.delete(span);
                 span.classList.remove('virtual-link-hover-lock');
             }, MULTI_REFERENCE_HOVER_GRACE_MS));
         });
-        // 右键时阻止 CodeMirror 把光标移到点击处：光标一进入虚拟链接，CodeMirror
-        // 就把整个链接替换成纯文本，[1|2|3] 列表跟着消失，也就没法"指着编号
-        // 右键"了。这里只拦右键（button===2），左键/中键完全不受影响。
+        // On right-click, stop CodeMirror from moving the cursor to the click
+        // point: as soon as the cursor enters a virtual link, CodeMirror replaces
+        // the whole link with plain text and the [1|2|3] list vanishes, so you
+        // could not right-click "on a number". Only right-click is intercepted
+        // (button===2); left and middle click are untouched.
         span.addEventListener('mousedown', (e: MouseEvent) => {
             if (e.button !== 2) return;
-            // 加入锁定集：右键后 CodeMirror 会重建 widget，新 span 靠这个集合
-            // 恢复 lock，[1|2|3] 才不会收起。菜单关闭时（unlock）移除。
+            // Add to the lock set: CodeMirror rebuilds the widget after a
+            // right-click, and the new span restores its lock from this set so
+            // [1|2|3] does not collapse. Removed when the menu closes (unlock).
             contextLockedLinks.add(this.getLockKey());
             e.preventDefault();
             e.stopPropagation();

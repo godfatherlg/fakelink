@@ -2,6 +2,7 @@ import { App, MarkdownView, Modal, Notice, Setting, TFile, FuzzySuggestModal } f
 import { LinkerPluginSettings } from '../main';
 import { LinkerCache, PrefixTree, MatchType } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
+import { t } from './lang/helpers';
 
 type LinkerPluginType = import('../main').default;
 
@@ -148,7 +149,7 @@ export function scanVirtualLinks(
                 matches.push(vm);
             }
 
-            // Fuzzy (词义模糊) fallback: if no exact match was found and fuzzy
+            // Fuzzy fallback: if no exact match was found and fuzzy
             // matching is enabled, normalize the current document word and link
             // it when its similarity to a normalized keyword is above the
             // configured threshold.
@@ -366,11 +367,11 @@ export class BatchConvertModal extends Modal {
         const editor = view?.editor ?? null;
 
         if (!editor) {
-            contentEl.createEl('p', { text: '请先打开一个 Markdown 笔记，再运行此命令。' });
+            contentEl.createEl('p', { text: t('Open a Markdown note first, then run this command.') });
             return;
         }
         if (!this.settings.linkerActivated) {
-            contentEl.createEl('p', { text: '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。' });
+            contentEl.createEl('p', { text: t('Virtual links are currently disabled. Enable them in the settings before running the batch conversion.') });
             return;
         }
 
@@ -380,7 +381,7 @@ export class BatchConvertModal extends Modal {
         if (this.range) {
             const [from, to] = this.range;
             if (from >= to) {
-                contentEl.createEl('p', { text: '请先选择一段文本，再运行此命令。' });
+                contentEl.createEl('p', { text: t('Select some text first, then run this command.') });
                 return;
             }
         }
@@ -410,14 +411,16 @@ export class BatchConvertModal extends Modal {
         );
         this.enabled = this.items.map(() => true);
 
-        const scopeLabel = this.range ? '选中内容中' : '当前笔记中';
-        contentEl.createEl('h2', { text: '批量固化虚拟链接为真实链接' });
+        const scopeLabel = this.range ? t('in the selection') : t('in this note');
+        contentEl.createEl('h2', { text: t('Convert virtual links to real links') });
         contentEl.createEl('p', {
-            text: `${scopeLabel}共找到 ${this.items.length} 个虚拟链接。勾选需要转换的项，点击"转换"。`,
+            text: t('Found {n} virtual links {scope}. Check the ones to convert, then click "Convert".')
+                .replace('{n}', String(this.items.length))
+                .replace('{scope}', scopeLabel),
         });
 
         if (this.items.length === 0) {
-            contentEl.createEl('p', { text: '未检测到可转换的虚拟链接。' });
+            contentEl.createEl('p', { text: t('No convertible virtual links found.') });
             return;
         }
 
@@ -430,7 +433,7 @@ export class BatchConvertModal extends Modal {
                 .setName(item.displayText)
                 .setDesc(
                     item.multipleTargets
-                        ? '多个指向 — 将转换为第一个目标'
+                        ? t('Multiple targets - will convert to the first target')
                         : item.replacement
                 );
             const defaultOn = !(item.multipleTargets && this.settings.skipMultipleTargets);
@@ -444,10 +447,10 @@ export class BatchConvertModal extends Modal {
 
         const buttonBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
 
-        const convertBtn = buttonBar.createEl('button', { text: '转换', cls: 'mod-cta' });
+        const convertBtn = buttonBar.createEl('button', { text: t('Convert'), cls: 'mod-cta' });
         convertBtn.onclick = () => this.convert();
 
-        const cancelBtn = buttonBar.createEl('button', { text: '取消' });
+        const cancelBtn = buttonBar.createEl('button', { text: t('Cancel') });
         cancelBtn.onclick = () => this.close();
     }
 
@@ -474,7 +477,7 @@ export class BatchConvertModal extends Modal {
             applied++;
         }
 
-        new Notice(`已固化 ${applied} 个虚拟链接为真实链接。`);
+        new Notice(t('Converted {n} virtual links to real links.').replace('{n}', String(applied)));
         this.close();
     }
 }
@@ -497,14 +500,14 @@ export class BatchConvertFilesModal extends Modal {
     onOpen() {
         const { contentEl } = this;
         contentEl.empty();
-        contentEl.createEl('h2', { text: '批量固化多个笔记中的虚拟链接' });
+        contentEl.createEl('h2', { text: t('Convert virtual links in multiple notes') });
         contentEl.createEl('p', {
-            text: '使用步骤：1) 点击「选择笔记…」；2) 在弹出的搜索框中逐个点击要处理的笔记（可多次点选，已选笔记会列在下方）；3) 选好后点击「扫描并转换」，插件会一次性把每个笔记里的虚拟链接固化为真实链接（表格内的虚拟链接不会被处理）。',
+            text: t('Steps: 1) click "Choose notes..."; 2) click each note to process in the search box (you can pick several - the chosen ones are listed below); 3) click "Scan and convert" to convert every virtual link in each note (links inside tables are not processed).'),
         });
 
         const pickerBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
 
-        const pickBtn = pickerBar.createEl('button', { text: '选择笔记…', cls: 'mod-cta' });
+        const pickBtn = pickerBar.createEl('button', { text: t('Choose notes...'), cls: 'mod-cta' });
         pickBtn.onclick = () => {
             const picker = new FileMultiSuggestModal(this.app);
             picker.onChoose((files) => {
@@ -514,7 +517,7 @@ export class BatchConvertFilesModal extends Modal {
             picker.open();
         };
 
-        const scanBtn = pickerBar.createEl('button', { text: '扫描并转换' });
+        const scanBtn = pickerBar.createEl('button', { text: t('Scan and convert') });
         scanBtn.onclick = () => this.scanAndConvert();
     }
 
@@ -523,7 +526,7 @@ export class BatchConvertFilesModal extends Modal {
         if (existing) existing.remove();
 
         const box = contentEl.createEl('div', { cls: 'batch-selected-files' });
-        box.createEl('p', { text: `已选择 ${this.selectedFiles.length} 个笔记：` });
+        box.createEl('p', { text: t('Selected {n} notes:').replace('{n}', String(this.selectedFiles.length)) });
         const list = box.createEl('ul');
         for (const f of this.selectedFiles) {
             list.createEl('li', { text: f.path });
@@ -532,11 +535,11 @@ export class BatchConvertFilesModal extends Modal {
 
     private async scanAndConvert() {
         if (this.selectedFiles.length === 0) {
-            new Notice('请先选择至少一个笔记。');
+            new Notice(t('Select at least one note first.'));
             return;
         }
         if (!this.settings.linkerActivated) {
-            new Notice('虚拟链接功能当前已关闭，请先在设置中启用。');
+            new Notice(t('Virtual links are currently disabled. Enable them in the settings first.'));
             return;
         }
 
@@ -587,10 +590,14 @@ export class BatchConvertFilesModal extends Modal {
         }
 
         if (errors.length > 0) {
-            new Notice(`完成。${totalApplied} 个链接已固化（${errors.length} 个文件出错，详见控制台）。`);
+            new Notice(t('Done. {n} links converted ({errors} files failed, see the console).')
+                .replace('{n}', String(totalApplied))
+                .replace('{errors}', String(errors.length)));
             console.error('Batch convert files errors:', errors);
         } else {
-            new Notice(`已完成。在 ${this.selectedFiles.length} 个笔记中固化了 ${totalApplied} 个虚拟链接。`);
+            new Notice(t('Done. Converted {n} virtual links across {files} notes.')
+                .replace('{n}', String(totalApplied))
+                .replace('{files}', String(this.selectedFiles.length)));
         }
         this.close();
     }
@@ -620,7 +627,7 @@ class FileMultiSuggestModal extends FuzzySuggestModal<TFile> {
 
     onChooseItem(file: TFile): void {
         if (!this.chosen.includes(file)) this.chosen.push(file);
-        new Notice(`已添加：${file.path}（共 ${this.chosen.length} 个）`);
+        new Notice(t('Added: {path} ({n} total)').replace('{path}', file.path).replace('{n}', String(this.chosen.length)));
         this.cb([...this.chosen]);
     }
 }
