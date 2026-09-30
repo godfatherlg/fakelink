@@ -12,14 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.23.57';
+export const WHATS_NEW_VERSION = '1.23.58';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Internal cleanup, continued: line jumping (the obsidian://adv-uri handling) moved into its own module. No behaviour changes.',
+    'Internal cleanup, continued: the right-click menu moved into its own module. No behaviour changes.',
 ];
 
 export class WhatsNewModal extends Modal {

@@ -226,7 +226,7 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'Internal cleanup, continued: line jumping (the obsidian://adv-uri handling) moved into its own module. No behaviour changes.': '内部整理（续）：行跳转（obsidian://adv-uri 处理）已移到独立模块。功能与表现完全不变。',
+    'Internal cleanup, continued: the right-click menu moved into its own module. No behaviour changes.': '内部整理（续）：右键菜单已移到独立模块。功能与表现完全不变。',
 };
 
 export function t(text: string): string {
