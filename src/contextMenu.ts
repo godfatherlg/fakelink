@@ -1,6 +1,4 @@
-import { App, EditorPosition, MarkdownView, Menu, Notice, TAbstractFile, TFile, TFolder } from 'obsidian';
-import { LinkerPluginSettings } from '../main';
-import { t } from './lang/helpers';
+import { App, Menu, TAbstractFile, TFolder } from 'obsidian';
 import { LinkerMetaInfoFetcher } from '../linker/linkerInfo';
 import { clearContextLock } from '../linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from '../linker/convertLink';
@@ -10,46 +8,6 @@ type LinkerPluginType = import('../main').default;
 
 // The right-click menu built for files, folders and virtual links. It used to
 // be a method on the plugin; it now takes the plugin as a parameter.
-
-    function isInTableEnvironment(editor: MarkdownView['editor'], _fromOffset: number, _toOffset: number): boolean {
-        try {
-            const fromPos = editor.offsetToPos(_fromOffset);
-            // Check for table syntax: lines starting with | or containing | characters
-            const line = editor.getLine(fromPos.line);
-            const isTableLine = line.trim().startsWith('|') || line.includes('|');
-            
-            if (isTableLine) {
-                return true;
-            }
-            
-            // Additional check: look for table markers in surrounding lines
-            const contextLines = 3;
-            for (let i = Math.max(0, fromPos.line - contextLines); i <= Math.min(editor.lineCount() - 1, fromPos.line + contextLines); i++) {
-                const contextLine = editor.getLine(i);
-                if (contextLine.trim().startsWith('|') || contextLine.includes('|')) {
-                    return true;
-                }
-            }
-            
-            return false;
-        } catch {
-            return false;
-        }
-    }
-
-    function isPosWithinRange(
-        linkFrom: EditorPosition,
-        linkTo: EditorPosition,
-        selectionFrom: EditorPosition,
-        selectionTo: EditorPosition
-    ): boolean {
-        return (
-            (linkFrom.line > selectionFrom.line ||
-             (linkFrom.line === selectionFrom.line && linkFrom.ch >= selectionFrom.ch)) &&
-            (linkTo.line < selectionTo.line ||
-             (linkTo.line === selectionTo.line && linkTo.ch <= selectionTo.ch))
-        );
-    }
 
     export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: TAbstractFile, _source: string) {
 

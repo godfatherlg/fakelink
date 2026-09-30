@@ -538,8 +538,16 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         // Editing a table cell: render NOTHING inside that cell editor, so its
-        // text behaves like plain text and can be typed into. The other cells of
-        // the configured range are only restyled, via markSuppressedTableCells.
+        // text behaves like plain text and can be typed into.
+        //
+        // Only the cell being edited can be handled this way. Obsidian builds a
+        // real cell editor - the .table-cell-wrapper that isInTableCellEditor()
+        // looks for - for that one cell alone; the rest of a Live Preview table
+        // is drawn by CodeMirror and offers no per-cell element to mark or
+        // restyle, so "this row / this column / the whole table" cannot be
+        // suppressed here and the setting stays a single on/off switch. (An
+        // earlier attempt planned those ranges through a helper that was never
+        // written - the rendering model is what rules them out.)
         if (this.settings.tableLinkSuppression && isInTableCellEditor(view.dom)) {
             return builder.finish();
         }

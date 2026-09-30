@@ -1,9 +1,6 @@
-import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { App, MarkdownView, Menu, TFile, getLinkpath } from 'obsidian';
-import { MatchType, PrefixTree } from './linkerCache';
+import { App, MarkdownView, Menu, TFile } from 'obsidian';
 import { convertVirtualLinkToReal } from './convertLink';
-import { t } from '../src/lang/helpers';
 // The class lives in its own module now; it is imported back here because the
 // helpers below are typed against it (and re-exported so existing imports of
 // VirtualMatch from this file keep working).
@@ -11,19 +8,6 @@ import { VirtualMatch } from './virtualLinkMatch';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
-
-// ---------------------------------------------------------------------------
-// Why this file uses `activeDocument.createElement` rather than Obsidian's
-// `createEl` helper (which the `obsidianmd/prefer-create-el` lint flags):
-//
-// The widget elements built here are DETACHED on purpose - a virtual-link span
-// is handed to CodeMirror after being built (and the numbered [1|2|3] anchors
-// are appended to that still-detached span). `createEl` appends the new element
-// to its receiver immediately, so it would place the element in the document
-// before CodeMirror could; and plugins that replace that helper (Media
-// Extended) make the call throw
-// "HierarchyRequestError: Only one element on document allowed".
-// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Heading alignment after navigation

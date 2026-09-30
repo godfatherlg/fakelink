@@ -1,4 +1,4 @@
-import { App, Editor, EditorPosition, MarkdownView, Menu, Notice, Plugin, TAbstractFile, TFile, TFolder, WorkspaceLeaf } from 'obsidian';
+import { App, Editor, MarkdownView, Menu, Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian';
 import { DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
 import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
@@ -6,10 +6,8 @@ import { t } from './src/lang/helpers';
 import { GlossaryLinker } from './linker/readModeLinker';
 import { liveLinkerPlugin } from './linker/liveLinker';
 import { ExternalUpdateManager, LinkerCache } from 'linker/linkerCache';
-import { LinkerMetaInfoFetcher } from 'linker/linkerInfo';
 import { BatchConvertModal, BatchConvertFilesModal } from './src/batchConvert';
-import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHoveredHeadingId, headingElementByLine, headingRowElement, keepScrolledHeadingAligned, markSelfInflictedLayout, patchDispatchClamp, resolveHeadingTarget } from './linker/virtualLinkDom';
-import { convertVirtualLinkToReal } from './linker/convertLink';
+import { buildIndentBackground, createMathBusyWatcher, headingRowElement, patchDispatchClamp } from './linker/virtualLinkDom';
 import { LinkerSettingTab } from './src/settingsTab';
 import { WhatsNewModal, WHATS_NEW_VERSION } from './src/whatsNew';
 import { copyLineUri, jumpToLine, openFileOnly } from './src/lineJump';

@@ -1,18 +1,15 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { App, MarkdownView, Menu, TFile, getLinkpath } from 'obsidian';
+import { MarkdownView, TFile, getLinkpath } from 'obsidian';
 import { MatchType, PrefixTree } from './linkerCache';
-import { convertVirtualLinkToReal } from './convertLink';
 import { t } from '../src/lang/helpers';
 import {
     attachTableCellContextMenu,
-    clearContextLock,
     contextLockedLinks,
     findHeadingElement,
     findScrollableAncestor,
     headingElementByLine,
     hoverUnlockTimers,
-    isInTableCellEditor,
     keepScrolledHeadingAligned,
     MULTI_REFERENCE_HOVER_GRACE_MS,
     patchAllEditorsDispatchClamp,
@@ -22,6 +19,22 @@ import {
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
+
+// ---------------------------------------------------------------------------
+// Why the elements built here use `activeDocument.createElement` rather than
+// Obsidian's `createEl` helper (which `obsidianmd/prefer-create-el` flags):
+//
+// They are DETACHED on purpose - a virtual-link span is handed to CodeMirror
+// after being built (and the numbered [1|2|3] anchors are appended to that
+// still-detached span). `createEl` appends the new element to its receiver
+// immediately, so it would place the element in the document before CodeMirror
+// could; and plugins that replace that helper (Media Extended) make the call
+// throw "HierarchyRequestError: Only one element on document allowed".
+//
+// `activeDocument` rather than `document` for the same reason the rest of the
+// plugin uses it: a hover preview can live in a second window, and an element
+// forged on the wrong document does not belong to the DOM it is inserted into.
+// ---------------------------------------------------------------------------
 
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
