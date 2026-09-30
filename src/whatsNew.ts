@@ -12,15 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.23.55';
+export const WHATS_NEW_VERSION = '1.23.56';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fixed: the first hover preview after startup was left uncentred - it now waits for the index to finish building before aligning.',
-    'Creating, deleting or renaming a note now refreshes the index straight away, so a newly created note can be linked without switching notes or restarting.',
+    'Internal cleanup: the code that builds virtual links now lives in its own module instead of one very large file. Nothing behaves differently - this is groundwork to keep the plugin maintainable.',
 ];
 
 export class WhatsNewModal extends Modal {

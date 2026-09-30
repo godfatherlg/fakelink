@@ -226,8 +226,7 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'Fixed: the first hover preview after startup was left uncentred - it now waits for the index to finish building before aligning.': '修复：启动后的第一次悬浮预览不会居中——现在会等索引构建完成后再对齐。',
-    'Creating, deleting or renaming a note now refreshes the index straight away, so a newly created note can be linked without switching notes or restarting.': '新建、删除或重命名笔记后会立即刷新索引，新建的笔记无需切换文件或重启即可被链接。',
+    'Internal cleanup: the code that builds virtual links now lives in its own module instead of one very large file. Nothing behaves differently - this is groundwork to keep the plugin maintainable.': '内部整理：生成虚拟链接的代码已拆分到独立模块，不再挤在一个很大的文件里。功能与表现完全不变——这是为了让插件后续更好维护。',
 };
 
 export function t(text: string): string {
