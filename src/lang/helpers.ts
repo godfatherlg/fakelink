@@ -226,7 +226,7 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'Internal cleanup: the code that builds virtual links now lives in its own module instead of one very large file. Nothing behaves differently - this is groundwork to keep the plugin maintainable.': '内部整理：生成虚拟链接的代码已拆分到独立模块，不再挤在一个很大的文件里。功能与表现完全不变——这是为了让插件后续更好维护。',
+    'Internal cleanup, continued: line jumping (the obsidian://adv-uri handling) moved into its own module. No behaviour changes.': '内部整理（续）：行跳转（obsidian://adv-uri 处理）已移到独立模块。功能与表现完全不变。',
 };
 
 export function t(text: string): string {

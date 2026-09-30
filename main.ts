@@ -12,6 +12,7 @@ import { buildIndentBackground, clearContextLock, createMathBusyWatcher, getHove
 import { convertVirtualLinkToReal } from './linker/convertLink';
 import { LinkerSettingTab } from './src/settingsTab';
 import { WhatsNewModal, WHATS_NEW_VERSION } from './src/whatsNew';
+import { copyLineUri, jumpToLine, openFileOnly } from './src/lineJump';
 
 // 同一编辑器只允许一个居中循环在跑。调用方（keepAligned）会在每次 miss 超容差
 // 时再请求一次；如果每次都新起一个循环，多个循环各自写滚动，表现就是"不停
@@ -290,180 +291,18 @@ export default class LinkerPlugin extends Plugin {
     //   [33](obsidian://adv-uri?vault=<id>&filepath=<url-encoded path>&line=33&column=1&openmode=true&view-mode=source)
     // The full parameter set matches what Advanced URI generates, while the
     // [line-number](...) wrapper keeps the pasted checklist line clean.
+    // Line jumping lives in src/lineJump.ts now - these are thin forwards so
+    // the protocol handler and the commands keep working unchanged.
     async copyLineUri(file: TFile, lineZeroBased: number) {
-        const line = lineZeroBased + 1;
-        // Vault id is not part of the public API; fall back to the vault name
-        // if getId is unavailable at runtime.
-        const vaultId = (this.app.vault as unknown as { getId?: () => string }).getId?.()
-            ?? this.app.vault.getName();
-        let uri = `obsidian://adv-uri?vault=${encodeURIComponent(vaultId)}`
-            + `&filepath=${encodeURIComponent(file.path)}`
-            + `&line=${line}&column=1&openmode=true&view-mode=source`;
-        // Self-heal: store the target line text so the jump can find it again
-        // later even after edits shift the line numbers.
-        if (this.settings.lineLinkSelfHeal) {
-            const anchor = await this.getLineAnchor(file, lineZeroBased);
-            if (anchor) {
-                uri += `&anchor=${encodeURIComponent(anchor)}`;
-            }
-        }
-        try {
-            // Clipboard use is limited to this user-invoked "copy line link"
-            // command: it only WRITES (never reads) the obsidian:// URL of the
-            // link the user asked to copy. No clipboard content is inspected.
-            await navigator.clipboard.writeText(`[${line}](${uri})`);
-            new Notice(t('Line link copied'));
-        } catch {
-            new Notice(t('Failed to copy line link'));
-        }
+        return copyLineUri(this.app, this.settings, file, lineZeroBased);
     }
 
-    // Read the text of `lineZeroBased` and return a short anchor used to
-    // re-locate that line later if the file is edited and line numbers drift.
-    private async getLineAnchor(file: TFile, lineZeroBased: number): Promise<string> {
-        try {
-            const content = await this.app.vault.cachedRead(file);
-            const lines = content.split('\n');
-            const text = (lines[lineZeroBased] ?? '').trim();
-            const maxLen = 40;
-            return text.length > maxLen ? text.slice(0, maxLen) : text;
-        } catch {
-            return '';
-        }
-    }
-
-    // Return the line that currently holds `anchor`. Falls back to the recorded
-    // `line` when self-healing is off, no anchor was stored, or the anchor text
-    // can no longer be found (the line itself was edited away).
-    private async resolveLineByAnchor(file: TFile, line: number, anchor?: string): Promise<number> {
-        if (!this.settings.lineLinkSelfHeal || !anchor) return line;
-        try {
-            const content = await this.app.vault.cachedRead(file);
-            const lines = content.split('\n');
-            const idx = line - 1;
-            // Recorded line still holds the text → nothing to fix.
-            if (idx >= 0 && idx < lines.length && lines[idx].trim().startsWith(anchor)) {
-                return line;
-            }
-            // Drifted: prefer an exact line-start match, then a looser contains match.
-            const exact = lines.findIndex(l => l.trim().startsWith(anchor));
-            if (exact >= 0) return exact + 1;
-            const loose = lines.findIndex(l => l.trim().includes(anchor));
-            if (loose >= 0) return loose + 1;
-            return line;
-        } catch {
-            return line;
-        }
-    }
-
-    // Wait until the target file's editor has rendered at least `targetLine`
-    // lines, polling every 200ms until `timeoutMs` elapses.
-    private async waitForEditor(view: MarkdownView, targetLine: number, timeoutMs: number): Promise<boolean> {
-        const start = Date.now();
-        while (Date.now() - start < timeoutMs) {
-            if (view.editor && view.editor.lineCount() >= targetLine) {
-                return true;
-            }
-            await new Promise((resolve) => window.setTimeout(resolve, 200));
-        }
-        return view.editor != null;
-    }
-
-    // Open the target file only (reuse its tab if already open, otherwise
-    // open a new one) and return the leaf. Used both by the jump logic and by
-    // the protocol handler when a URI carries no line (the "open file" step of
-    // an external handler's two-step sequence), so the file gets opened early
-    // and rendered before the line jump arrives.
-    private async openFileOnly(file: TFile): Promise<WorkspaceLeaf | null> {
-        const existing = this.app.workspace.getLeavesOfType('markdown')
-            .find(l => (l.getViewState().state as { file?: string })?.file === file.path);
-
-        let leaf: WorkspaceLeaf;
-        if (existing) {
-            this.app.workspace.setActiveLeaf(existing, { focus: true });
-            leaf = existing;
-        } else {
-            leaf = this.settings.jumpOpenInNewTab
-                ? this.app.workspace.getLeaf(true)
-                : this.app.workspace.getLeaf(false);
-            await leaf.openFile(file);
-            // CodeMirror only mounts its real DOM for the active leaf, so make
-            // sure the freshly opened leaf is active before scrolling.
-            this.app.workspace.setActiveLeaf(leaf, { focus: true });
-        }
-        return leaf;
-    }
-
-    // Open the target file (if needed) and, once rendered, move the cursor to
-    // `line` and scroll it into view. `line` is 1-based (adv-uri format).
     async jumpToLine(filepath: string, line: number, anchor?: string) {
-        const file = this.app.vault.getAbstractFileByPath(filepath);
-        if (!(file instanceof TFile)) return;
-
-        const wasAlreadyOpen = this.app.workspace.getLeavesOfType('markdown')
-            .some(l => (l.getViewState().state as { file?: string })?.file === file.path);
-
-        const leaf = await this.openFileOnly(file);
-        if (!leaf) return;
-        const view = leaf.view;
-        if (!(view instanceof MarkdownView)) return;
-
-        // Self-heal: correct the line number when the recorded one has drifted.
-        const targetLine = await this.resolveLineByAnchor(file, line, anchor);
-        await this.waitForEditor(view, targetLine, this.settings.lineJumpWaitSeconds * 1000);
-
-        if (!wasAlreadyOpen) {
-            // Freshly opened file: wait a beat for CodeMirror's first layout
-            // and any MathJax/images to finish reflowing, otherwise
-            // scrollIntoView races the ongoing measurement and triggers the
-            // "Measure loop restarted" warning (and a visible stutter).
-            await new Promise((resolve) => window.setTimeout(resolve, 1200));
-        }
-
-        const safeLine = Math.min(targetLine - 1, Math.max(0, view.editor.lineCount() - 1));
-        view.editor.focus();
-        view.editor.setCursor({ line: safeLine, ch: 0 });
-        // Centering (center=true) cannot scroll to the very first lines of a
-        // note - there is not half a viewport of content above them, so CM
-        // refuses to move. For those top lines use center=false (scrolls them
-        // to the top). For deeper lines use center=true so the target sits in
-        // the middle of the screen instead of hugging the bottom edge (which
-        // is what center=false's "nearest visible" does for lines below the
-        // current viewport).
-        const center = safeLine >= 15;
-        view.editor.scrollIntoView({ from: { line: safeLine, ch: 0 }, to: { line: safeLine, ch: 0 } }, center);
-        // scrollIntoView alone cannot frame a line taller than the viewport (an
-        // image embed): center=true slices it and center=false only reveals its
-        // lower edge. Top-align such lines instead.
-        this.alignTallLine(view, safeLine);
+        return jumpToLine(this.app, this.settings, filepath, line, anchor);
     }
 
-    // A line that renders as a tall block (an image embed, a wide table) cannot be
-    // framed by scrollIntoView: its `center` flag only offers "middle of the screen"
-    // or "nearest visible", so a line taller than the viewport ends up either
-    // bottom-aligned (only its lower edge shows) or sliced in half. When the line is
-    // taller than the viewport - or its head ended up above it - align the top edge
-    // instead, which is what a jump should show. No-op for ordinary lines.
-    //
-    // Note: BlockInfo.top is in document coordinates and scroller.scrollTop is a
-    // scroll offset; they share the same origin up to CodeMirror's content padding,
-    // so the alignment can be off by a few pixels - invisible for "show me the head
-    // of this line". Runs twice because images keep reflowing while they load.
-    private alignTallLine(view: MarkdownView, line: number, pass = 0) {
-        const cmEl = view.contentEl.querySelector('.cm-editor');
-        const cm = cmEl ? EditorView.findFromDOM(cmEl as HTMLElement) : null;
-        if (!cm) return;                                  // 拿不到视图就保持原行为
-        const scroller = cm.scrollDOM;
-        try {
-            const block = cm.lineBlockAt(cm.state.doc.line(line + 1).from);
-            const tooTall = block.height > scroller.clientHeight * 0.8;
-            const headHidden = block.top < scroller.scrollTop;
-            if (!tooTall && !headHidden) return;           // 普通行：不干预
-            scroller.scrollTop = block.top - 16;
-        } catch {
-            return;
-        }
-        if (pass < 1) window.setTimeout(() => this.alignTallLine(view, line, pass + 1), 250);
+    private async openFileOnly(file: TFile): Promise<WorkspaceLeaf | null> {
+        return openFileOnly(this.app, this.settings, file);
     }
 
     /**
