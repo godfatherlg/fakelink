@@ -719,6 +719,22 @@ export default class LinkerPlugin extends Plugin {
 
         this.registerAdvUriLinkClicks();
 
+        this.registerEmbedReservation();
+
+        this.registerAdvUriProtocol();
+        this.registerContextMenus();
+        this.registerCommands();
+    }
+
+    /**
+     * Reserves the final size of PDF++ cropped page embeds, image embeds and
+     * markdown embeds so their late render cannot reflow what is below them,
+     * then hooks the hover-popover alignment and the reading-view click
+     * alignment. All four reactions share ONE MutationObserver (four would run
+     * four callbacks for every DOM change anywhere), which is why they live
+     * together as a single unit.
+     */
+    private registerEmbedReservation(): void {
         // ------------------------------------------------------------------
         // Persist the measured sizes. Without this every session starts cold:
         // the first render of each note re-reads every image header (Obsidian
@@ -1353,10 +1369,6 @@ export default class LinkerPlugin extends Plugin {
                 'centre',
             ), 60);
         }, true);
-
-        this.registerAdvUriProtocol();
-        this.registerContextMenus();
-        this.registerCommands();
     }
 
     private registerIndentBackground(): void {
