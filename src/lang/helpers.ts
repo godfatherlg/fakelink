@@ -226,7 +226,7 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'Internal cleanup, finished: plugin startup is now a 21-line checklist instead of a 1000-line block, with the embed/PDF/preview machinery moved into its own method. No behaviour changes.': '内部整理（收尾）：插件启动流程由上千行的一整块精简为 21 行的清单，嵌入/PDF/预览那一整套逻辑已移入独立方法。功能与表现完全不变。',
+    'Internal cleanup complete: line jumping, the context menu and the embed/PDF/preview sizing now live in their own modules, and plugin startup is a 21-line checklist. No behaviour changes.': '内部整理完成：行跳转、右键菜单、嵌入/PDF/预览尺寸已各自独立成模块，插件启动变为 21 行的清单。功能与表现完全不变。',
 };
 
 export function t(text: string): string {
