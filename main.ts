@@ -706,269 +706,18 @@ export default class LinkerPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
-        // Apply alternative display style body class based on settings
-        if (this.settings.alternativeDisplayStyle) {
-            activeWindow.document.body.classList.add('virtual-linker-alt-style');
-        }
+        this.applyStartupAppearance();
+        this.registerWorkspaceEvents();
+        this.registerIndexWatchers();
+        this.registerLinkers();
 
-        // Apply color-only display mode
-        if (this.settings.colorOnlyDisplay) {
-            activeWindow.document.body.classList.add('virtual-link-color-only');
-        }
-
-        // The optional look lives under these classes (settings: Appearance ->
-        // Background). One helper applies them everywhere, so it can also be
-        // re-run later for windows that did not exist yet at startup.
-        this.applyBackgroundStyles();
-
-        // Show "what is new" once, right after an update - never on a fresh
-        // install, where notes about past releases are of no use to anyone.
-        // Delayed a moment so it does not compete with Obsidian's own startup,
-        // and only when the notes really belong to this version, so a release
-        // that forgot to update them stays quiet instead of showing stale text.
-        const currentVersion = this.manifest.version;
-        if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
-            && WHATS_NEW_VERSION === currentVersion) {
-            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
-        }
-        if (this.settings.lastSeenVersion !== currentVersion) {
-            this.settings.lastSeenVersion = currentVersion;
-            void this.saveData(this.settings);
-        }
-
-        // Always set link colors (header vs note)
-        activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
-        activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
-        activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
-        // Fuzzy-match links: base color mixed into the header / note color.
-        this.applyFuzzyColors();
-
-        // Listen for view changes
-        this.registerEvent(this.app.workspace.on('layout-change', () => {
-            void this.handleLayoutChange();
-            // A window opened after startup missed the startup application, so
-            // its <body> carries none of these classes.
-            this.scheduleBackgroundSync();
-        }));
-        this.registerEvent(this.app.workspace.on('active-leaf-change', () => { void this.handleLayoutChange(); }));
-
-        // Set callback to update the cache when the settings are changed
-        this.updateManager.registerCallback(() => {
-            LinkerCache.getInstance(this.app, this.settings).clearCache();
-        });
-
-        // When auto-exclude (renamed duplicates) re-indexes asynchronously,
-        // refresh the decorations so the newly excluded note stops linking.
-        LinkerCache.getInstance(this.app, this.settings).onIndexChanged = () => this.updateManager.update();
-
-        // Keep the index in step with the vault: a note that is created, deleted
-        // or renamed changes which terms can be linked, and without this the
-        // change only showed up after switching notes or restarting.
-        //
-        // Only these three events are watched, deliberately NOT 'modify': a save
-        // happens every few seconds while typing, and each refresh rebuilds the
-        // index, which would stutter on a large vault. Creation, deletion and
-        // renaming are rare enough that even a full rebuild goes unnoticed, and
-        // a burst of them (a folder dropped in) is coalesced into one refresh.
-        let indexRefreshTimer: number | null = null;
-        const scheduleIndexRefresh = (): void => {
-            if (indexRefreshTimer !== null) window.clearTimeout(indexRefreshTimer);
-            indexRefreshTimer = window.setTimeout(() => {
-                indexRefreshTimer = null;
-                this.updateManager.update();
-            }, 800);
-        };
-        // Attachments and folders cannot become link targets, so they are
-        // ignored: dropping a folder of images must not trigger a rebuild.
-        const isNote = (file: TAbstractFile): boolean =>
-            file instanceof TFile && file.extension === 'md';
-        this.registerEvent(this.app.vault.on('create', (file) => {
-            if (isNote(file)) scheduleIndexRefresh();
-        }));
-        this.registerEvent(this.app.vault.on('delete', (file) => {
-            if (isNote(file)) scheduleIndexRefresh();
-        }));
-        this.registerEvent(this.app.vault.on('rename', (file) => {
-            if (isNote(file)) scheduleIndexRefresh();
-        }));
-
-        // Register the glossary linker for the read mode
-        this.registerMarkdownPostProcessor((element, context) => {
-            context.addChild(new GlossaryLinker(this.app, this.settings, context, element, this));
-        });
-
-        // Register the live linker for the live edit mode
-        this.registerEditorExtension(liveLinkerPlugin(this.app, this.settings, this.updateManager, this));
-
-        // A line indented with a Tab has NO class of its own in Obsidian, so a
-        // CSS snippet cannot style it (or the line above it) at all. Mark those
-        // lines here; styles.css does the painting, and only while the
-        // "Background" setting is on (body.virtual-link-bg).
-        this.registerEditorExtension(
-            ViewPlugin.fromClass(
-                class {
-                    decorations: DecorationSet;
-                    constructor(view: EditorView) {
-                        this.decorations = buildIndentBackground(view);
-                    }
-                    update(update: ViewUpdate) {
-                        if (update.docChanged || update.viewportChanged) {
-                            this.decorations = buildIndentBackground(update.view);
-                        }
-                    }
-                },
-                { decorations: (v) => v.decorations }
-            )
-        );
-
-        // Auto-trim spaces inside %% comments when alternative display style is enabled
-        this.registerEditorExtension(
-            EditorView.updateListener.of((update) => {
-                if (!this.settings.alternativeDisplayStyle || !update.docChanged) return;
-                
-                // Find the affected range, expand to full lines
-                let minFrom = Infinity;
-                let maxTo = -Infinity;
-                update.changes.iterChanges((_fromA, _toA, fromB, toB) => {
-                    if (fromB < minFrom) minFrom = fromB;
-                    if (toB > maxTo) maxTo = toB;
-                });
-                if (minFrom === Infinity) return;
-                
-                const doc = update.state.doc;
-                const startLine = doc.lineAt(minFrom);
-                const endLine = doc.lineAt(maxTo - 1 > 0 ? maxTo - 1 : maxTo);
-                
-                // Scan each affected line for %% text %% patterns
-                const changes: { from: number; to: number; insert: string }[] = [];
-                for (let i = startLine.number; i <= endLine.number; i++) {
-                    const line = doc.line(i);
-                    let text = line.text;
-                    if (!text.includes('%%') || !/\S/.test(text)) continue;
-                    
-                    // Fix %% text %% -> %%text%% (precise range replacement)
-                    let searchFrom = 0;
-                    while (searchFrom < text.length) {
-                        const startIdx = text.indexOf('%%', searchFrom);
-                        if (startIdx === -1) break;
-                        
-                        // Find content after %%
-                        const contentStart = startIdx + 2;
-                        // Find the closing %%
-                        const endIdx = text.indexOf('%%', contentStart);
-                        if (endIdx === -1) {
-                            searchFrom = contentStart;
-                            continue;
-                        }
-                        
-                        // Extract content between %% markers and trim
-                        const inner = text.slice(contentStart, endIdx);
-                        const trimmed = inner.trim();
-                        
-                        if (trimmed !== inner) {
-                            const fullFrom = line.from + startIdx;
-                            const fullTo = line.from + endIdx + 2;
-                            changes.push({
-                                from: fullFrom,
-                                to: fullTo,
-                                insert: `%%${trimmed}%%`
-                            });
-                            // Adjust text for subsequent searches on this line
-                            const before = text.slice(0, startIdx);
-                            const after = text.slice(endIdx + 2);
-                            text = before + `%%${trimmed}%%` + after;
-                            searchFrom = startIdx + trimmed.length + 4;
-                        } else {
-                            searchFrom = endIdx + 2;
-                        }
-                    }
-                }
-                
-                if (changes.length > 0) {
-                    // Preserve selection, excluding %% markers
-                    // When there is exactly one %% pair, set selection to content only
-                    if (changes.length === 1) {
-                        const ch = changes[0];
-                        const anchor = ch.from + 2;
-                        const head = ch.from + ch.insert.length - 2;
-                        update.view.dispatch({ 
-                            changes, 
-                            selection: EditorSelection.single(anchor, head) 
-                        });
-                    } else {
-                        update.view.dispatch({ changes });
-                    }
-                }
-            })
-        );
-
-        // Auto-insert symbol at front of new/changed headers
-        this.registerEditorExtension(
-            EditorView.updateListener.of((update) => {
-                if (!this.settings.headerAutoAppendSuffix || !update.docChanged) return;
-                const symbol = this.settings.headerAutoAppendSymbol;
-                if (!symbol) return;
-                
-                const doc = update.state.doc;
-                let minFrom = Infinity, maxTo = -Infinity;
-                update.changes.iterChanges((_a, _b, fromB, toB) => {
-                    if (fromB < minFrom) minFrom = fromB;
-                    if (toB > maxTo) maxTo = toB;
-                });
-                if (minFrom === Infinity) return;
-                
-                const startLine = doc.lineAt(minFrom);
-                const endLine = doc.lineAt(Math.max(0, maxTo - 1));
-                const changes: { from: number; to: number; insert: string }[] = [];
-                
-                for (let i = startLine.number; i <= endLine.number; i++) {
-                    const line = doc.line(i);
-                    const text = line.text;
-                    // Match header with content: "# Title", "## Subtitle"
-                    const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
-                    if (!match) continue;
-                    const prefix = match[1];      // e.g., "# " or "## "
-                    const content = match[2];      // e.g., "概念"
-                    // Skip if symbol already present at front of content
-                    if (content.startsWith(symbol)) continue;
-                    // Insert symbol after prefix, before content
-                    changes.push({
-                        from: line.from + prefix.length,
-                        to: line.from + prefix.length,
-                        insert: symbol
-                    });
-                }
-                
-                if (changes.length > 0) {
-                    update.view.dispatch({ changes });
-                }
-            })
-        );
+        this.registerIndentBackground();
+        this.registerCommentSpaceTrim();
 
         // This adds a settings tab so the user can configure various aspects of the plugin
         this.addSettingTab(new LinkerSettingTab(this.app, this));
 
-        // Intercept obsidian://adv-uri link clicks (DOM level) to jump to a
-        // line directly. FakeLink does NOT register the protocol handler, so
-        // the Advanced URI plugin stays fully functional. This handler only
-        // catches links rendered as real <a> elements.
-        //
-        this.registerDomEvent(this.app.workspace.containerEl, 'click', (evt) => {
-            if (!this.settings.jumpEnabled) return;
-            const a = (evt.target as HTMLElement).closest('a');
-            if (!a) return;
-            const href = a.getAttribute('href') || '';
-            if (!href.startsWith('obsidian://adv-uri')) return;
-            const p = new URLSearchParams(href.slice('obsidian://adv-uri?'.length));
-            const line = parseInt(p.get('line') || '', 10);
-            if (!line || line < 1) return;
-            const filepath = p.get('filepath') || '';
-            const anchor = p.get('anchor') || undefined;
-            evt.preventDefault();
-            evt.stopImmediatePropagation();
-            void this.jumpToLine(filepath, line, anchor);
-        }, true);
-
+        this.registerAdvUriLinkClicks();
 
         // ------------------------------------------------------------------
         // Persist the measured sizes. Without this every session starts cold:
@@ -1605,6 +1354,289 @@ export default class LinkerPlugin extends Plugin {
             ), 60);
         }, true);
 
+        this.registerAdvUriProtocol();
+        this.registerContextMenus();
+        this.registerCommands();
+    }
+
+    private registerIndentBackground(): void {
+        // A line indented with a Tab has NO class of its own in Obsidian, so a
+        // CSS snippet cannot style it (or the line above it) at all. Mark those
+        // lines here; styles.css does the painting, and only while the
+        // "Background" setting is on (body.virtual-link-bg).
+        this.registerEditorExtension(
+            ViewPlugin.fromClass(
+                class {
+                    decorations: DecorationSet;
+                    constructor(view: EditorView) {
+                        this.decorations = buildIndentBackground(view);
+                    }
+                    update(update: ViewUpdate) {
+                        if (update.docChanged || update.viewportChanged) {
+                            this.decorations = buildIndentBackground(update.view);
+                        }
+                    }
+                },
+                { decorations: (v) => v.decorations }
+            )
+        );
+    }
+
+    private registerCommentSpaceTrim(): void {
+        // Auto-trim spaces inside %% comments when alternative display style is enabled
+        this.registerEditorExtension(
+            EditorView.updateListener.of((update) => {
+                if (!this.settings.alternativeDisplayStyle || !update.docChanged) return;
+                
+                // Find the affected range, expand to full lines
+                let minFrom = Infinity;
+                let maxTo = -Infinity;
+                update.changes.iterChanges((_fromA, _toA, fromB, toB) => {
+                    if (fromB < minFrom) minFrom = fromB;
+                    if (toB > maxTo) maxTo = toB;
+                });
+                if (minFrom === Infinity) return;
+                
+                const doc = update.state.doc;
+                const startLine = doc.lineAt(minFrom);
+                const endLine = doc.lineAt(maxTo - 1 > 0 ? maxTo - 1 : maxTo);
+                
+                // Scan each affected line for %% text %% patterns
+                const changes: { from: number; to: number; insert: string }[] = [];
+                for (let i = startLine.number; i <= endLine.number; i++) {
+                    const line = doc.line(i);
+                    let text = line.text;
+                    if (!text.includes('%%') || !/\S/.test(text)) continue;
+                    
+                    // Fix %% text %% -> %%text%% (precise range replacement)
+                    let searchFrom = 0;
+                    while (searchFrom < text.length) {
+                        const startIdx = text.indexOf('%%', searchFrom);
+                        if (startIdx === -1) break;
+                        
+                        // Find content after %%
+                        const contentStart = startIdx + 2;
+                        // Find the closing %%
+                        const endIdx = text.indexOf('%%', contentStart);
+                        if (endIdx === -1) {
+                            searchFrom = contentStart;
+                            continue;
+                        }
+                        
+                        // Extract content between %% markers and trim
+                        const inner = text.slice(contentStart, endIdx);
+                        const trimmed = inner.trim();
+                        
+                        if (trimmed !== inner) {
+                            const fullFrom = line.from + startIdx;
+                            const fullTo = line.from + endIdx + 2;
+                            changes.push({
+                                from: fullFrom,
+                                to: fullTo,
+                                insert: `%%${trimmed}%%`
+                            });
+                            // Adjust text for subsequent searches on this line
+                            const before = text.slice(0, startIdx);
+                            const after = text.slice(endIdx + 2);
+                            text = before + `%%${trimmed}%%` + after;
+                            searchFrom = startIdx + trimmed.length + 4;
+                        } else {
+                            searchFrom = endIdx + 2;
+                        }
+                    }
+                }
+                
+                if (changes.length > 0) {
+                    // Preserve selection, excluding %% markers
+                    // When there is exactly one %% pair, set selection to content only
+                    if (changes.length === 1) {
+                        const ch = changes[0];
+                        const anchor = ch.from + 2;
+                        const head = ch.from + ch.insert.length - 2;
+                        update.view.dispatch({ 
+                            changes, 
+                            selection: EditorSelection.single(anchor, head) 
+                        });
+                    } else {
+                        update.view.dispatch({ changes });
+                    }
+                }
+            })
+        );
+
+        // Auto-insert symbol at front of new/changed headers
+        this.registerEditorExtension(
+            EditorView.updateListener.of((update) => {
+                if (!this.settings.headerAutoAppendSuffix || !update.docChanged) return;
+                const symbol = this.settings.headerAutoAppendSymbol;
+                if (!symbol) return;
+                
+                const doc = update.state.doc;
+                let minFrom = Infinity, maxTo = -Infinity;
+                update.changes.iterChanges((_a, _b, fromB, toB) => {
+                    if (fromB < minFrom) minFrom = fromB;
+                    if (toB > maxTo) maxTo = toB;
+                });
+                if (minFrom === Infinity) return;
+                
+                const startLine = doc.lineAt(minFrom);
+                const endLine = doc.lineAt(Math.max(0, maxTo - 1));
+                const changes: { from: number; to: number; insert: string }[] = [];
+                
+                for (let i = startLine.number; i <= endLine.number; i++) {
+                    const line = doc.line(i);
+                    const text = line.text;
+                    // Match header with content: "# Title", "## Subtitle"
+                    const match = text.match(/^(#{1,6}\s+)(\S.*)$/);
+                    if (!match) continue;
+                    const prefix = match[1];      // e.g., "# " or "## "
+                    const content = match[2];      // e.g., "概念"
+                    // Skip if symbol already present at front of content
+                    if (content.startsWith(symbol)) continue;
+                    // Insert symbol after prefix, before content
+                    changes.push({
+                        from: line.from + prefix.length,
+                        to: line.from + prefix.length,
+                        insert: symbol
+                    });
+                }
+                
+                if (changes.length > 0) {
+                    update.view.dispatch({ changes });
+                }
+            })
+        );
+    }
+
+    private registerAdvUriLinkClicks(): void {
+        // Intercept obsidian://adv-uri link clicks (DOM level) to jump to a
+        // line directly. FakeLink does NOT register the protocol handler, so
+        // the Advanced URI plugin stays fully functional. This handler only
+        // catches links rendered as real <a> elements.
+        //
+        this.registerDomEvent(this.app.workspace.containerEl, 'click', (evt) => {
+            if (!this.settings.jumpEnabled) return;
+            const a = (evt.target as HTMLElement).closest('a');
+            if (!a) return;
+            const href = a.getAttribute('href') || '';
+            if (!href.startsWith('obsidian://adv-uri')) return;
+            const p = new URLSearchParams(href.slice('obsidian://adv-uri?'.length));
+            const line = parseInt(p.get('line') || '', 10);
+            if (!line || line < 1) return;
+            const filepath = p.get('filepath') || '';
+            const anchor = p.get('anchor') || undefined;
+            evt.preventDefault();
+            evt.stopImmediatePropagation();
+            void this.jumpToLine(filepath, line, anchor);
+        }, true);
+    }
+
+    /** Body classes (display style, background), the link colors and the what-is-new notice. */
+    private applyStartupAppearance(): void {
+        // Apply alternative display style body class based on settings
+        if (this.settings.alternativeDisplayStyle) {
+            activeWindow.document.body.classList.add('virtual-linker-alt-style');
+        }
+
+        // Apply color-only display mode
+        if (this.settings.colorOnlyDisplay) {
+            activeWindow.document.body.classList.add('virtual-link-color-only');
+        }
+
+        // The optional look lives under these classes (settings: Appearance ->
+        // Background). One helper applies them everywhere, so it can also be
+        // re-run later for windows that did not exist yet at startup.
+        this.applyBackgroundStyles();
+
+        // Show "what is new" once, right after an update - never on a fresh
+        // install, where notes about past releases are of no use to anyone.
+        // Delayed a moment so it does not compete with Obsidian's own startup,
+        // and only when the notes really belong to this version, so a release
+        // that forgot to update them stays quiet instead of showing stale text.
+        const currentVersion = this.manifest.version;
+        if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
+            && WHATS_NEW_VERSION === currentVersion) {
+            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
+        }
+        if (this.settings.lastSeenVersion !== currentVersion) {
+            this.settings.lastSeenVersion = currentVersion;
+            void this.saveData(this.settings);
+        }
+
+        // Always set link colors (header vs note)
+        activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
+        activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
+        activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
+        // Fuzzy-match links: base color mixed into the header / note color.
+        this.applyFuzzyColors();
+    }
+
+    private registerWorkspaceEvents(): void {
+        // Listen for view changes
+        this.registerEvent(this.app.workspace.on('layout-change', () => {
+            void this.handleLayoutChange();
+            // A window opened after startup missed the startup application, so
+            // its <body> carries none of these classes.
+            this.scheduleBackgroundSync();
+        }));
+        this.registerEvent(this.app.workspace.on('active-leaf-change', () => { void this.handleLayoutChange(); }));
+    }
+
+    private registerIndexWatchers(): void {
+        // Set callback to update the cache when the settings are changed
+        this.updateManager.registerCallback(() => {
+            LinkerCache.getInstance(this.app, this.settings).clearCache();
+        });
+
+        // When auto-exclude (renamed duplicates) re-indexes asynchronously,
+        // refresh the decorations so the newly excluded note stops linking.
+        LinkerCache.getInstance(this.app, this.settings).onIndexChanged = () => this.updateManager.update();
+
+        // Keep the index in step with the vault: a note that is created, deleted
+        // or renamed changes which terms can be linked, and without this the
+        // change only showed up after switching notes or restarting.
+        //
+        // Only these three events are watched, deliberately NOT 'modify': a save
+        // happens every few seconds while typing, and each refresh rebuilds the
+        // index, which would stutter on a large vault. Creation, deletion and
+        // renaming are rare enough that even a full rebuild goes unnoticed, and
+        // a burst of them (a folder dropped in) is coalesced into one refresh.
+        let indexRefreshTimer: number | null = null;
+        const scheduleIndexRefresh = (): void => {
+            if (indexRefreshTimer !== null) window.clearTimeout(indexRefreshTimer);
+            indexRefreshTimer = window.setTimeout(() => {
+                indexRefreshTimer = null;
+                this.updateManager.update();
+            }, 800);
+        };
+        // Attachments and folders cannot become link targets, so they are
+        // ignored: dropping a folder of images must not trigger a rebuild.
+        const isNote = (file: TAbstractFile): boolean =>
+            file instanceof TFile && file.extension === 'md';
+        this.registerEvent(this.app.vault.on('create', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+        this.registerEvent(this.app.vault.on('delete', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+        this.registerEvent(this.app.vault.on('rename', (file) => {
+            if (isNote(file)) scheduleIndexRefresh();
+        }));
+    }
+
+    private registerLinkers(): void {
+        // Register the glossary linker for the read mode
+        this.registerMarkdownPostProcessor((element, context) => {
+            context.addChild(new GlossaryLinker(this.app, this.settings, context, element, this));
+        });
+
+        // Register the live linker for the live edit mode
+        this.registerEditorExtension(liveLinkerPlugin(this.app, this.settings, this.updateManager, this));
+    }
+
+    // Take over the obsidian://adv-uri protocol so line links (fired from an
+    // external browser/handler too) are jumped by FakeLink itself.
+    private registerAdvUriProtocol(): void {
 
         // Take over the obsidian://adv-uri protocol so line links (including
         // those fired from an external browser/handler) are jumped by FakeLink.
@@ -1639,7 +1671,9 @@ export default class LinkerPlugin extends Plugin {
                 void this.jumpToLine(filepath, line, anchor);
             });
         }, 500);
+    }
 
+    private registerContextMenus(): void {
         // Right-click context menu: copy an obsidian://adv-uri link pointing at
         // the line where the cursor is. This lets users generate line links
         // without the Advanced URI plugin (whose "Copy URI" this replaces).
@@ -1658,7 +1692,9 @@ export default class LinkerPlugin extends Plugin {
 
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
+    }
 
+    private registerCommands(): void {
         this.addCommand({
             id: 'toggle-virtual-linker',
             name: 'Toggle virtual linker',
@@ -1723,7 +1759,6 @@ export default class LinkerPlugin extends Plugin {
                 modal.open();
             }
         });
-
     }
 
     // The context menu lives in src/contextMenu.ts now - thin forward so the
