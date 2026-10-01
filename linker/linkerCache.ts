@@ -374,7 +374,7 @@ export class PrefixTree {
     // length-difference > 2 short-circuits (such pairs can never reach >=80%
     // similarity for our shortest indexed keywords). This replaced the earlier
     // full-map scan that caused Obsidian to lag on large vaults.
-    findFuzzyMatches(word: string, threshold: number, excludeFile?: TFile | null): { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] {
+    findFuzzyMatches(word: string, threshold: number, excludeFile?: TFile | null, renderedFile?: TFile | null): { files: Set<TFile>; headerId?: string; canonical?: string; similarity: number }[] {
         const w = word.toLowerCase();
         if (!w || !this.settings.enableStemming) return [];
         // Skip short query words: fuzzy-matching a too-short document word
@@ -392,9 +392,9 @@ export class PrefixTree {
         // when the list is empty (the common case).
         const hasExcludedKeywords = this.settings.excludedKeywords.length > 0;
         // Same for the per-note frontmatter lists: getCurrentMatchNodes consults
-        // both the active note's list and every target file's own list.
+        // both the rendered note's list and every target file's own list.
         const activeExcludeList = this.settings.enableFrontmatterExcludeList
-            ? this.getFrontmatterExcludeList()
+            ? this.getFrontmatterExcludeList(renderedFile)
             : null;
         // For threshold >= 80%, any pair with length difference > 2 is impossible
         // to reach the threshold once the shorter string is at least 3 chars.
@@ -415,7 +415,7 @@ export class PrefixTree {
                     // turned fuzzy" symptom, and it varied with which note was
                     // open because per-note mode reads the ACTIVE file.
                     if (hasExcludedKeywords
-                        && ((e.canonical !== undefined && this.isExcluded(e.canonical)) || this.isExcluded(key))) {
+                        && ((e.canonical !== undefined && this.isExcluded(e.canonical, renderedFile)) || this.isExcluded(key, renderedFile))) {
                         continue;
                     }
                     // The per-note frontmatter lists are consulted on the exact
@@ -458,13 +458,18 @@ export class PrefixTree {
         return results.sort((a, b) => b.similarity - a.similarity);
     }
 
-    private isExcluded(value: string): boolean {
+    private isExcluded(value: string, renderedFile?: TFile | null): boolean {
         const valueLower = value.toLowerCase();
         // If per-note mode is enabled, only apply exclusion to notes with the frontmatter property
         if (this.settings.perNoteExcludeKeywords) {
-            const activeFile = this.app.workspace.getActiveFile();
-            if (!activeFile) return false;
-            const metadata = this.app.metadataCache.getFileCache(activeFile);
+            // The opt-in property is read from the note being RENDERED, not the
+            // focused one: previewing B while A is active must consult B's
+            // frontmatter, the same way the heading rule uses the rendered note.
+            const target = renderedFile === undefined
+                ? this.app.workspace.getActiveFile()
+                : renderedFile;
+            if (!target) return false;
+            const metadata = this.app.metadataCache.getFileCache(target);
             const propValue: unknown = metadata?.frontmatter?.[this.settings.frontmatterExcludeProperty];
             // Only exclude if the note has the property set to true/truthy
             if (!propValue) return false;
@@ -510,15 +515,19 @@ export class PrefixTree {
     }
 
     // Collect extra per-note excluded keywords:
-    // 1) from the active file (exclude words while reading that note)
+    // 1) from the note being rendered (exclude words while reading that note)
     // 2) from every matched target file (a note can opt its own name/keywords out of being linked anywhere)
-    private getFrontmatterExcludeList(): Set<string> {
+    private getFrontmatterExcludeList(renderedFile?: TFile | null): Set<string> {
         const excluded = new Set<string>();
         if (!this.settings.enableFrontmatterExcludeList) return excluded;
 
-        const activeFile = this.app.workspace.getActiveFile();
-        if (activeFile) {
-            for (const kw of this.getFrontmatterExcludeListForFile(activeFile)) {
+        // Read the list from the note being RENDERED, not the focused one:
+        // previewing B while A is active must use B's list.
+        const target = renderedFile === undefined
+            ? this.app.workspace.getActiveFile()
+            : renderedFile;
+        if (target) {
+            for (const kw of this.getFrontmatterExcludeListForFile(target)) {
                 excluded.add(kw);
             }
         }
@@ -543,11 +552,11 @@ export class PrefixTree {
         }
 
         // Get per-note extra excluded keywords from frontmatter
-        const frontmatterExcluded = this.getFrontmatterExcludeList();
+        const frontmatterExcluded = this.getFrontmatterExcludeList(renderedFile);
 
         for (const node of this._currentNodes) {
             const valueString = this.getNodeValue(node.node);
-            if (node.node.files.size === 0 || this.isExcluded(valueString)) {
+            if (node.node.files.size === 0 || this.isExcluded(valueString, renderedFile)) {
                 continue;
             }
             // Also check per-note frontmatter extra exclusions from the active file's list

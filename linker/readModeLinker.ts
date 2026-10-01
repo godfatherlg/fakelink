@@ -530,7 +530,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                         });
                                     }
 
-                                    // Fuzzy (词义模糊) fallback in read mode, mirroring liveLinker:
+                                    // Fuzzy fallback in read mode, mirroring liveLinker:
                                     // when no exact match was found, link the normalized word if its
                                     // similarity to a normalized keyword is above the threshold.
                                     if (currentNodes.length === 0 && this.settings.enableStemming) {
@@ -565,7 +565,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 // whose normalized length is >2 away from every indexed
                                                 // fuzzy keyword can never reach the >=80% threshold.
                                                 if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
+                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile, sourceFile instanceof TFile ? sourceFile : null);
                                                 if (fuzzyResults.length > 0) {
                                                     const sim = fuzzyResults[0].similarity;
                                                     if (sim > bestSim) {
@@ -594,7 +594,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 // whose normalized length is >2 away from every indexed
                                                 // fuzzy keyword can never reach the >=80% threshold.
                                                 if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile);
+                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile, sourceFile instanceof TFile ? sourceFile : null);
                                                 if (fuzzyResults.length > 0) {
                                                     // Results are sorted best-first. Merge every candidate TIED at the
                                                     // top similarity into one multi-target link instead of arbitrarily

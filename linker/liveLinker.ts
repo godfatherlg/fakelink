@@ -752,7 +752,7 @@ class AutoLinkerPlugin implements PluginValue {
                         }
                     }
 
-                    // Fuzzy (词义模糊) fallback: if no exact match was found and
+                    // Fuzzy fallback: if no exact match was found and
                     // fuzzy matching is enabled, normalize the current document
                     // word and link it when similarity >= the configured threshold.
                     if (currentNodes.length === 0 && this.settings.enableStemming) {
@@ -797,7 +797,7 @@ class AutoLinkerPlugin implements PluginValue {
                                 // reach the >=80% threshold. Skipping here avoids the
                                 // bucket scan + edit-distance cost of findFuzzyMatches.
                                 if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
+                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null, mappedFile);
                                 if (fuzzyResults.length > 0) {
                                     const sim = fuzzyResults[0].similarity;
                                     if (sim > bestSim) {
@@ -832,7 +832,7 @@ class AutoLinkerPlugin implements PluginValue {
                                 // reach the >=80% threshold. Skipping here avoids the
                                 // bucket scan + edit-distance cost of findFuzzyMatches.
                                 if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null);
+                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null, mappedFile);
                                 if (fuzzyResults.length > 0) {
                                     // Results are sorted best-first. Merge every candidate TIED at the
                                     // top similarity into one multi-target link instead of arbitrarily

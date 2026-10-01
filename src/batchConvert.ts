@@ -159,7 +159,7 @@ export function scanVirtualLinks(
                 if (rawWord.length > 0) {
                     const normWord = cacheTree.fuzzyNormalize(rawWord, settings.stemmingLanguage);
                     if (normWord) {
-                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold, ownNote);
+                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold, ownNote, ownNote);
                         for (const fr of fuzzyResults) {
                             let fFrom = wordStart;
                             const fTo = i;

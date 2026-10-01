@@ -232,6 +232,8 @@ const zhCN: Record<string, string> = {
 
     'Fix: the What\'s-new notes now display in the app language instead of always English.': '修复：更新说明（What\'s new）现在会根据应用语言显示，而非始终为英文。',
 
+    'Fix: per-note keyword exclusions (the frontmatter opt-in property and the frontmatter exclude list) now read the note being rendered instead of the focused one.': '修复：按笔记排除关键词（frontmatter 启用标记与 frontmatter 排除列表）现在读取「正在渲染的笔记」，而非编辑器激活的笔记。',
+
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
     'Virtual links are currently disabled. Enable them in the settings before running the batch conversion.': '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。',
     'Select some text first, then run this command.': '请先选择一段文本，再运行此命令。',
