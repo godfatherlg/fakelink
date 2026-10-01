@@ -1,8 +1,9 @@
 import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, TFile } from 'obsidian';
 
 import { LinkerPluginSettings } from '../main';
-import { LinkerCache, MatchType, PrefixTree } from './linkerCache';
+import { hasExcludedExtension, LinkerCache, MatchType, PrefixTree, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
+import { parseInternalLinkSyntax } from './virtualLinkMatch';
 import IntervalTree from '@flatten-js/interval-tree';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -84,27 +85,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
         this.load();
     }
 
-    getClosestLinkPath(glossaryName: string): TFile | null {
-        const destName = this.ctx.sourcePath.replace(/(.*).md/, '$1');
-        let currentDestName = destName;
-
-        let currentPath = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(glossaryName), currentDestName);
-
-        if (currentPath == null) return null;
-
-        while (currentDestName.includes('/')) {
-            currentDestName = currentDestName.replace(/\/[^/]*?$/, '');
-
-            const newPath = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(glossaryName), currentDestName);
-
-            if ((newPath?.path?.length || 0) > currentPath?.path?.length) {
-                currentPath = newPath;
-                break;
-            }
-        }
-
-        return currentPath;
-    }
 
     /**
      * Recognize bare internal-link syntax (e.g. "a#b", "a#^blockid") as virtual
@@ -113,85 +93,23 @@ export class GlossaryLinker extends MarkdownRenderChild {
      */
     findInternalLinkSyntaxMatches(text: string, currentFile: TFile, startId: number): VirtualMatch[] {
         const matches: VirtualMatch[] = [];
-        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#\p{P}])+)(#(?:[^\s[\]|\p{P}]+)?)+(?:\|([^\s[\]|\p{P}]+))?/gu;
-        let m: RegExpExecArray | null;
         let id = startId;
-        while ((m = regex.exec(text)) !== null) {
-            const full = m[0];
-            if (full.startsWith('[[')) continue;
-
-            // Split optional display alias: `a#b|别名` → target "a#b", display "别名".
-            let targetPart = full;
-            let aliasPart: string | undefined;
-            const pipeIdx = full.indexOf('|');
-            if (pipeIdx > 0) {
-                targetPart = full.slice(0, pipeIdx);
-                const alias = full.slice(pipeIdx + 1);
-                if (alias) aliasPart = alias;
-            }
-
-            const hashIdx = targetPart.indexOf('#');
-            if (hashIdx <= 0) continue;
-            let notePart = targetPart.slice(0, hashIdx);
-            const anchorPart = targetPart.slice(hashIdx + 1);
-
-            // Resolve the note part to a file, right-to-left to skip any preceding
-            // letters/digits that the note capture greedily absorbed.
-            let dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
-            let prefixCut = 0;
-            if (!dest && notePart.length > 1) {
-                for (let cut = 1; cut < notePart.length; cut++) {
-                    const candidate = notePart.slice(cut);
-                    const d = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(candidate), currentFile.path);
-                    if (d) {
-                        dest = d;
-                        notePart = candidate;
-                        prefixCut = cut;
-                        break;
-                    }
-                }
-            }
-            if (!dest) continue;
-
-            // Display text: alias if given, otherwise the (possibly trimmed) target.
-            const displayText = aliasPart || (notePart + '#' + anchorPart);
-
-            const blockIdx = anchorPart.indexOf('^');
-            const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
-            const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
-
-            let headerId: string | undefined;
-            const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
-
-            if (blockId) {
-                headerId = '^' + blockId;
-            } else if (headingPath && headings.length > 0) {
-                const segments = headingPath.split('#');
-                const lastSegment = segments[segments.length - 1].trim();
-                const heading = headings.find(
-                    (h) => h.heading.trim().toLowerCase() === lastSegment.toLowerCase()
-                );
-                if (heading) {
-                    headerId = heading.heading.trim();
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-
+        // Token parsing is shared with liveLinker via parseInternalLinkSyntax;
+        // only the offset base differs (read-mode offsets are relative to the
+        // current text node).
+        for (const tok of parseInternalLinkSyntax(this.app, text, currentFile)) {
             matches.push(
                 new VirtualMatch(
                     id++,
-                    displayText,
-                    m.index + prefixCut,
-                    m.index + full.length,
-                    [dest],
+                    tok.displayText,
+                    tok.index + tok.prefixCut,
+                    tok.index + tok.length,
+                    [tok.dest],
                     MatchType.Header,
                     false,
                     this.settings,
                     this.plugin,
-                    headerId
+                    tok.headerId
                 )
             );
         }
@@ -260,21 +178,40 @@ export class GlossaryLinker extends MarkdownRenderChild {
     }
 
     /**
+     * Read-mode disambiguation rebuilds the document text preceding a match by
+     * walking the container's text nodes, i.e. O(document) per match - a long
+     * note with many heading hits pays that walk once per hit. The DOM is not
+     * mutated while a text node's matches are being collected (rendering
+     * happens afterwards), so the walk result is identical for every match
+     * inside the same text node: cache it keyed by node and pay the walk once
+     * per node. Nodes are only queried during their own collection window and
+     * are removed right after, so entries never go stale.
+     */
+    private contextPrefixCache = new Map<Node, { prefix: string; found: boolean }>();
+
+    /**
      * Reconstruct the text content of a block element that precedes a given
      * text node position, by walking the block's text nodes in document order.
      */
     private getTextBeforeNode(blockEl: Element, targetNode: Node, targetOffset: number): string {
-        let result = '';
-        const walker = activeDocument.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
-        let node: Node | null;
-        while ((node = walker.nextNode())) {
-            if (node === targetNode) {
-                result += (node.textContent || '').slice(0, targetOffset);
-                break;
+        let entry = this.contextPrefixCache.get(targetNode);
+        if (!entry) {
+            let prefix = '';
+            let found = false;
+            const walker = activeDocument.createTreeWalker(blockEl, NodeFilter.SHOW_TEXT);
+            let node: Node | null;
+            while ((node = walker.nextNode())) {
+                if (node === targetNode) {
+                    found = true;
+                    break;
+                }
+                prefix += node.textContent || '';
             }
-            result += node.textContent || '';
+            entry = { prefix, found };
+            this.contextPrefixCache.set(targetNode, entry);
         }
-        return result;
+        if (!entry.found) return entry.prefix;
+        return entry.prefix + (targetNode.textContent || '').slice(0, targetOffset);
     }
 
     onload() {
@@ -435,9 +372,7 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                                         // Context-aware disambiguation in read mode.
                                         let files = Array.from(node.files).filter(file => {
-                                            return !this.settings.excludedExtensions.some(ext =>
-                                                file.path.toLowerCase().endsWith(ext.toLowerCase())
-                                            );
+                                            return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
                                         });
                                         if (files.length === 0) return;
                                         let ctxDistances: Map<string, number> | undefined;
@@ -547,54 +482,58 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                 ? Math.min(rawWord.length - 1, this.settings.fuzzySlidingWindowMaxOffset)
                                                 : 0;
                                             // Score EVERY window position first and keep the most
-                                            // similar one (mirror of liveLinker). "Stop at the first
-                                            // hit" picks the LONGEST candidate instead of the best
-                                            // one, e.g. "被苏霍姆林斯" (71%) over "苏霍姆林斯" (83%),
-                                            // padding the link with an unrelated leading character.
-                                            let bestOffset = -1;
-                                            let bestSim = -1;
-                                            for (let offset = 0; offset <= maxOffset; offset++) {
-                                                const rawCandidate = rawWord.slice(offset);
-                                                const candidate = rawCandidate.trim();
-                                                if (!candidate) continue;
-                                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
-                                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
-                                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
-                                                if (!normWord) continue;
-                                                // Length short-circuit (mirror of liveLinker): a query
-                                                // whose normalized length is >2 away from every indexed
-                                                // fuzzy keyword can never reach the >=80% threshold.
-                                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile, sourceFile instanceof TFile ? sourceFile : null);
-                                                if (fuzzyResults.length > 0) {
-                                                    const sim = fuzzyResults[0].similarity;
-                                                    if (sim > bestSim) {
-                                                        bestSim = sim;
-                                                        bestOffset = offset;
-                                                        // Already perfect — a shorter window cannot beat it.
-                                                        if (sim >= 0.9999) break;
+                                            // similar one. "Stop at the first hit" picks the LONGEST
+                                            // candidate instead of the best one, e.g. "被苏霍姆林斯"
+                                            // (71%) over "苏霍姆林斯" (83%), padding the link with
+                                            // an unrelated leading character. The loop itself is
+                                            // shared with liveLinker via scoreFuzzyWindow.
+                                            const scored = scoreFuzzyWindow({
+                                                cache: this.linkerCache.cache,
+                                                settings: this.settings,
+                                                text,
+                                                baseFrom,
+                                                endPos: i,
+                                                rawWord,
+                                                maxOffset,
+                                                isWordBoundary,
+                                                excludeFile: currentFile,
+                                                renderedFile: sourceFile instanceof TFile ? sourceFile : null,
+                                                isCovered: (checkFrom, checkTo) => {
+                                                    // Read-mode matches use text-node-relative offsets.
+                                                    for (let k = matches.length - 1; k >= 0; k--) {
+                                                        const prev = matches[k];
+                                                        if (prev.isFuzzy) continue;
+                                                        if (prev.to <= checkFrom) break;
+                                                        if (prev.from < checkTo) return true;
                                                     }
-                                                }
-                                            }
+                                                    return false;
+                                                },
+                                            });
+                                            const bestOffset = scored?.bestOffset ?? -1;
+                                            const bestResults = scored?.bestResults ?? null;
 
-                                            // Emit only for the winning window position.
-                                            let handled = false;
-                                            for (let offset = bestOffset; bestOffset >= 0 && offset <= bestOffset && !handled; offset++) {
+                                            // Emit only for the winning window position. The
+                                            // body runs at most once (the old for loop had a
+                                            // one-shot condition plus an unconditional trailing
+                                            // break); a labeled block keeps its inner
+                                            // continue/break exits valid without pretending to
+                                            // iterate.
+                                            if (bestOffset >= 0) {
+                                                emitWinner: {
+                                                const offset = bestOffset;
                                                 const rawCandidate = rawWord.slice(offset);
                                                 // (Avoid String#trimStart: it needs ES2019, while the
                                                 //  project's tsconfig lib only goes up to ES7.)
                                                 const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                                 const candidate = rawCandidate.trim();
-                                                if (!candidate) continue;
-                                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
-                                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
-                                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
-                                                if (!normWord) continue;
-                                                // Length short-circuit (mirror of liveLinker): a query
-                                                // whose normalized length is >2 away from every indexed
-                                                // fuzzy keyword can never reach the >=80% threshold.
-                                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, currentFile, sourceFile instanceof TFile ? sourceFile : null);
+                                                if (!candidate) break emitWinner;
+                                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) break emitWinner;
+                                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) break emitWinner;
+                                                // The winning offset was already normalized, length-checked
+                                                // and matched by the scoring loop above (mirror of
+                                                // liveLinker), so reuse those results instead of paying
+                                                // for fuzzyNormalize plus a bucket scan a second time.
+                                                const fuzzyResults = bestResults ?? [];
                                                 if (fuzzyResults.length > 0) {
                                                     // Results are sorted best-first. Merge every candidate TIED at the
                                                     // top similarity into one multi-target link instead of arbitrarily
@@ -634,12 +573,10 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                         if (prev.to <= fFrom) break;
                                                         if (prev.from < fTo) { coveredByExact = true; break; }
                                                     }
-                                                    if (coveredByExact) continue;
+                                                    if (coveredByExact) break emitWinner;
 
                                                     const filteredFiles = mergedFiles.filter(file => {
-                                                        return !this.settings.excludedExtensions.some(ext =>
-                                                            file.path.toLowerCase().endsWith(ext.toLowerCase())
-                                                        );
+                                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
                                                     });
                                                     if (filteredFiles.length > 0) {
                                                         const topFr = fuzzyResults[0];
@@ -685,9 +622,9 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                         }
 
                                                         matches.push(virtualMatch);
-                                                        handled = true;
-                                                        break;
+                                                        break emitWinner;
                                                     }
+                                                }
                                                 }
                                             }
                                         }
@@ -786,7 +723,10 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                                 match.files.forEach((f) => linkedFiles.add(f));
 
-                                if (match.from > 0) {
+                                // > lastTo, not > 0: two adjacent matches leave an
+                                // empty slice, and inserting it would add an empty
+                                // text node into the DOM for no reason.
+                                if (match.from > lastTo) {
                                     parent?.insertBefore(activeDocument.createTextNode(text.slice(lastTo, match.from)), childNode);
                                 }
 

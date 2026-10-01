@@ -1,13 +1,11 @@
 import { LinkerPluginSettings } from 'main';
+import { t } from '../src/lang/helpers';
 import { App, MarkdownView, Menu, TFile } from 'obsidian';
 import { convertVirtualLinkToReal } from './convertLink';
 // The class lives in its own module now; it is imported back here because the
 // helpers below are typed against it (and re-exported so existing imports of
 // VirtualMatch from this file keep working).
-import { VirtualMatch } from './virtualLinkMatch';
-
-// Import LinkerPlugin type - using require to avoid circular dependency
-type LinkerPluginType = import('main').default;
+import { VirtualMatch, getVirtualLinkRawPath } from './virtualLinkMatch';
 
 // ---------------------------------------------------------------------------
 // Heading alignment after navigation
@@ -317,48 +315,6 @@ export function headingElementByLine(app: App, scope: HTMLElement | null, headin
     // being aligned.
     if (scope && scope.isConnected && !scope.contains(row)) return null;
     return row;
-}
-
-/**
- * Centre a heading through the editor itself, waiting for the document to
- * render and repeating a few times while late content (images, PDF embeds,
- * formulas) lands underneath.
- *
- * Every attempt is the editor's own API, so repeating is free of side effects
- * and cannot fight the view - which is the whole point: this needs no layout
- * measurement and does not depend on finding the heading's DOM element, so a
- * link whose heading is known can never end up centred on a neighbour instead.
- */
-export function keepEditorHeadingCentered(
-    plugin: LinkerPluginType,
-    anchorEl: HTMLElement | null,
-    file: TFile | null,
-    headingText: string,
-    label = '',
-    maxMs = ALIGN_MAX_MS,
-): void {
-    if (!headingText) return;
-    const abort = new AbortController();
-    const { signal } = abort;
-    const stop = () => abort.abort();
-    window.addEventListener('wheel', stop, { capture: true, passive: true, signal });
-    window.addEventListener('mousedown', stop, { capture: true, signal });
-    window.addEventListener('keydown', stop, { capture: true, signal });
-
-    // Resolve the heading once the document has rendered, then hand over to the
-    // editor's own measured loop (centerHeadingLine). A single "scroll to it"
-    // call reports success even when the position does not hold, which is what
-    // made the earlier attempts look fine and land nowhere.
-    const start = (delay: number) => {
-        if (signal.aborted) return;
-        const target = resolveHeadingTarget(plugin.app, anchorEl, headingText, file);
-        if (target) {
-            plugin.centerHeadingLine(target.view, target.line, Math.max(4000, maxMs - delay));
-        } else if (delay < maxMs) {
-            window.setTimeout(() => start(delay + 1500), 1500);
-        }
-    };
-    window.setTimeout(() => start(900), 900);
 }
 
 export function findHeadingAtTop(scope: HTMLElement | null, allowGlobalFallback = true): HTMLElement | null {
@@ -881,7 +837,7 @@ export function patchDispatchClamp(cm: EditorView): void {
     };
     if (cmAny.__fkDispatchPatched) return;
     cmAny.__fkDispatchPatched = true;
-    const origDispatch = cm.dispatch.bind(cm);
+    const origDispatch = cm.dispatch.bind(cm) as (...specs: unknown[]) => unknown;
     cmAny.dispatch = (...args: unknown[]) => {
         try {
             return origDispatch(...args);
@@ -895,6 +851,13 @@ export function patchDispatchClamp(cm: EditorView): void {
             const clamp = (v: number) => Math.min(Math.max(Number(v) || 0, 0), docLen);
             const rawAnchor = sel.ranges?.[0]?.from ?? sel.anchor ?? sel.from ?? 0;
             const rawHead = sel.ranges?.[0]?.to ?? sel.head ?? sel.to ?? sel.anchor ?? sel.from ?? 0;
+            // Only retry when the dispatched selection is genuinely outside the
+            // document. If it is already in range, this error was raised by
+            // something else (e.g. a transaction effect) and must not be
+            // swallowed or re-run by the clamp retry.
+            if (rawAnchor >= 0 && rawAnchor <= docLen && rawHead >= 0 && rawHead <= docLen) {
+                throw e;
+            }
             return origDispatch({
                 ...spec,
                 selection: { anchor: clamp(rawAnchor), head: clamp(rawHead) },
@@ -925,6 +888,13 @@ export function patchAllEditorsDispatchClamp(): void {
  * large documents with many tables (where the earlier eager check flaked).
  */
 export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatch): void {
+    // Idempotent. The same span can be handed to this more than once (the rAF
+    // mount in liveLinker plus the one in VirtualMatch), and every call added
+    // another 'contextmenu' listener - the menu items then showed up twice and a
+    // conversion ran twice. Guarded by a data attribute so a genuinely new span
+    // (a rebuilt widget) still gets its listener.
+    if (span.dataset.fkCellMenu === '1') return;
+    span.dataset.fkCellMenu = '1';
     span.classList.add('no-context-menu');
     span.addEventListener('contextmenu', (e: MouseEvent) => {
         e.preventDefault();
@@ -948,7 +918,7 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
 
         const menu = new Menu();
         menu.addItem((item) => {
-            item.setTitle('Add to excluded keywords')
+            item.setTitle(t('Add to excluded keywords'))
                 .setIcon('ban')
                 .onClick(async () => {
                     if (match.originText) {
@@ -967,11 +937,15 @@ export function attachTableCellContextMenu(span: HTMLElement, match: VirtualMatc
         const anchor = (hit && span.contains(hit)) ? hit : span.querySelector('.virtual-link-a');
 
         if (anchor) {
-            const href = anchor.getAttribute('href') || '';
-            const targetFile = match.plugin.app.vault.getAbstractFileByPath(href.split('#')[0]);
+            // Read the RAW path from data-href: the href attribute is
+            // percent-encoded by the browser, so resolving from it failed for
+            // paths with spaces/non-ASCII characters and the item silently
+            // vanished from this menu.
+            const rawHref = getVirtualLinkRawPath(anchor);
+            const targetFile = match.plugin.app.vault.getAbstractFileByPath(rawHref.split('#')[0]);
             if (targetFile instanceof TFile) {
                 menu.addItem((item) => {
-                    item.setTitle('Convert to real link')
+                    item.setTitle(t('Convert to real link'))
                         .setIcon('link')
                         .onClick(() => {
                             convertVirtualLinkToReal(anchor, targetFile, match.plugin.app, match.settings);

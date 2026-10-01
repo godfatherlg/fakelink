@@ -1,12 +1,13 @@
 import { syntaxTree } from '@codemirror/language';
 import { RangeSetBuilder } from '@codemirror/state';
 import { Decoration, DecorationSet, EditorView, PluginSpec, PluginValue, ViewPlugin, ViewUpdate, WidgetType } from '@codemirror/view';
-import { App, MarkdownView, TFile, Vault, getLinkpath } from 'obsidian';
+import { App, EventRef, MarkdownView, TFile, Vault } from 'obsidian';
 
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType } from './linkerCache';
+import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType, hasExcludedExtension, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu, isLinkingDisabledInNote } from './virtualLinkDom';
+import { parseInternalLinkSyntax } from './virtualLinkMatch';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -156,6 +157,16 @@ class AutoLinkerPlugin implements PluginValue {
 
     viewUpdateDomToFileMap: Map<HTMLElement, TFile | undefined | null> = new Map();
 
+    // workspace.on('active-leaf-change') is registered through the plugin, whose
+    // lifetime is the whole session, while this instance only lives as long as
+    // one view. Kept so destroy() can release it - otherwise every note ever
+    // opened would keep its AutoLinkerPlugin (and its decorations) alive.
+    private activeLeafChangeRef: EventRef | null = null;
+
+    // Set by destroy(); guards the rAF retry chain below, which can outlive the
+    // view (readyPromise may resolve seconds after load).
+    private destroyed = false;
+
     constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
         this.app = app;
         this.plugin = plugin; // Store plugin reference
@@ -170,11 +181,10 @@ class AutoLinkerPlugin implements PluginValue {
         // (switching panes/files). This avoids calling getActiveViewOfType()
         // on every cursor move, which other plugins may wrap and which adds
         // measurable overhead during plain navigation.
-        this.plugin.registerEvent(
-            this.app.workspace.on('active-leaf-change', () => {
-                this.cachedActiveView = undefined;
-            })
-        );
+        this.activeLeafChangeRef = this.app.workspace.on('active-leaf-change', () => {
+            this.cachedActiveView = undefined;
+        });
+        this.plugin.registerEvent(this.activeLeafChangeRef);
 
         this.decorations = this.buildDecorations(view);
 
@@ -188,6 +198,7 @@ class AutoLinkerPlugin implements PluginValue {
             // Wait a frame at a time (bounded) until a viewport exists.
             let tries = 0;
             const attempt = () => {
+                if (this.destroyed) return;
                 if (view.visibleRanges.length > 0 || ++tries > 30) {
                     this.decorations = this.buildDecorations(view, true);
                     view.dispatch({});
@@ -319,6 +330,7 @@ class AutoLinkerPlugin implements PluginValue {
     }
 
     destroy() {
+        this.destroyed = true;
         if (this.scrollDebounceTimer !== null) {
             window.clearTimeout(this.scrollDebounceTimer);
             this.scrollDebounceTimer = null;
@@ -326,28 +338,32 @@ class AutoLinkerPlugin implements PluginValue {
         }
         this.unsubscribeUpdate?.();
         this.unsubscribeUpdate = null;
+        if (this.activeLeafChangeRef) {
+            this.app.workspace.offref(this.activeLeafChangeRef);
+            this.activeLeafChangeRef = null;
+        }
     }
 
     /**
-     * Get information about parent elements for debugging
+     * The file an EditorView renders, resolved through the workspace leaves
+     * rather than through workspace.getActiveFile().
+     *
+     * getActiveFile() is the note in the FOCUSED pane, which is a different note
+     * as soon as a split pane is not the focused one - and buildDecorations runs
+     * for every pane, so every render decision (excluded folders, per-note
+     * disable, self-link exclusion, the heading own-note rule) would otherwise
+     * be made against the wrong note.
      */
-    getParentElementInfo(element: Element, maxDepth: number = 5): Array<{tag: string, classes: string}> {
-        const parents: Array<{tag: string, classes: string}> = [];
-        let current = element.parentElement;
-        let depth = 0;
-        
-        while (current && depth < maxDepth) {
-            parents.push({
-                tag: current.tagName,
-                classes: Array.from(current.classList).join(' ')
-            });
-            current = current.parentElement;
-            depth++;
+    private fileForEditorView(view: EditorView): TFile | null {
+        for (const leaf of this.app.workspace.getLeavesOfType('markdown')) {
+            const markdownView = leaf.view as MarkdownView;
+            const contentEl = markdownView?.contentEl;
+            if (contentEl && isDescendant(contentEl, view.dom, 20)) {
+                return markdownView.file ?? null;
+            }
         }
-        
-        return parents;
+        return null;
     }
-
 
     /**
      * Context-aware disambiguation: when a heading name exists in multiple notes,
@@ -427,106 +443,23 @@ class AutoLinkerPlugin implements PluginValue {
      */
     findInternalLinkSyntaxMatches(text: string, rangeFrom: number, currentFile: TFile, startId: number = 0): VirtualMatch[] {
         const matches: VirtualMatch[] = [];
-        // Match a non-whitespace, non-bracket token containing at least one '#'
-        // but exclude tokens already wrapped in [[...]] (those are real links and
-        // are handled/excluded elsewhere).
-        const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#\p{P}])+)(#(?:[^\s[\]|\p{P}]+)?)+(?:\|([^\s[\]|\p{P}]+))?/gu;
-        let m: RegExpExecArray | null;
         let id = startId;
-        while ((m = regex.exec(text)) !== null) {
-            const full = m[0];
-            // Skip if it starts with "[[" — a real internal link.
-            if (full.startsWith('[[')) continue;
-
-            // Split optional display alias: `a#b|别名` → target "a#b", display
-            // "别名". The link covers the whole token (from..to), but note/anchor
-            // resolution uses only the part before the pipe.
-            let targetPart = full;
-            let aliasPart: string | undefined;
-            const pipeIdx = full.indexOf('|');
-            if (pipeIdx > 0) {
-                targetPart = full.slice(0, pipeIdx);
-                const alias = full.slice(pipeIdx + 1);
-                if (alias) aliasPart = alias;
-            }
-
-            const hashIdx = targetPart.indexOf('#');
-            if (hashIdx <= 0) continue;
-            let notePart = targetPart.slice(0, hashIdx);
-            const anchorPart = targetPart.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
-
-            // Resolve the note part to a file. The note capture may have greedily
-            // absorbed preceding letters/digits (e.g. "abc王鸽" when only "王鸽"
-            // is the note). If the full part doesn't resolve, try shorter suffixes
-            // (right-to-left) to find the longest resolvable note name.
-            let dest = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
-            let prefixCut = 0;
-            if (!dest && notePart.length > 1) {
-                for (let cut = 1; cut < notePart.length; cut++) {
-                    const candidate = notePart.slice(cut);
-                    const d = this.app.metadataCache.getFirstLinkpathDest(getLinkpath(candidate), currentFile.path);
-                    if (d) {
-                        dest = d;
-                        notePart = candidate;
-                        prefixCut = cut;
-                        break;
-                    }
-                }
-            }
-            if (!dest) continue;
-
-            // Display text: alias if given, otherwise the (possibly trimmed) target.
-            const displayText = aliasPart || (notePart + '#' + anchorPart);
-
-            // The anchor can be a heading path and/or a block id.
-            const blockIdx = anchorPart.indexOf('^');
-            const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
-            const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
-
-            // Determine the final anchor to jump to. Obsidian link format:
-            //   heading        -> "#heading"
-            //   block          -> "#^blockid"
-            //   heading^block  -> "#^blockid"  (block wins)
-            //
-            // A block reference (^blockid) always takes precedence over a
-            // heading, so both "a#heading^blockid" and "a#^blockid" resolve
-            // to the block anchor. We link the whole token as-is instead of
-            // degrading to a file-name or heading-only link.
-            let headerId: string | undefined;
-            const headings = this.app.metadataCache.getFileCache(dest)?.headings ?? [];
-
-            if (blockId) {
-                headerId = '^' + blockId;
-            } else if (headingPath && headings.length > 0) {
-                // headingPath may be "b" or "b#c". Match the LAST segment.
-                const segments = headingPath.split('#');
-                const lastSegment = segments[segments.length - 1].trim();
-                const heading = headings.find(
-                    (h) => h.heading.trim().toLowerCase() === lastSegment.toLowerCase()
-                );
-                if (heading) {
-                    headerId = heading.heading.trim();
-                } else {
-                    continue;
-                }
-            } else {
-                continue;
-            }
-
-            const aFrom = rangeFrom + m.index + prefixCut;
-            const aTo = rangeFrom + m.index + full.length;
+        // Token parsing is shared with readModeLinker via
+        // parseInternalLinkSyntax; only the offset base differs (live-mode
+        // offsets are absolute within the document).
+        for (const tok of parseInternalLinkSyntax(this.app, text, currentFile)) {
             matches.push(
                 new VirtualMatch(
                     id++,
-                    displayText,
-                    aFrom,
-                    aTo,
-                    [dest],
+                    tok.displayText,
+                    rangeFrom + tok.index + tok.prefixCut,
+                    rangeFrom + tok.index + tok.length,
+                    [tok.dest],
                     MatchType.Header,
                     false,
                     this.settings,
                     this.plugin,
-                    headerId
+                    tok.headerId
                 )
             );
         }
@@ -574,21 +507,31 @@ class AutoLinkerPlugin implements PluginValue {
         // when even that is unknown pass null (exclude nothing) rather than let
         // it guess.
         if (mappedFile === undefined) {
-            mappedFile = isInHoverPopover(dom)
-                ? this.app.workspace.getActiveFile()
-                : (this.lastRealActiveView?.file ?? null);
+            // Prefer the pane this editor belongs to. Editors not hosted by a
+            // markdown leaf - Canvas cards, some embedded editors - have no leaf
+            // to resolve, and hover popovers are not leaves at all; for those fall
+            // back to the focused note. Returning null here would mean "no render
+            // context" downstream and silently disable the folder exclusion,
+            // per-note disable, self-link exclusion and heading rules.
+            mappedFile = this.fileForEditorView(view)
+                ?? (isInHoverPopover(dom)
+                    ? this.app.workspace.getActiveFile()
+                    : (this.lastRealActiveView?.file ?? this.app.workspace.getActiveFile()));
         }
 
         // Check if the file is inside excluded folders
         const excludedFolders = this.settings.excludedDirectoriesForLinking;
         if (excludedFolders.length > 0) {
-            const path = mappedFile?.parent?.path ?? this.app.workspace.getActiveFile()?.parent?.path;
-            if (excludedFolders.includes(path ?? '')) return builder.finish();
+            // The folder of the note being rendered. Falling back to the active
+            // file's folder would test a different pane's note, so a split pane
+            // was skipped (or not) based on whichever note happened to have focus.
+            const path = mappedFile?.parent?.path ?? '';
+            if (excludedFolders.includes(path)) return builder.finish();
         }
 
         // Per-note disable: the note declares it renders no virtual link (a tag or
         // a frontmatter property - which one is decided by linkIgnoreMode).
-        const ignoreFile = mappedFile ?? this.app.workspace.getActiveFile();
+        const ignoreFile = mappedFile;
         if (isLinkingDisabledInNote(ignoreFile, this.app, this.settings)) return builder.finish();
 
         // Set to exclude files that are explicitly linked
@@ -628,10 +571,11 @@ class AutoLinkerPlugin implements PluginValue {
                         this.settings.excludeLinksToOwnNote ? mappedFile : null,
                         undefined,
                         // The heading "must not link to its own note" rule takes
-                        // the note being rendered - passing undefined here let it
-                        // fall back to the ACTIVE file, which is a different note
-                        // whenever one is previewing another.
-                        mappedFile
+                        // the note being rendered. `null`, not undefined: in a
+                        // hover popover mappedFile is undefined and undefined
+                        // falls back to the FOCUSED note - the wrong note to read
+                        // per-note frontmatter exclusions from.
+                        mappedFile ?? null
                     );
 
                     if (currentNodes.length > 0) {
@@ -666,9 +610,7 @@ class AutoLinkerPlugin implements PluginValue {
 
                             // Filter out files with excluded extensions
                             let filteredFiles = Array.from(node.files).filter(file => {
-                                return !this.settings.excludedExtensions.some(ext => 
-                                    file.path.toLowerCase().endsWith(ext.toLowerCase())
-                                );
+                                return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
                             });
 
                             // Context-aware disambiguation: when a heading exists in
@@ -777,62 +719,62 @@ class AutoLinkerPlugin implements PluginValue {
                             // one. "Stop at the first hit" used to pick the LONGEST
                             // candidate (offset 0) rather than the best one: "被苏霍姆
                             // 林斯" (71%) would win over "苏霍姆林斯" (83%), padding the
-                            // link with an unrelated leading character.
-                            let bestOffset = -1;
-                            let bestSim = -1;
-                            for (let offset = 0; offset <= maxOffset; offset++) {
-                                const rawCandidate = rawWord.slice(offset);
-                                const candidate = rawCandidate.trim();
-                                if (!candidate) continue;
-                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
-                                // Right-side short-circuit: a candidate more than 2x the
-                                // longest indexed keyword can never shrink enough (via
-                                // stopword stripping) to match. Skips the fuzzyNormalize
-                                // cost on long-paragraph candidates.
-                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
-                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
-                                if (!normWord) continue;
-                                // Length short-circuit: a query whose normalized length
-                                // is >2 away from every indexed fuzzy keyword can never
-                                // reach the >=80% threshold. Skipping here avoids the
-                                // bucket scan + edit-distance cost of findFuzzyMatches.
-                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null, mappedFile);
-                                if (fuzzyResults.length > 0) {
-                                    const sim = fuzzyResults[0].similarity;
-                                    if (sim > bestSim) {
-                                        bestSim = sim;
-                                        bestOffset = offset;
-                                        // Already perfect — a shorter window cannot beat it.
-                                        if (sim >= 0.9999) break;
+                            // link with an unrelated leading character. The loop itself
+                            // is shared with readModeLinker via scoreFuzzyWindow.
+                            const scored = scoreFuzzyWindow({
+                                cache: this.linkerCache.cache,
+                                settings: this.settings,
+                                text,
+                                baseFrom,
+                                endPos: i,
+                                rawWord,
+                                maxOffset,
+                                isWordBoundary,
+                                excludeFile: this.settings.excludeLinksToOwnNote ? mappedFile : null,
+                                renderedFile: mappedFile ?? null,
+                                isCovered: (checkFrom, checkTo) => {
+                                    // Live-mode matches use absolute offsets.
+                                    const aFrom = from + checkFrom;
+                                    const aTo = from + checkTo;
+                                    for (let k = matches.length - 1; k >= 0; k--) {
+                                        const prev = matches[k];
+                                        if (prev.isFuzzy) continue;
+                                        if (prev.to <= aFrom) break;
+                                        if (prev.from < aTo) return true;
                                     }
-                                }
-                            }
+                                    return false;
+                                },
+                            });
+                            const bestOffset = scored?.bestOffset ?? -1;
+                            const bestResults = scored?.bestResults ?? null;
 
-                            // Emit only for the winning window position.
-                            let handled = false;
-                            for (let offset = bestOffset; bestOffset >= 0 && offset <= bestOffset && !handled; offset++) {
+                            // Emit only for the winning window position. The body
+                            // runs at most once (the old for loop had a one-shot
+                            // condition plus an unconditional trailing break); a
+                            // labeled block keeps its inner continue/break exits
+                            // valid without pretending to iterate.
+                            if (bestOffset >= 0) {
+                                emitWinner: {
+                                const offset = bestOffset;
+
                                 const rawCandidate = rawWord.slice(offset);
                                 // Keep the link range aligned with the trimmed text.
                                 // (Avoid String#trimStart: it needs ES2019, while the
                                 //  project's tsconfig lib only goes up to ES7.)
                                 const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
                                 const candidate = rawCandidate.trim();
-                                if (!candidate) continue;
-                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) continue;
+                                if (!candidate) break emitWinner;
+                                if (candidate.length < this.linkerCache.cache.minFuzzyKeywordLen - 2) break emitWinner;
                                 // Right-side short-circuit: a candidate more than 2x the
                                 // longest indexed keyword can never shrink enough (via
                                 // stopword stripping) to match. Skips the fuzzyNormalize
                                 // cost on long-paragraph candidates.
-                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) continue;
-                                const normWord = this.linkerCache.cache.fuzzyNormalize(candidate, this.settings.stemmingLanguage);
-                                if (!normWord) continue;
-                                // Length short-circuit: a query whose normalized length
-                                // is >2 away from every indexed fuzzy keyword can never
-                                // reach the >=80% threshold. Skipping here avoids the
-                                // bucket scan + edit-distance cost of findFuzzyMatches.
-                                if (!this.linkerCache.cache.couldMatchFuzzyLength(normWord.length)) continue;
-                                const fuzzyResults = this.linkerCache.cache.findFuzzyMatches(normWord, this.settings.fuzzyMatchThreshold, this.settings.excludeLinksToOwnNote ? mappedFile : null, mappedFile);
+                                if (candidate.length > this.linkerCache.cache.maxFuzzyKeywordLen * 2 + 4) break emitWinner;
+                                // The winning offset was already normalized, length-checked
+                                // and matched by the scoring loop above, so reuse those
+                                // results instead of paying for fuzzyNormalize plus a full
+                                // bucket scan and edit distance a second time.
+                                const fuzzyResults = bestResults ?? [];
                                 if (fuzzyResults.length > 0) {
                                     // Results are sorted best-first. Merge every candidate TIED at the
                                     // top similarity into one multi-target link instead of arbitrarily
@@ -876,12 +818,10 @@ class AutoLinkerPlugin implements PluginValue {
                                         if (prev.to <= aFrom) break;
                                         if (prev.from < aTo) { coveredByExact = true; break; }
                                     }
-                                    if (coveredByExact) continue;
+                                    if (coveredByExact) break emitWinner;
 
                                     const filteredFiles = mergedFiles.filter(file => {
-                                        return !this.settings.excludedExtensions.some(ext =>
-                                            file.path.toLowerCase().endsWith(ext.toLowerCase())
-                                        );
+                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
                                     });
                                     if (filteredFiles.length > 0) {
                                         // Determine match type from the top result:
@@ -936,9 +876,9 @@ class AutoLinkerPlugin implements PluginValue {
                                         }
 
                                         matches.push(virtualMatch);
-                                        handled = true;
-                                        break;
+                                        break emitWinner;
                                     }
+                                }
                                 }
                             }
                         }
@@ -993,7 +933,7 @@ class AutoLinkerPlugin implements PluginValue {
                     const types = type.split('_');
 
                     for (const excludedType of excludedTypes) {
-                        if (type.contains(excludedType)) {
+                        if (type.includes(excludedType)) {
                             excludedIntervalTree.insert([node.from, node.to]);
 
                             // Types can be combined, e.g. internal-link_link-has-alias
@@ -1068,10 +1008,11 @@ class AutoLinkerPlugin implements PluginValue {
                 matches = VirtualMatch.filterAlreadyLinked(matches, explicitlyLinkedFiles);
             }
 
-            // Delete additions that links to already linked files
-            if (this.settings.onlyLinkOnce) {
-                matches = VirtualMatch.filterAlreadyLinked(matches, alreadyLinkedFiles);
-            }
+            // "Only link once" is handled by filterOverlapping below (with
+            // onlyLinkOnce as its flag). The old filterAlreadyLinked call here
+            // passed `alreadyLinkedFiles`, which is still empty at this point -
+            // it is populated in the loop further down - so the call was dead
+            // and deleted nothing.
 
 
             // Delete additions that overlap
@@ -1112,14 +1053,10 @@ class AutoLinkerPlugin implements PluginValue {
 
 
             // Get the line start and end positions
-            let lineStart: number, lineEnd: number;
-            
-                // Regular text: use standard line detection
+            const line = view.state.doc.lineAt(cursorPos);
+            const lineStart = line.from;
+            const lineEnd = line.to;
 
-                const line = view.state.doc.lineAt(cursorPos);
-                lineStart = line.from;
-                lineEnd = line.to;
-            
 
 
             // Decoration.replace cannot span a line break; skip any match whose
@@ -1139,7 +1076,11 @@ class AutoLinkerPlugin implements PluginValue {
                     // A heading must never link to the note it belongs to (self-link):
                     // the decoration widget would replace the heading text and, when the
                     // cursor is elsewhere, the heading disappears entirely.
-                    const currentFile = mappedFile ?? this.app.workspace.getActiveFile();
+                    // mappedFile === null means "no render context", so unlike the
+                    // other spots this deliberately does NOT fall back to the active
+                    // file: that would re-enable the own-note rule for panes that
+                    // have no mapped file at all.
+                    const currentFile = mappedFile;
                     if (currentFile && addition.files.some((f) => f.path === currentFile.path)) {
                         return false;
                     }

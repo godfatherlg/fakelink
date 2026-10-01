@@ -285,12 +285,6 @@ table th .virtual-link-span .internal-link {
     filter: brightness(var(--virtual-link-opacity));
 }
 
-/* Ensure virtual links in highlighted text always have yellow background in read mode */
-.markdown-preview-view mark:not(del):not(s):not(strike) .virtual-link,
-.markdown-preview-view mark:not(del):not(s):not(strike) .virtual-link-span {
-    /* Do not override mark's highlight color, let virtual links only show their own shadow */
-}
-
 /* Virtual link click area optimization - centered transparent click layer solution */
 .virtual-link-a {
     position: relative;

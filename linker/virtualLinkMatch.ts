@@ -1,6 +1,6 @@
 import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
-import { MarkdownView, TFile, getLinkpath } from 'obsidian';
+import { App, MarkdownView, TFile, getLinkpath } from 'obsidian';
 import { MatchType, PrefixTree } from './linkerCache';
 import { t } from '../src/lang/helpers';
 import {
@@ -35,6 +35,122 @@ type LinkerPluginType = import('main').default;
 // plugin uses it: a hover preview can live in a second window, and an element
 // forged on the wrong document does not belong to the DOM it is inserted into.
 // ---------------------------------------------------------------------------
+
+/**
+ * A bare internal-link token found by parseInternalLinkSyntax, ready to be
+ * wrapped in a VirtualMatch by the caller (which adds its own offset base).
+ */
+export interface InternalLinkSyntaxToken {
+    dest: TFile;
+    displayText: string;
+    headerId: string;
+    index: number;
+    prefixCut: number;
+    length: number;
+}
+
+/**
+ * Recognize bare internal-link syntax, e.g.:
+ *   a#b            -> heading "b" in note "a"
+ *   a#b#c          -> sub-heading "c" under "b" in note "a"
+ *   a#b#c^h6d8e3   -> block "h6d8e3" under heading "c" in note "a"
+ *   a#^h6d8e3      -> block "h6d8e3" in note "a"
+ *
+ * Shared by liveLinker and readModeLinker, whose copies of this parsing used
+ * to be near-identical; only the offset base differs, which the caller adds
+ * when building VirtualMatches.
+ */
+export function parseInternalLinkSyntax(app: App, text: string, currentFile: TFile): InternalLinkSyntaxToken[] {
+    const tokens: InternalLinkSyntaxToken[] = [];
+    // Match a non-whitespace, non-bracket token containing at least one '#'
+    // but exclude tokens already wrapped in [[...]] (those are real links and
+    // are handled/excluded elsewhere).
+    const regex = /(?:^|(?<![[\w]))((?:(?!\[\[)[^\s[\]|#\p{P}])+)(#(?:[^\s[\]|\p{P}]+)?)+(?:\|([^\s[\]|\p{P}]+))?/gu;
+    let m: RegExpExecArray | null;
+    while ((m = regex.exec(text)) !== null) {
+        const full = m[0];
+        // Skip if it starts with "[[" — a real internal link.
+        if (full.startsWith('[[')) continue;
+
+        // Split optional display alias: `a#b|别名` → target "a#b", display
+        // "别名". The link covers the whole token (from..to), but note/anchor
+        // resolution uses only the part before the pipe.
+        let targetPart = full;
+        let aliasPart: string | undefined;
+        const pipeIdx = full.indexOf('|');
+        if (pipeIdx > 0) {
+            targetPart = full.slice(0, pipeIdx);
+            const alias = full.slice(pipeIdx + 1);
+            if (alias) aliasPart = alias;
+        }
+
+        const hashIdx = targetPart.indexOf('#');
+        if (hashIdx <= 0) continue;
+        let notePart = targetPart.slice(0, hashIdx);
+        const anchorPart = targetPart.slice(hashIdx + 1); // e.g. "b", "b#c", "^h6d8e3", "b#c^h6d8e3"
+
+        // Resolve the note part to a file. The note capture may have greedily
+        // absorbed preceding letters/digits (e.g. "abc王鸽" when only "王鸽"
+        // is the note). If the full part doesn't resolve, try shorter suffixes
+        // (right-to-left) to find the longest resolvable note name.
+        let dest = app.metadataCache.getFirstLinkpathDest(getLinkpath(notePart), currentFile.path);
+        let prefixCut = 0;
+        if (!dest && notePart.length > 1) {
+            for (let cut = 1; cut < notePart.length; cut++) {
+                const candidate = notePart.slice(cut);
+                const d = app.metadataCache.getFirstLinkpathDest(getLinkpath(candidate), currentFile.path);
+                if (d) {
+                    dest = d;
+                    notePart = candidate;
+                    prefixCut = cut;
+                    break;
+                }
+            }
+        }
+        if (!dest) continue;
+
+        // Display text: alias if given, otherwise the (possibly trimmed) target.
+        const displayText = aliasPart || (notePart + '#' + anchorPart);
+
+        // The anchor can be a heading path and/or a block id.
+        const blockIdx = anchorPart.indexOf('^');
+        const headingPath = blockIdx === -1 ? anchorPart : anchorPart.slice(0, blockIdx);
+        const blockId = blockIdx === -1 ? undefined : anchorPart.slice(blockIdx + 1);
+
+        // Determine the final anchor to jump to. Obsidian link format:
+        //   heading        -> "#heading"
+        //   block          -> "#^blockid"
+        //   heading^block  -> "#^blockid"  (block wins)
+        //
+        // A block reference (^blockid) always takes precedence over a
+        // heading, so both "a#heading^blockid" and "a#^blockid" resolve
+        // to the block anchor. We link the whole token as-is instead of
+        // degrading to a file-name or heading-only link.
+        let headerId: string | undefined;
+        const headings = app.metadataCache.getFileCache(dest)?.headings ?? [];
+
+        if (blockId) {
+            headerId = '^' + blockId;
+        } else if (headingPath && headings.length > 0) {
+            // headingPath may be "b" or "b#c". Match the LAST segment.
+            const segments = headingPath.split('#');
+            const lastSegment = segments[segments.length - 1].trim();
+            const heading = headings.find(
+                (h) => h.heading.trim().toLowerCase() === lastSegment.toLowerCase()
+            );
+            if (heading) {
+                headerId = heading.heading.trim();
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        }
+
+        tokens.push({ dest, displayText, headerId, index: m.index, prefixCut, length: full.length });
+    }
+    return tokens;
+}
 
 export class VirtualMatch {
     private fileHeaderIds: Map<string, string> = new Map();
@@ -207,6 +323,49 @@ export class VirtualMatch {
         ].join('\u0002');
     }
 
+    /**
+     * Files in DISPLAY order - the exact ranking the link element renders, so a
+     * caller that needs "the first target" (batch conversion writing a real link)
+     * picks the note the user actually sees as [1]. `files` comes straight out of
+     * the trie Set and is in arbitrary order.
+     */
+    sortedFiles(): TFile[] {
+        return [...this.files].sort((a, b) => this.compareFiles(a, b));
+    }
+
+    compareFiles(a: TFile, b: TFile): number {
+        // Three-level sort:
+        //   1) tier: exact file name -> file name contains -> alias -> heading
+        //      text equals -> heading equals after the chapter number is stripped
+        //      -> heading merely contains;
+        //   2) context distance: the nearer the note name is mentioned to the
+        //      match, the higher it ranks;
+        //   3) recency fallback: the newer the mtime the higher it ranks. A new
+        //      note's mtime equals its ctime, so "just created" and "later edited"
+        //      both count as new; renaming updates neither timestamp, so renames
+        //      are not detected.
+        // 0) already mentioned in the body (a link, or the name appeared) outranks
+        //    the tier
+        const mentionedA = this.isMentioned(a);
+        const mentionedB = this.isMentioned(b);
+        if (mentionedA !== mentionedB) return mentionedA ? -1 : 1;
+
+        const byType = this.getFileTypeOrder(a) - this.getFileTypeOrder(b);
+        if (byType !== 0) return byType;
+
+        const da = this.fileContextDistances.get(a.path);
+        const db = this.fileContextDistances.get(b.path);
+        if (da !== undefined && db !== undefined) {
+            if (da !== db) return da - db;
+        } else if (da !== undefined) {
+            return -1;
+        } else if (db !== undefined) {
+            return 1;
+        }
+
+        return (b.stat?.mtime ?? 0) - (a.stat?.mtime ?? 0);
+    }
+
     getCompleteLinkElement(inTableCellEditor = false) {
         // Hide the link entirely when the total number of matches exceeds the
         // configured threshold (too noisy to be useful).
@@ -223,37 +382,7 @@ export class VirtualMatch {
             return emptySpan;
         }
 
-        // Three-level sort:
-        //   1) tier: exact file name -> file name contains -> alias -> heading
-        //      text equals -> heading equals after the chapter number is stripped
-        //      -> heading merely contains;
-        //   2) context distance: the nearer the note name is mentioned to the
-        //      match, the higher it ranks;
-        //   3) recency fallback: the newer the mtime the higher it ranks. A new
-        //      note's mtime equals its ctime, so "just created" and "later edited"
-        //      both count as new; renaming updates neither timestamp, so renames
-        //      are not detected.
-        const sortedFiles = [...this.files].sort((a, b) => {
-            // 0) already mentioned in the body (a link, or the name appeared) -> outranks the tier
-            const mentionedA = this.isMentioned(a);
-            const mentionedB = this.isMentioned(b);
-            if (mentionedA !== mentionedB) return mentionedA ? -1 : 1;
-
-            const byType = this.getFileTypeOrder(a) - this.getFileTypeOrder(b);
-            if (byType !== 0) return byType;
-
-            const da = this.fileContextDistances.get(a.path);
-            const db = this.fileContextDistances.get(b.path);
-            if (da !== undefined && db !== undefined) {
-                if (da !== db) return da - db;
-            } else if (da !== undefined) {
-                return -1;
-            } else if (db !== undefined) {
-                return 1;
-            }
-
-            return (b.stat?.mtime ?? 0) - (a.stat?.mtime ?? 0);
-        });
+        const sortedFiles = this.sortedFiles();
 
         // Limit visible files, and show a "..." indicator when there are more
         // references than the configured display limit (instead of silently
@@ -356,6 +485,13 @@ export class VirtualMatch {
         } else {
             link.href = href;
         }
+        // The href ATTRIBUTE gets serialized by the browser (spaces and
+        // non-ASCII characters become %20 / %E4..., which the vault path
+        // resolver cannot reverse). Keep the raw path alongside - the same
+        // trick Obsidian uses for its own internal links - so the context
+        // menu and table-menu converters can resolve the true target even
+        // for paths with spaces or non-ASCII characters.
+        link.setAttribute('data-href', href);
         link.textContent = linkText;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
@@ -714,11 +850,11 @@ export class VirtualMatch {
             const link = this.getLinkAnchorElement(linkText, linkHref, file);
             spanReferences.appendChild(link);
 
-            if (index == fileList.length - 1) {
+            if (index === fileList.length - 1) {
                 if (overflowCount > 0) {
                     const overflow = activeDocument.createElement('span');
                     overflow.textContent = '|...';
-                    overflow.setAttribute('title', `${overflowCount} more reference(s)`);
+                    overflow.setAttribute('title', t('{count} more reference(s)').replace('{count}', String(overflowCount)));
                     spanReferences.appendChild(overflow);
                 }
                 const bracket = activeDocument.createElement('span');
@@ -746,7 +882,7 @@ export class VirtualMatch {
         if (!this.settings.alwaysShowMultipleReferences) {
             spanIndicator.classList.add('multiple-files-references');
         }
-        spanIndicator.setAttribute('title', `${hiddenCount} more reference(s)`);
+        spanIndicator.setAttribute('title', t('{count} more reference(s)').replace('{count}', String(hiddenCount)));
         return spanIndicator;
     }
 
@@ -775,7 +911,7 @@ export class VirtualMatch {
             if (a.isFuzzy !== b.isFuzzy) {
                 return a.isFuzzy ? 1 : -1;
             }
-            if (b.to == a.to) {
+            if (b.to === a.to) {
                 return b.files.length - a.files.length;
             }
             return b.to - a.to;
@@ -799,6 +935,13 @@ export class VirtualMatch {
 
     static filterOverlapping(matches: VirtualMatch[], onlyLinkOnce: boolean = true, excludedIntervalTree?: IntervalTree): VirtualMatch[] {
         const matchesToDelete: Map<number, boolean> = new Map();
+        // For the onlyLinkOnce pass: ids of surviving matches per target-file
+        // path. A match is covered (and deleted) when an earlier surviving
+        // match already links to every file it links to; intersecting the
+        // per-file survivor sets answers that in O(files) instead of the old
+        // loop that rescanned every later match per survivor - O(matches²)
+        // per rebuild on long index pages with hundreds of matches.
+        const survivorIdsByFile = new Map<string, Set<number>>();
 
         // Delete additions that overlap
         // Additions are sorted by from position and after that by length, we want to keep longer additions
@@ -845,20 +988,58 @@ export class VirtualMatch {
                 matchesToDelete.set(otherAddition.id, true);
             }
 
-            // Set all additions that link to the same file to be deleted
+            // Set all additions that link to the same file to be deleted.
+            // Only survivors claim their files, so the sets below only hold
+            // matches that were not deleted earlier - which mirrors the old
+            // scan exactly: a match is deleted when an EARLIER surviving match
+            // already covers every file it links to, never the other way round.
             if (onlyLinkOnce) {
-                for (let j = i + 1; j < matches.length; j++) {
-                    const otherAddition = matches[j];
-                    if (matchesToDelete.has(otherAddition.id)) {
-                        continue;
+                const paths = addition.files.map((f) => f.path);
+                let covered = false;
+                if (paths.length > 0) {
+                    const survivorSets = paths.map((p) => survivorIdsByFile.get(p));
+                    if (survivorSets.every((s) => s !== undefined)) {
+                        // Intersect the smallest set with the rest; a candidate
+                        // present for every file links to all of addition's
+                        // files, so it covers addition. Existence is enough.
+                        const first = survivorSets[0];
+                        const rest = survivorSets.slice(1);
+                        for (const id of first) {
+                            if (rest.every((s) => s.has(id))) { covered = true; break; }
+                        }
                     }
-
-                    if (otherAddition.files.every((f) => addition.files.contains(f))) {
-                        matchesToDelete.set(otherAddition.id, true);
-                    }
+                }
+                if (covered) {
+                    matchesToDelete.set(addition.id, true);
+                    continue;
+                }
+                for (const p of paths) {
+                    let s = survivorIdsByFile.get(p);
+                    if (!s) { s = new Set<number>(); survivorIdsByFile.set(p, s); }
+                    s.add(addition.id);
                 }
             }
         }
         return matches.filter((match) => !matchesToDelete.has(match.id));
+    }
+}
+
+/**
+ * Resolve the raw (unencoded) vault path recorded on a virtual-link anchor.
+ * The href ATTRIBUTE is browser-serialized (spaces and non-ASCII characters
+ * become %20 / %E4...), which getAbstractFileByPath cannot resolve - reading
+ * it made "convert to real link" silently produce a self-link (context menu)
+ * or vanish entirely (table menu) for such paths. data-href holds the path
+ * exactly as written; the decodeURIComponent fallback covers anchors rendered
+ * before that attribute existed.
+ */
+export function getVirtualLinkRawPath(anchor: Element | null | undefined): string {
+    if (!anchor) return '';
+    const raw = anchor.getAttribute('data-href');
+    if (raw) return raw;
+    try {
+        return decodeURIComponent(anchor.getAttribute('href') || '');
+    } catch {
+        return anchor.getAttribute('href') || '';
     }
 }

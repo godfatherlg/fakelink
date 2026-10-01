@@ -44,6 +44,10 @@ test('plural endings stem to the right place', () => {
     assert.equal(stem('ponies', 'en'), 'poni');
     assert.equal(stem('cats', 'en'), 'cat');
     assert.equal(stem('press', 'en'), 'press');
+    // Porter's (*v*) s rule: the part before the s must contain a vowel, so
+    // vowel-less words keep their s (a length-only check made this "gp").
+    assert.equal(stem('gps', 'en'), 'gps');
+    assert.equal(stem('gas', 'en'), 'ga');
 });
 
 test('stemming never grows the word and never returns empty', () => {
@@ -104,6 +108,43 @@ test('punctuation and spaces are boundaries', () => {
     assert.equal(PrefixTree.checkWordBoundary(' '), true);
     assert.equal(PrefixTree.checkWordBoundary('。'), true);
     assert.equal(PrefixTree.checkWordBoundary('.'), true);
+});
+
+console.log('convertLink.relative');
+
+// Shared by both conversion paths (convertLink and batchConvert), so the
+// relative link format is computed by one implementation.
+const { relative } = await loadTs('linker/convertLink.ts');
+
+test('same directory yields no prefix', () => {
+    assert.equal(relative('a/b', 'a/b'), '');
+});
+
+test('descends into a subdirectory', () => {
+    // No levels to climb, so the prefix is "./" rather than "../".
+    assert.equal(relative('a', 'a/c'), './c');
+});
+
+test('climbs out to a sibling tree', () => {
+    assert.equal(relative('a/b', 'c'), '../../c');
+});
+
+test('handles the vault root', () => {
+    assert.equal(relative('', 'a'), './a');
+    assert.equal(relative('a', ''), '..');
+});
+
+test('a built relative path never gains a leading slash', () => {
+    // Regression: concatenating '/' onto the '' returned for the same directory
+    // produced "/target.md", which resolves from the vault root instead of from
+    // the note being converted.
+    const build = (from, to, base) => {
+        const relDir = relative(from, to);
+        return (relDir ? relDir + '/' : '') + base;
+    };
+    assert.equal(build('a/b', 'a/b', 'target.md'), 'target.md');
+    assert.equal(build('a/b', 'c', 'target.md'), '../../c/target.md');
+    assert.equal(build('', 'a', 'target.md'), './a/target.md');
 });
 
 console.log('');

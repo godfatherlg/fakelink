@@ -1,7 +1,8 @@
 import { App, MarkdownView, Modal, Notice, Setting, TFile, FuzzySuggestModal } from 'obsidian';
 import { LinkerPluginSettings } from '../main';
-import { LinkerCache, PrefixTree, MatchType } from '../linker/linkerCache';
+import { LinkerCache, PrefixTree, MatchType, hasExcludedExtension, scoreFuzzyWindow } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
+import IntervalTree from '@flatten-js/interval-tree';
 import { t } from './lang/helpers';
 
 type LinkerPluginType = import('../main').default;
@@ -17,6 +18,10 @@ function basename(filePath: string): string {
     const lastSlash = normalized.lastIndexOf('/');
     return lastSlash === -1 ? normalized : normalized.slice(lastSlash + 1);
 }
+
+// relative() comes from linker/convertLink so both conversion paths compute
+// relative paths with one implementation (and so it is covered by tests).
+import { relative } from '../linker/convertLink';
 
 export interface BatchLinkItem {
     from: number;
@@ -46,11 +51,21 @@ export function scanVirtualLinks(
     const cacheTree = cache.cache;
 
     const excludedExtensions = settings.excludedExtensions;
-    const ownNote = settings.excludeLinksToOwnNote
-        ? (app.vault.getAbstractFileByPath(sourcePath) as TFile | null)
-        : null;
+    // The note being scanned. It is the "rendered" note for the match calls
+    // below, so per-note exclusion (frontmatter opt-in / exclude list) is
+    // evaluated against IT.
+    //
+    // ownNote is a different thing: it is only what self-links are filtered
+    // against, and stays null unless that setting is on. Passing ownNote as the
+    // rendered file made both exclusions no-op whenever that setting was off,
+    // so a scan could list links the editor never shows.
+    const sourceNote = app.vault.getAbstractFileByPath(sourcePath) as TFile | null;
+    const ownNote = settings.excludeLinksToOwnNote ? sourceNote : null;
 
     cache.reset();
+    // Pre-build the regions to skip so a match is rejected with one interval
+    // lookup instead of the old O(n) back-scan per candidate.
+    const excludedIntervals = buildExcludedIntervals(text);
     const matches: VirtualMatch[] = [];
     let id = 0;
     let wordStart = 0; // start offset of the current document word
@@ -63,8 +78,8 @@ export function scanVirtualLinks(
         const char = i < text.length ? text[i] : '\n';
         const isWordBoundary = PrefixTree.checkWordBoundary(char);
 
-        if (settings.matchAnyPartsOfWords || settings.matchBeginningOfWords || isWordBoundary) {
-            const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote, undefined, ownNote);
+        if (settings.matchAnyPartsOfWords || settings.matchBeginningOfWords || isWordBoundary || cacheTree.hasWordEnd()) {
+            const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote, undefined, sourceNote);
 
             for (const node of currentNodes) {
                 if (!settings.matchAnyPartsOfWords) {
@@ -97,11 +112,9 @@ export function scanVirtualLinks(
                     }
                 }
 
-                // Skip a match that is already inside an existing wikilink
-                // (e.g. the text produced by a previous conversion: [[name]]).
-                // Otherwise a second run would re-convert the inner word and
-                // produce nested/duplicated links.
-                if (isInsideExistingLink(text, nFrom)) continue;
+                // Skip matches inside code blocks, frontmatter, inline code, math
+                // and existing links (one interval lookup).
+                if (excludedIntervals.search([nFrom, nTo]).length > 0) continue;
 
                 // Skip anything that lives inside a table row — converting
                 // virtual links in tables is unreliable and often mis-positions
@@ -113,9 +126,7 @@ export function scanVirtualLinks(
                 }
 
                 const filteredFiles = Array.from(node.files).filter((file: TFile) => {
-                    return !excludedExtensions.some((ext: string) =>
-                        file.path.toLowerCase().endsWith(ext.toLowerCase())
-                    );
+                    return !hasExcludedExtension(file.path, excludedExtensions);
                 });
 
                 if (filteredFiles.length === 0) continue;
@@ -150,59 +161,134 @@ export function scanVirtualLinks(
                 matches.push(vm);
             }
 
-            // Fuzzy fallback: if no exact match was found and fuzzy
-            // matching is enabled, normalize the current document word and link
-            // it when its similarity to a normalized keyword is above the
-            // configured threshold.
+            // Fuzzy fallback: if no exact match was found and fuzzy matching is
+            // enabled, run the same shared sliding-window scorer the live and
+            // read linkers use, so the batch preview matches what is rendered
+            // in the editor. The old normalize-the-whole-word scan could never
+            // produce fuzzySlidingWindow matches inside longer runs (e.g. a
+            // Chinese term embedded in a longer sentence), which made the
+            // preview disagree with the live view.
             if (currentNodes.length === 0 && settings.enableStemming) {
-                const rawWord = text.slice(wordStart, i).trim();
-                if (rawWord.length > 0) {
-                    const normWord = cacheTree.fuzzyNormalize(rawWord, settings.stemmingLanguage);
-                    if (normWord) {
-                        const fuzzyResults = cacheTree.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold, ownNote, ownNote);
-                        for (const fr of fuzzyResults) {
-                            let fFrom = wordStart;
-                            const fTo = i;
-                            // Trim leading whitespace so the link range matches the word
-                            // exactly (avoids a leading space becoming part of the link).
-                            while (fFrom < fTo && /\s/.test(text[fFrom])) fFrom++;
-                            const fName = text.slice(fFrom, fTo);
-
-                            if (isInsideExistingLink(text, fFrom)) continue;
-                            if (isInTableRow(text, fFrom)) continue;
+                // Skip leading whitespace once - it is the base for the
+                // sliding window below.
+                let baseFrom = wordStart;
+                while (baseFrom < i && /\s/.test(text[baseFrom])) baseFrom++;
+                const rawWord = text.slice(baseFrom, i);
+                if (rawWord.trim().length > 0) {
+                    const maxOffset = settings.fuzzySlidingWindow
+                        ? Math.min(rawWord.length - 1, settings.fuzzySlidingWindowMaxOffset)
+                        : 0;
+                    const scored = scoreFuzzyWindow({
+                        cache: cacheTree,
+                        settings,
+                        text,
+                        baseFrom,
+                        endPos: i,
+                        rawWord,
+                        maxOffset,
+                        isWordBoundary,
+                        excludeFile: ownNote,
+                        renderedFile: sourceNote,
+                        // Batch offsets are absolute (full document), and a
+                        // candidate must also be skipped when it lives in an
+                        // excluded region, in a table, or outside the
+                        // requested selection.
+                        isCovered: (checkFrom, checkTo) => {
+                            if (excludedIntervals.search([checkFrom, checkTo]).length > 0) return true;
+                            if (isInTableRow(text, checkFrom)) return true;
                             if (rangeFrom !== undefined && rangeTo !== undefined) {
-                                if (fTo <= rangeFrom || fFrom >= rangeTo) continue;
+                                if (checkTo <= rangeFrom || checkFrom >= rangeTo) return true;
+                            }
+                            return false;
+                        },
+                    });
+                    const bestOffset = scored?.bestOffset ?? -1;
+                    const bestResults = scored?.bestResults ?? null;
+
+                    if (bestOffset >= 0) {
+                        emitWinner: {
+                        const offset = bestOffset;
+
+                        const rawCandidate = rawWord.slice(offset);
+                        const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
+                        const candidate = rawCandidate.trim();
+                        if (!candidate) break emitWinner;
+                        if (candidate.length < cacheTree.minFuzzyKeywordLen - 2) break emitWinner;
+                        if (candidate.length > cacheTree.maxFuzzyKeywordLen * 2 + 4) break emitWinner;
+
+                        const fuzzyResults = bestResults ?? [];
+                        if (fuzzyResults.length > 0) {
+                            // Tied top results (same similarity) are merged into
+                            // one multi-target link, mirroring the live linker.
+                            const topSim = fuzzyResults[0].similarity;
+                            const mergedFiles: TFile[] = [];
+                            const seenPaths = new Set<string>();
+                            const fuzzyFileHeaderIds = new Map<string, string>();
+                            for (const fr of fuzzyResults) {
+                                if (fr.similarity < topSim) break;
+                                for (const f of fr.files) {
+                                    if (seenPaths.has(f.path)) continue;
+                                    seenPaths.add(f.path);
+                                    mergedFiles.push(f);
+                                    if (fr.headerId) fuzzyFileHeaderIds.set(f.path, fr.headerId);
+                                }
                             }
 
-                            const filteredFiles = Array.from(fr.files).filter((file: TFile) => {
-                                return !excludedExtensions.some((ext: string) =>
-                                    file.path.toLowerCase().endsWith(ext.toLowerCase())
-                                );
-                            });
-                            if (filteredFiles.length === 0) continue;
+                            const fFrom = baseFrom + offset + leadWs;
+                            const fTo = i;
+                            const fName = text.slice(fFrom, fTo);
 
-                            const vm = new VirtualMatch(
-                                id++,
-                                fName,
-                                fFrom,
-                                fTo,
-                                filteredFiles,
-                                MatchType.Note,
-                                false,
-                                settings,
-                                plugin!,
-                                fr.headerId
-                            );
-                            filteredFiles.forEach((file: TFile) => {
-                                // renderedFile = null - heading id lookup, not a render decision.
-                                const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file, null);
-                                if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
-                                    vm.setFileHeaderId(file, fileNodes[0].headerId);
-                                } else {
-                                    vm.setFileHeaderId(file, '');
-                                }
+                            const filteredFiles = mergedFiles.filter((file: TFile) => {
+                                return !hasExcludedExtension(file.path, excludedExtensions);
                             });
-                            matches.push(vm);
+                            if (filteredFiles.length > 0) {
+                                const topFr = fuzzyResults[0];
+                                let fuzzyMatchType = MatchType.Note;
+                                if (topFr.headerId) {
+                                    fuzzyMatchType = MatchType.Header;
+                                } else if (topFr.canonical) {
+                                    const hasNoteMatch = filteredFiles.some((f) =>
+                                        f.basename.toLowerCase() === topFr.canonical!.toLowerCase()
+                                    );
+                                    if (!hasNoteMatch) fuzzyMatchType = MatchType.Alias;
+                                }
+
+                                const vm = new VirtualMatch(
+                                    id++,
+                                    fName,
+                                    fFrom,
+                                    fTo,
+                                    filteredFiles,
+                                    fuzzyMatchType,
+                                    false,
+                                    settings,
+                                    plugin!,
+                                    topFr.headerId
+                                );
+                                vm.isFuzzy = true;
+
+                                // Resolve the correct headerId for EACH target
+                                // file individually, same as the exact path.
+                                filteredFiles.forEach((file: TFile, index: number) => {
+                                    if (index === 0) return;
+                                    const ownHeaderId = fuzzyFileHeaderIds.get(file.path);
+                                    if (ownHeaderId) {
+                                        vm.setFileHeaderId(file, ownHeaderId);
+                                        return;
+                                    }
+                                    // renderedFile = null - heading id lookup, not a render decision.
+                                    const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file, null);
+                                    if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
+                                        vm.setFileHeaderId(file, fileNodes[0].headerId);
+                                    } else {
+                                        vm.setFileHeaderId(file, '');
+                                    }
+                                });
+
+                                matches.push(vm);
+                                break emitWinner;
+                            }
+                        }
                         }
                     }
                 }
@@ -238,7 +324,9 @@ function buildReplacement(
     match: VirtualMatch,
     sourcePath: string
 ): string {
-    const targetFile = match.files[0];
+    // Display order, not trie Set order: with several targets the user sees [1]
+    // first, and that is the one the link must point at.
+    const targetFile = match.sortedFiles()[0] ?? match.files[0];
     if (!targetFile) return match.originText;
 
     const text = match.originText;
@@ -255,7 +343,12 @@ function buildReplacement(
         : settings.linkFormat;
 
     let absolutePath = targetFile.path;
-    let relativePath = dirname(sourcePath) + '/' + basename(targetFile.path);
+    // Relative to the source note's directory AND pointing at the target's own
+    // directory. It used to be dirname(source) + basename(target), which dropped
+    // the target's directory entirely (a/b.md -> c/t.md gave "a/t.md" instead of
+    // "../c/t.md") and produced a leading "/" when the source sat in the root.
+    const relDir = relative(dirname(sourcePath), dirname(targetFile.path));
+    let relativePath = (relDir ? relDir + '/' : '') + basename(targetFile.path);
     relativePath = relativePath.replace(/\\/g, '/');
 
     const replacementPath = app.metadataCache.fileToLinktext(targetFile, sourcePath);
@@ -263,15 +356,19 @@ function buildReplacement(
     const shortestFile = app.metadataCache.getFirstLinkpathDest(lastPart, '');
     let shortestPath = shortestFile?.path === targetFile.path ? lastPart : absolutePath;
 
+    // Strip a redundant .md, but ALWAYS append the heading anchor. It used to be
+    // appended only inside the branch below, so when fileToLinktext returned a
+    // link text ending in .md the anchor was silently dropped and the converted
+    // link pointed at the top of the note instead of the heading.
     const pathSuffix = headerId ? `#${headerId}` : '';
     if (!replacementPath.endsWith('.md')) {
         if (absolutePath.endsWith('.md')) absolutePath = absolutePath.slice(0, -3);
         if (shortestPath && shortestPath.endsWith('.md')) shortestPath = shortestPath.slice(0, -3);
         if (relativePath.endsWith('.md')) relativePath = relativePath.slice(0, -3);
-        absolutePath += pathSuffix;
-        shortestPath += pathSuffix;
-        relativePath += pathSuffix;
     }
+    absolutePath += pathSuffix;
+    shortestPath += pathSuffix;
+    relativePath += pathSuffix;
 
     const createLink = (replacementTarget: string, linkText: string, markdownStyle: boolean) => {
         if (markdownStyle) {
@@ -286,7 +383,13 @@ function buildReplacement(
     };
 
     if (replacementPath === text && linkFormat === 'shortest') {
-        return `[[${replacementPath}]]`;
+        // Same-named note and heading: link without a display name, but keep the
+        // heading anchor and honour the link style (this used to hardcode [[...]]
+        // and drop the anchor, so it pointed at the top of the note).
+        const target = replacementPath + pathSuffix;
+        return useMarkdownLinks
+            ? `[${text}](${target})`
+            : `[[${target}]]`;
     }
     if (linkFormat === 'shortest') {
         return createLink(shortestPath || absolutePath, text, useMarkdownLinks);
@@ -309,16 +412,135 @@ function getLineRange(text: string, index: number): [number, number] {
     return [lineStart, lineEnd];
 }
 
-/** True when the matched word sits inside an existing wikilink or embed
- *  (e.g. [[word]], ![[image.jpg]] or ![[folder/[[nested]]]]), so we must not
- *  convert it again. We look for the nearest unclosed "[[" before the word and
- *  check that its matching "]]" comes after the word. */
-function isInsideExistingLink(text: string, from: number): boolean {
-    const open = text.lastIndexOf('[[', from - 1);
-    if (open === -1) return false;
-    // The closing "]]" must appear after the word start and belong to this "[[".
-    const close = text.indexOf(']]', open + 2);
-    return close !== -1 && close >= from;
+/** One pass over the whole text, marking regions batch conversion must not touch:
+ *  frontmatter, fenced code blocks, inline code, math (block and inline),
+ *  existing wikilinks/embeds and Markdown links.
+ *
+ *  Replaces the old per-candidate linear back-scan (lastIndexOf('[[')), which was
+ *  O(n) per match and O(n²) overall, and also made conversion rewrite code blocks,
+ *  YAML frontmatter and math - corrupting those regions. */
+function buildExcludedIntervals(text: string): IntervalTree {
+    const tree = new IntervalTree();
+    const n = text.length;
+    const add = (from: number, to: number) => { if (to > from) tree.insert([from, to]); };
+
+    // Frontmatter: a leading "---" ... "---" (or "...") block. Both YAML
+    // terminators are handled; the old code only found "---", so a "..."-closed
+    // frontmatter still had its contents converted.
+    if (text.startsWith('---')) {
+        const endDashes = text.indexOf('\n---', 3);
+        const endDots = text.indexOf('\n...', 3);
+        let end = -1;
+        if (endDashes !== -1 && (endDots === -1 || endDashes < endDots)) {
+            end = endDashes;
+        } else if (endDots !== -1) {
+            end = endDots;
+        }
+        if (end !== -1) {
+            const lineEnd = text.indexOf('\n', end + 1);
+            add(0, lineEnd === -1 ? n : lineEnd + 1);
+        }
+    }
+
+    for (let i = 0; i < n;) {
+        const ch = text[i];
+
+        // Fenced code block: a run of >=3 ` or ~ that STARTS the line (possibly
+        // indented). A run elsewhere is inline code, handled below - the old
+        // code treated any mid-line ``` as a fence opener, and when no closing
+        // fence existed it excluded everything to the end of the document,
+        // silently dropping every link in the rest of the note.
+        if (ch === '`' || ch === '~') {
+            let j = i;
+            while (j < n && text[j] === ch) j++;
+            const fenceLen = j - i;
+            const lineStart = text.lastIndexOf('\n', i - 1) + 1;
+            const atLineStart = !/\S/.test(text.slice(lineStart, i));
+            if (fenceLen >= 3 && atLineStart) {
+                const close = findClosingFence(text, j, ch, fenceLen);
+                if (close !== -1) {
+                    const lineEnd = text.indexOf('\n', close);
+                    add(i, lineEnd === -1 ? n : lineEnd + 1);
+                    i = lineEnd === -1 ? n : lineEnd + 1;
+                    continue;
+                }
+                // Unclosed fence: everything from here on is code.
+                add(i, n);
+                break;
+            }
+        }
+
+        // Inline code span: a backtick run closed by a run of the SAME length
+        // (CommonMark pairing). The old single-backtick search closed a ``-span
+        // at the first backtick of the opening run's twin, leaking the rest of
+        // the span into the conversion scan.
+        if (ch === '`') {
+            let j = i;
+            while (j < n && text[j] === '`') j++;
+            const openLen = j - i;
+            let p = j;
+            let closed = false;
+            while (p < n && !closed) {
+                const idx = text.indexOf('`', p);
+                if (idx === -1) break;
+                let q = idx;
+                while (q < n && text[q] === '`') q++;
+                if (q - idx === openLen) {
+                    add(i, q);
+                    i = q;
+                    closed = true;
+                } else {
+                    p = q;
+                }
+            }
+            if (closed) continue;
+        }
+
+        // Math: $$...$$ block, or $...$ inline.
+        if (ch === '$') {
+            if (text[i + 1] === '$') {
+                const close = text.indexOf('$$', i + 2);
+                if (close !== -1) { add(i, close + 2); i = close + 2; continue; }
+            } else {
+                const close = text.indexOf('$', i + 1);
+                if (close !== -1 && close > i + 1) { add(i, close + 1); i = close + 1; continue; }
+            }
+        }
+
+        // Existing wikilink / embed: [[...]] or ![[...]].
+        if (text.startsWith('[[', i) || text.startsWith('![[', i)) {
+            const open = i + (text[i] === '!' ? 3 : 2);
+            const close = text.indexOf(']]', open);
+            if (close !== -1) { add(i, close + 2); i = close + 2; continue; }
+        }
+
+        // Markdown link [text](url).
+        if (ch === '[') {
+            const closeBracket = text.indexOf(']', i + 1);
+            if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
+                const closeParen = text.indexOf(')', closeBracket + 2);
+                if (closeParen !== -1) { add(i, closeParen + 1); i = closeParen + 1; continue; }
+            }
+        }
+
+        i++;
+    }
+    return tree;
+}
+
+/** Find the line start of a closing fence (>=minLen of the same char). */
+function findClosingFence(text: string, from: number, ch: string, minLen: number): number {
+    let i = from;
+    while (i < text.length) {
+        const lineStart = text.lastIndexOf('\n', i - 1) + 1;
+        let j = lineStart;
+        while (j < text.length && text[j] === ch) j++;
+        if (j - lineStart >= minLen) return lineStart;
+        const next = text.indexOf('\n', i);
+        if (next === -1) return -1;
+        i = next + 1;
+    }
+    return -1;
 }
 
 /** True when the matched word lies on a Markdown table row. Tables are prone
@@ -334,10 +556,18 @@ function isInTableRow(text: string, index: number): boolean {
 
 /** Apply replacements to a plain string (used for files not currently open in an editor). */
 export function applyReplacementsToString(text: string, items: BatchLinkItem[]): string {
-    let result = text;
-    for (const item of items) {
-        result = result.slice(0, item.from) + item.replacement + result.slice(item.to);
+    // Single ascending pass. The old version re-sliced the whole string for every
+    // item (O(n·m)); items arrive in descending `from` order, so sort ascending
+    // first and build the result by walking the text once.
+    const sorted = [...items].sort((a, b) => a.from - b.from);
+    let result = '';
+    let pos = 0;
+    for (const item of sorted) {
+        if (item.from < pos) continue; // overlapping/out-of-order item
+        result += text.slice(pos, item.from) + item.replacement;
+        pos = item.to;
     }
+    result += text.slice(pos);
     return result;
 }
 
@@ -350,22 +580,31 @@ export class BatchConvertModal extends Modal {
     private range: [number, number] | null = null;
     private readonly settings: LinkerPluginSettings;
     private readonly plugin: LinkerPluginType | null;
+    /** The pane the command was invoked in. */
+    private readonly view: MarkdownView | null;
 
     constructor(
         app: App,
         settings: LinkerPluginSettings,
         plugin?: LinkerPluginType | null,
-        range?: [number, number] | null
+        range?: [number, number] | null,
+        // Without this every lookup fell back to workspace.getActiveViewOfType(),
+        // i.e. the FOCUSED pane - so switching tabs while the dialog was open
+        // applied the scanned offsets to a different note.
+        view?: MarkdownView | null
     ) {
         super(app);
         this.settings = settings;
         this.plugin = plugin ?? null;
         this.range = range ?? null;
+        this.view = view ?? null;
     }
 
     onOpen() {
         const { contentEl } = this;
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        // Prefer the pane the command came from: getActiveViewOfType() is the
+        // focused pane, which is a different note in a split layout.
+        const view = this.view ?? this.app.workspace.getActiveViewOfType(MarkdownView);
         const editor = view?.editor ?? null;
 
         if (!editor) {
@@ -378,7 +617,10 @@ export class BatchConvertModal extends Modal {
         }
 
         this.text = editor.getValue();
-        this.sourcePath = this.app.workspace.getActiveFile()?.path ?? '';
+        // Taken from the same view as `text`. getActiveFile() can name a different
+        // note (for example when the focused pane is a Canvas), which made every
+        // generated relative/absolute path point at the wrong place.
+        this.sourcePath = view?.file?.path ?? '';
 
         if (this.range) {
             const [from, to] = this.range;
@@ -457,9 +699,15 @@ export class BatchConvertModal extends Modal {
     }
 
     private convert() {
-        const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+        // The pane that was scanned. Re-resolving the active view here applied the
+        // offsets to whatever note had focus by then.
+        const view = this.view ?? this.app.workspace.getActiveViewOfType(MarkdownView);
         const editor = view?.editor ?? null;
         if (!editor) return;
+        if (view?.file && this.sourcePath && view.file.path !== this.sourcePath) {
+            new Notice(t('The note changed while the dialog was open. Please run the command again.'));
+            return;
+        }
 
         let applied = 0;
         for (let idx = 0; idx < this.items.length; idx++) {

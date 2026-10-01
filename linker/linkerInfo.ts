@@ -35,23 +35,54 @@ export class LinkerFileMetaInfo {
     }
 }
 
+/** Escape a user-supplied string so it can be used literally inside a RegExp. */
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export class LinkerMetaInfoFetcher {
     includeDirPattern: RegExp;
     excludeDirPattern: RegExp;
     includeAllFiles: boolean;
 
+    // Per-path cache. Building a LinkerFileMetaInfo costs a getFileCache call,
+    // getallTags on the result and two regex tests, and it sits in the innermost
+    // loop of fuzzy matching - once per candidate file, per sliding-window
+    // offset, per scan position - so it was being rebuilt thousands of times per
+    // keystroke. Keyed by path and invalidated by mtime so an edit is picked up
+    // on the next rebuild.
+    private metaCache: Map<string, { mtime: number; info: LinkerFileMetaInfo }> = new Map();
+
     constructor(public app: App, public settings: LinkerPluginSettings) {
         this.refreshSettings();
+    }
+
+    /** Drop cached metadata. Called when the index is rebuilt, because the
+     *  directory patterns baked into each entry may have changed. */
+    clearCache() {
+        this.metaCache.clear();
     }
 
     refreshSettings(settings?: LinkerPluginSettings) {
         this.settings = settings ?? this.settings;
         this.includeAllFiles = this.settings.includeAllFiles;
-        this.includeDirPattern = new RegExp(`(^|/)(${this.settings.linkerDirectories.join("|")})/`);
-        this.excludeDirPattern = new RegExp(`(^|/)(${this.settings.excludedDirectories.join("|")})/`);
+        // Escape the directory names: they are user input going straight into a
+        // RegExp, so a name like "C++" or "(草稿)" threw a SyntaxError - and this
+        // runs on the first line of doUpdateTree, so every rebuild then failed and
+        // the index froze.
+        this.includeDirPattern = new RegExp(`(^|/)(${this.settings.linkerDirectories.map(escapeRegExp).join("|")})/`);
+        this.excludeDirPattern = new RegExp(`(^|/)(${this.settings.excludedDirectories.map(escapeRegExp).join("|")})/`);
     }
 
     getMetaInfo(file: TFile | TAbstractFile) {
-        return new LinkerFileMetaInfo(this, file);
+        const path = file.path;
+        const mtime = file instanceof TFile ? file.stat.mtime : 0;
+        const cached = this.metaCache.get(path);
+        if (cached && cached.mtime === mtime) {
+            return cached.info;
+        }
+        const info = new LinkerFileMetaInfo(this, file);
+        this.metaCache.set(path, { mtime, info });
+        return info;
     }
 }

@@ -139,9 +139,13 @@ const FUZZY_ZH_STOPWORD_TEST = new RegExp(
 
 export class ExternalUpdateManager {
     private static readonly UPDATE_DELAY_MS = 50;
-    registeredCallbacks: Set<() => void> = new Set();
+    registeredCallbacks: Set<(rebuildIndex: boolean) => void> = new Set();
     // A burst of changes should rebuild everything once, not once per change.
     private pendingTimer: number | null = null;
+    // Whether a full index rebuild was requested while the timer is pending.
+    // Appearance-only setting changes pass false: they still refresh the open
+    // views, but re-indexing the whole vault for a colour tweak is wasted work.
+    private pendingIndexRebuild = false;
 
     constructor() {}
 
@@ -151,27 +155,45 @@ export class ExternalUpdateManager {
      * destroyed with its view), so keeping anonymous callbacks alive here meant
      * repainting views that no longer exist.
      */
-    registerCallback(callback: () => void): () => void {
+    registerCallback(callback: (rebuildIndex: boolean) => void): () => void {
         this.registeredCallbacks.add(callback);
         return () => this.unregisterCallback(callback);
     }
 
-    unregisterCallback(callback: () => void) {
+    unregisterCallback(callback: (rebuildIndex: boolean) => void) {
         this.registeredCallbacks.delete(callback);
     }
 
-    update() {
+    /**
+     * @param rebuildIndex false when the change cannot affect the index (a pure
+     * appearance tweak): the pending update then only refreshes the views. Any
+     * caller that asks for a rebuild while one is pending wins, so a mixed
+     * burst coalesces into a single full update.
+     */
+    update(rebuildIndex = true) {
         // Timeout to make sure the cache is updated. Restarting the timer makes
         // the whole burst coalesce: dragging a slider used to queue one rebuild
         // per step, each of them throwing the index away and repainting every
         // open note.
+        this.pendingIndexRebuild = this.pendingIndexRebuild || rebuildIndex;
         if (this.pendingTimer !== null) window.clearTimeout(this.pendingTimer);
         this.pendingTimer = window.setTimeout(() => {
             this.pendingTimer = null;
+            const rebuild = this.pendingIndexRebuild;
+            this.pendingIndexRebuild = false;
             for (const callback of this.registeredCallbacks) {
-                callback();
+                callback(rebuild);
             }
         }, ExternalUpdateManager.UPDATE_DELAY_MS);
+    }
+
+    /** Release the pending timer and callbacks when the plugin unloads; otherwise
+     *  a queued update fires after unload and triggers a full index rebuild. */
+    dispose() {
+        if (this.pendingTimer !== null) window.clearTimeout(this.pendingTimer);
+        this.pendingTimer = null;
+        this.pendingIndexRebuild = false;
+        this.registeredCallbacks.clear();
     }
 }
 
@@ -182,6 +204,10 @@ export class PrefixNode {
     charValue: string = '';
     depth: number = 0;
     requiresCaseMatch: boolean = false;
+    // Lazily cached full keyword (the parent chain joined). charValue and parent
+    // are set exactly once at creation and never mutated (removals only prune the
+    // children map or drop files), so the cached string can never go stale.
+    fullValue?: string;
     // When this node was created from a stemmed keyword, the original
     // (unstemmed) keyword and its header id are stored here so the link can
     // still point to the real note/heading while the displayed text is the
@@ -247,9 +273,13 @@ export class PrefixTree {
     autoExcludedPaths: Set<string> = new Set();
     // Cache of each file's first sentence (keyed by path, invalidated by mtime).
     private firstSentenceCache: Map<string, { mtime: number; sentence: string }> = new Map();
-    // Signature of the last file set used for auto-exclude, so the O(n^2)
-    // containment scan only runs when the vault's files actually change.
-    private lastAutoExcludeSignature: string = '';
+    // Auto-exclude scan state. The NAME signature only changes on rename/
+    // create/delete, so the O(n^2) containment pair discovery is cached behind
+    // it; a normal content edit reuses the pairs and only re-verifies first
+    // sentences. The CONTENT signature (path+mtime) gates the re-verification.
+    private autoExcludePairs: { shorterPath: string; longerPath: string }[] = [];
+    private autoExcludeNameSig: string = '';
+    private autoExcludeContentSig: string = '';
 
     // Fuzzy-match index: normalized keyword (lowercased) -> candidate entries.
     // Built alongside the prefix tree when fuzzy matching is enabled.
@@ -286,6 +316,19 @@ export class PrefixTree {
     // and error-prone. Set from settings.fuzzyMinLength at tree build time.
     public fuzzyMinLength = 0;
 
+    // Guards against concurrent index builds; see updateTree().
+    private treeUpdateInFlight: Promise<void> | null = null;
+    private treeUpdateInFlightKey = '';
+    // Bumped by clear() so an in-flight build against the OLD index is never
+    // reused once the index was thrown away: its '*' key would otherwise collide
+    // with a new full rebuild, which would then join a build whose already-
+    // processed files no longer exist - truncating the index.
+    private generation = 0;
+
+    // Per-path cache for frontmatter exclude lists; see
+    // getFrontmatterExcludeListForFile().
+    private frontmatterExcludeCache: Map<string, { mtime: number; excluded: Set<string> }> = new Map();
+
     private static readonly SUPPORTED_EXTENSIONS = [
         'md', 'png', 'jpg', 'jpeg', 'gif', 'svg',
         'pdf', 'doc', 'docx', 'xls', 'xlsx',
@@ -318,26 +361,45 @@ export class PrefixTree {
         }
     }
 
+    /** The index was thrown away, so anything waiting on readyPromise has to wait
+     *  for the rebuild instead of proceeding against an empty index. */
+    resetReady() {
+        this.isReady = false;
+        this.readyPromise = new Promise((resolve) => { this.readyResolve = resolve; });
+    }
+
     clear() {
+        this.generation++;
         this.root = new PrefixNode();
         this._currentNodes = [];
         this.setIndexedFilePaths.clear();
         this.mapIndexedFilePathsToUpdateTime.clear();
         this.mapFilePathToLeaveNodes.clear();
+        this.mapFileHeaderIds.clear();
         this.fuzzyKeywordMap.clear();
+        this.frontmatterExcludeCache.clear();
         this.fuzzyBuckets.clear();
         this.fuzzyKeywordLengths.clear();
         this.derivedKeywords.clear();
         this.minFuzzyKeywordLen = Infinity;
         this.maxFuzzyKeywordLen = 0;
-        // NOTE: autoExcludedPaths / firstSentenceCache / lastAutoExcludeSignature
-        // are intentionally NOT cleared here. clearCache() is called on every
+        // NOTE: autoExcludedPaths / firstSentenceCache / autoExcludePairs are
+        // intentionally NOT cleared here. clearCache() is called on every
         // updateManager.update() (including the onIndexChanged refresh triggered
         // by auto-exclude itself). Clearing them would re-index the just-excluded
-        // note and re-trigger onIndexChanged forever. The auto-exclude result is
-        // therefore sticky until a full plugin reload; turning the setting off
-        // simply stops shouldExcludeFile from consulting it.
+        // note and re-trigger onIndexChanged forever. Stale auto-exclusions are
+        // instead lifted inside computeAutoExclude when a pair's first sentence
+        // diverges (or the pair file disappears); turning the setting off simply
+        // stops shouldExcludeFile from consulting them.
     }
+
+    // Reusable row buffers for editDistance: the fuzzy scan calls it for every
+    // candidate keyword, so allocating two arrays per comparison produced a
+    // steady stream of garbage on every keystroke. The method is synchronous
+    // and never re-entrant, so one shared pair of rows (grown on demand) is
+    // safe.
+    private static editRowA: number[] = [];
+    private static editRowB: number[] = [];
 
     // Levenshtein edit distance between two strings.
     private static editDistance(a: string, b: string): number {
@@ -345,8 +407,10 @@ export class PrefixTree {
         const n = b.length;
         if (m === 0) return n;
         if (n === 0) return m;
-        let prev = new Array<number>(n + 1);
-        let curr = new Array<number>(n + 1);
+        let prev = PrefixTree.editRowA;
+        let curr = PrefixTree.editRowB;
+        if (prev.length < n + 1) prev = PrefixTree.editRowA = new Array<number>(n + 1);
+        if (curr.length < n + 1) curr = PrefixTree.editRowB = new Array<number>(n + 1);
         for (let j = 0; j <= n; j++) prev[j] = j;
         for (let i = 1; i <= m; i++) {
             curr[0] = i;
@@ -458,6 +522,23 @@ export class PrefixTree {
         return results.sort((a, b) => b.similarity - a.similarity);
     }
 
+    // Lowercased excludedKeywords, cached so the match hot path does not
+    // re-lowercase the whole list for every candidate at every position.
+    // Invalidated by array identity: every code path that changes the list
+    // assigns a fresh array to the (Object.assign-ed) settings object.
+    private cachedExcludedKeywordsRef: string[] | null = null;
+    private cachedExcludedKeywordsSet: Set<string> = new Set();
+
+    private getExcludedKeywordSet(): Set<string> {
+        if (this.cachedExcludedKeywordsRef !== this.settings.excludedKeywords) {
+            this.cachedExcludedKeywordsRef = this.settings.excludedKeywords;
+            this.cachedExcludedKeywordsSet = new Set(
+                this.settings.excludedKeywords.map(kw => kw.toLowerCase())
+            );
+        }
+        return this.cachedExcludedKeywordsSet;
+    }
+
     private isExcluded(value: string, renderedFile?: TFile | null): boolean {
         const valueLower = value.toLowerCase();
         // If per-note mode is enabled, only apply exclusion to notes with the frontmatter property
@@ -474,7 +555,7 @@ export class PrefixTree {
             // Only exclude if the note has the property set to true/truthy
             if (!propValue) return false;
         }
-        return this.settings.excludedKeywords.some(kw => kw.toLowerCase() === valueLower);
+        return this.getExcludedKeywordSet().has(valueLower);
     }
 
     // Global-only exclusion check (used when building the trie, not per-note)
@@ -483,7 +564,7 @@ export class PrefixTree {
         // (filtering happens at match time in getCurrentMatchNodes)
         if (this.settings.perNoteExcludeKeywords) return false;
         const valueLower = value.toLowerCase();
-        return this.settings.excludedKeywords.some(kw => kw.toLowerCase() === valueLower);
+        return this.getExcludedKeywordSet().has(valueLower);
     }
 
     // Collect extra per-note excluded keywords from a file's frontmatter list property
@@ -491,8 +572,24 @@ export class PrefixTree {
         const excluded = new Set<string>();
         if (!this.settings.enableFrontmatterExcludeList) return excluded;
 
+        // Cache by path + list-property name + mtime. getCurrentMatchNodes calls
+        // this for the note being rendered and again for every matched target
+        // file, and it runs at nearly every character position - so each call
+        // used to re-read and re-parse the note's frontmatter. The property
+        // name is part of the key: changing the setting must not serve lists
+        // that were parsed under the old property.
+        const mtime = file.stat?.mtime ?? 0;
+        const cacheKey = file.path + '|' + this.settings.frontmatterExcludeListProperty;
+        const cached = this.frontmatterExcludeCache.get(cacheKey);
+        if (cached && cached.mtime === mtime) return cached.excluded;
+
         const metadata = this.app.metadataCache.getFileCache(file);
-        const propValue: unknown = metadata?.frontmatter?.[this.settings.frontmatterExcludeListProperty];
+        // metadata is null while the cache is still resolving. Do NOT cache that
+        // empty result: it would be pinned to this mtime and the note's exclude
+        // list would stay empty until its next edit (addFileToTree bails out for
+        // the same reason instead of indexing a half-known file).
+        if (!metadata) return excluded;
+        const propValue: unknown = metadata.frontmatter?.[this.settings.frontmatterExcludeListProperty];
         // Accepts: a real YAML array, a "[a, b]" string, or a plain "a, b" string
         if (Array.isArray(propValue)) {
             for (const item of propValue) {
@@ -511,6 +608,7 @@ export class PrefixTree {
                 }
             }
         }
+        this.frontmatterExcludeCache.set(cacheKey, { mtime, excluded });
         return excluded;
     }
 
@@ -661,15 +759,10 @@ export class PrefixTree {
                 }
             }
 
-            // Check if the case is matched
-            let currentNode: PrefixNode | undefined = node.node;
-            while (currentNode) {
-                if (!node.caseIsMatched) {
-                    matchNode.caseIsMatched = false;
-                    break;
-                }
-                currentNode = currentNode.parent;
-            }
+            // Check if the case is matched. The old parent-chain walk here
+            // evaluated node.caseIsMatched once per node it visited, so it
+            // collapsed to this single assignment (MatchNode starts matched).
+            matchNode.caseIsMatched = node.caseIsMatched;
 
             // Check if the match starts at a word boundary
             matchNode.startsAtWordBoundary = node.startedAtWordBeginning;
@@ -761,7 +854,11 @@ export class PrefixTree {
 
         // The last node is a leaf node, add the file to the node
         node.files.add(file);
-        node.requiresCaseMatch = matchCase;
+        // OR, not assign: the trie node is shared across notes, and the last file
+        // to index a given keyword used to overwrite the case rule for every other
+        // file on that node. Take the stricter value so a case-sensitive note is
+        // never silently relaxed by a later case-insensitive one.
+        node.requiresCaseMatch = node.requiresCaseMatch || matchCase;
 
         // Store the original keyword/header id when this node was created from
         // a stemmed form, so matches resolve to the real note/heading.
@@ -789,10 +886,12 @@ export class PrefixTree {
         // error-prone (e.g. 的 -> 地).
         if (canonicalKeyword) {
             const key = name.toLowerCase();
-            // Only index keywords with at least 2 chars: single-char titles are
-            // skipped (fuzzy-matching them is error-prone and useless). Longer
-            // titles (including the long Chinese titles the user cares about) are
-            // always indexed so that dropping one character still matches.
+            // Index from 2 chars up. Deliberately NOT gated on fuzzyMinLength:
+            // gating it there made the index agree with the query side, but with
+            // the default fuzzyMinLength of 6 it dropped nearly every keyword
+            // (English stems are usually < 7 chars, and common Chinese entries are
+            // 3-6), which silently removed fuzzy links for existing users. The
+            // query side still enforces fuzzyMinLength.
             if (key.length >= 2) {
                 this.fuzzyKeywordLengths.add(key.length);
                 if (key.length < this.minFuzzyKeywordLen) this.minFuzzyKeywordLen = key.length;
@@ -800,7 +899,20 @@ export class PrefixTree {
                 const entry = { files: node.files, headerId, canonical: canonicalKeyword };
                 const list = this.fuzzyKeywordMap.get(key);
                 if (list) {
-                    list.push(entry);
+                    // Replace any entry pointing at this very node, and drop ones
+                    // whose file set removeFileFromTree emptied.
+                    //
+                    // Filtering only on "empty" was not enough: when several notes
+                    // share a keyword (same title, same heading - very common),
+                    // removing one leaves the shared Set non-empty, so the old
+                    // entry survived and a duplicate was appended on every
+                    // rebuild. The list then grew for the whole session and every
+                    // fuzzy lookup had to walk all of it.
+                    const kept = list.filter((e) =>
+                        e.files.size > 0
+                        && !(e.files === node.files && e.headerId === headerId && e.canonical === canonicalKeyword));
+                    kept.push(entry);
+                    this.fuzzyKeywordMap.set(key, kept);
                 } else {
                     this.fuzzyKeywordMap.set(key, [entry]);
                     // Maintain first-char bucket index for cheap lookup at match time.
@@ -836,13 +948,20 @@ export class PrefixTree {
 
     // Reconstruct full string by walking parent chain — replaces stored node.value
     private getNodeValue(node: PrefixNode): string {
+        // This used to rebuild the string on every call, and it runs once per
+        // live node per scan position in getCurrentMatchNodes - a constant GC
+        // churn on large vaults. The chain is immutable after creation, so cache
+        // the result on the node.
+        if (node.fullValue !== undefined) return node.fullValue;
         const chars: string[] = [];
         let current: PrefixNode | undefined = node;
         while (current && current !== this.root) {
             if (current.charValue) chars.push(current.charValue);
             current = current.parent;
         }
-        return chars.reverse().join('');
+        const value = chars.reverse().join('');
+        node.fullValue = value;
+        return value;
     }
 
     private static isNoneEmptyString(this: void, value: string | null | undefined): value is string {
@@ -868,6 +987,12 @@ export class PrefixTree {
      * index (fuzzyKeywordMap) share this, so both obey the exact same exclusion
      * rules (extension / directory / includeAllFiles).
      */
+    // Public mirror of shouldExcludeFile for UI decisions (e.g. the context
+    // menu choosing between "Exclude this file" and "Include this file").
+    isFileExcluded(file: TFile): boolean {
+        return this.shouldExcludeFile(file);
+    }
+
     private shouldExcludeFile(file: TFile): boolean {
         const path = file.path;
 
@@ -888,9 +1013,7 @@ export class PrefixTree {
         }
 
         // Check if file extension is excluded
-        if (this.settings.excludedExtensions.some(ext =>
-            path.toLowerCase().endsWith(ext.toLowerCase())
-        )) {
+        if (hasExcludedExtension(path, this.settings.excludedExtensions)) {
             return true;
         }
 
@@ -919,6 +1042,12 @@ export class PrefixTree {
         // Unified exclusion check, hoisted before any indexing bookkeeping so an
         // excluded file is never registered in the index metadata.
         if (this.shouldExcludeFile(file)) {
+            // It may have been indexed before it became excluded (a tag was added,
+            // a directory excluded, auto-exclude kicked in). Remove its entries,
+            // otherwise the exact-match path keeps linking to it (the fuzzy path
+            // already hides it via shouldExcludeFile) - the mirror of the
+            // "exact becomes fuzzy" symptom.
+            this.removeFileFromTree(file);
             return;
         }
 
@@ -1050,14 +1179,11 @@ export class PrefixTree {
 
         // Check if the file should match case sensitive
         if (this.settings.matchCaseSensitive) {
-            let lowerCaseNames = new Array<string>();
             if (tags.includes(this.settings.tagToIgnoreCase)) {
                 namesWithCaseIgnore = [...names];
             } else {
                 namesWithCaseMatch = [...names];
             }
-            lowerCaseNames = lowerCaseNames.map((name) => name.toLowerCase());
-            names.push(...lowerCaseNames);
         } else {
             if (tags.includes(this.settings.tagToMatchCase)) {
                 namesWithCaseMatch = [...names];
@@ -1131,7 +1257,13 @@ export class PrefixTree {
                 );
             };
             namesWithCaseIgnore.forEach(addStem);
-            namesWithCaseMatch.forEach(addStem);
+            // Deliberately NOT addStem for namesWithCaseMatch: stem variants are
+            // registered case-insensitively (the exact-trie node gets
+            // matchCase=false and the fuzzy index keys are lowercased), so a
+            // case-matched keyword like "NASA" would become reachable from body
+            // text "nasa" via the stem node / fuzzy path, silently bypassing
+            // requiresCaseMatch. Exact matches still enforce the case rule
+            // through the original trie node.
         }
 
         // After adding, store headerId mappings for this file
@@ -1212,8 +1344,17 @@ export class PrefixTree {
         // Get the leaf nodes of the file
         const nodes = this.mapFilePathToLeaveNodes.get(path) ?? [];
         for (const node of nodes) {
-            // Remove the file from the node
-            node.files = new Set([...node.files].filter((f) => f.path !== path));
+            // Remove the file from the node IN PLACE.
+            //
+            // Replacing the Set (node.files = new Set(...)) silently broke the
+            // fuzzy index: addFileWithName stores this very Set by reference in
+            // fuzzyKeywordMap, so a fresh Set left every existing entry pointing
+            // at the old, still-populated one. A deleted, renamed or newly
+            // excluded note then kept being returned by fuzzy matching, and
+            // clicking such a link opened a note that no longer existed.
+            for (const f of node.files) {
+                if (f.path === path) node.files.delete(f);
+            }
         }
 
         // If the nodes have no files or children, remove them from the tree
@@ -1222,10 +1363,17 @@ export class PrefixTree {
             let currentNode = node;
             while (currentNode.files.size === 0 && currentNode.children.size === 0) {
                 const parent = currentNode.parent;
-                if (!parent || parent === this.root) {
+                if (!parent) {
                     break;
                 }
                 parent.children.delete(currentNode.charValue);
+                // Stop at the root itself (it has no parent to delete it from).
+                // The old code stopped one level EARLIER, which left the now
+                // empty first-character node in root.children forever - one
+                // orphan per removed keyword, accumulated for the whole session.
+                if (parent === this.root) {
+                    break;
+                }
                 currentNode = parent;
             }
         }
@@ -1245,7 +1393,38 @@ export class PrefixTree {
         return this.mapIndexedFilePathsToUpdateTime.has(path) && this.mapIndexedFilePathsToUpdateTime.get(path) === mtime;
     }
 
+    /**
+     * Rebuild the index. Concurrent rebuilds are coalesced: every open pane (plus
+     * the settings callback) asks for one at the same time, and each run removes
+     * and re-adds files on the SAME tree, so interleaving them left it half-built
+     * for a moment - links flickered in and out. A rebuild asking for the same
+     * files shares the one already running; a different one waits its turn.
+     */
     async updateTree(updateFiles?: (string | undefined)[]) {
+        const key = `${this.generation}\u0000${updateFiles?.length ? updateFiles.join('\u0000') : '*'}`;
+        // Loop, not a single `await`: several callers can be parked on the same
+        // in-flight build, and one await would release them all at once - they
+        // would then rebuild concurrently, which is exactly what this guard
+        // exists to prevent. Re-check after every wait instead.
+        for (;;) {
+            if (this.treeUpdateInFlight && this.treeUpdateInFlightKey === key) {
+                return this.treeUpdateInFlight;
+            }
+            if (!this.treeUpdateInFlight) break;
+            await this.treeUpdateInFlight;
+        }
+        const run = this.doUpdateTree(updateFiles);
+        this.treeUpdateInFlight = run;
+        this.treeUpdateInFlightKey = key;
+        try {
+            await run;
+        } finally {
+            this.treeUpdateInFlight = null;
+            this.treeUpdateInFlightKey = '';
+        }
+    }
+
+    private async doUpdateTree(updateFiles?: (string | undefined)[]) {
         this.fetcher.refreshSettings();
 
         const currentVaultFiles = new Set<string>();
@@ -1259,8 +1438,17 @@ export class PrefixTree {
 
         allFiles.forEach((f) => currentVaultFiles.add(f.path));
 
-        // If the number of files has changed, update all files
-        if (allFiles.length !== this.setIndexedFilePaths.size || !updateFiles?.length) {
+        // Rebuild everything only when no explicit file list was given.
+        //
+        // `allFiles.length !== this.setIndexedFilePaths.size` used to be part of
+        // this test, which made it true on EVERY call once a vault held any
+        // excluded file: excluded files are never added to setIndexedFilePaths,
+        // so the two counts can never match (SUPPORTED_EXTENSIONS includes mp4
+        // and the default settings exclude it). Every save then re-scanned the
+        // whole vault instead of the single note that changed. Additions and
+        // deletions are already covered by the vault create/delete/rename
+        // listeners, which schedule a full refresh.
+        if (!updateFiles?.length) {
             files = allFiles;
         } else {
             // If files are provided, only update the provided files
@@ -1373,63 +1561,95 @@ export class PrefixTree {
             PrefixTree.SUPPORTED_EXTENSIONS.includes(file.extension.toLowerCase())
         );
 
-        // Signature over path+mtime so the O(n^2) containment scan only reruns
-        // when the vault's files actually change (not on every update/scroll).
-        const signature = allFiles.map((f) => `${f.path}:${f.stat.mtime}`).sort().join('|');
-        if (signature === this.lastAutoExcludeSignature) return false;
-        this.lastAutoExcludeSignature = signature;
-
-        // Candidates: notes that are currently indexed (not already excluded).
-        const candidates: { file: TFile; name: string }[] = [];
-        for (const file of allFiles) {
-            if (this.shouldExcludeFile(file)) continue;
-            const name = file.basename;
-            if (name && name.length >= 2) candidates.push({ file, name });
+        // Two signatures: the NAME signature only changes on rename/create/
+        // delete (rare), while the CONTENT signature changes on every save.
+        // The O(n^2) containment pair scan is cached behind the name signature,
+        // so a normal edit reuses the pairs and only re-verifies first
+        // sentences (themselves cached by mtime). The old single path+mtime
+        // signature re-ran the full O(n^2) scan on EVERY save, which froze
+        // Obsidian on large vaults after each edit.
+        const nameSig = allFiles.map((f) => `${f.path}\u0000${f.basename}`).sort().join('|');
+        const contentSig = allFiles.map((f) => `${f.path}:${f.stat.mtime}`).sort().join('|');
+        if (nameSig === this.autoExcludeNameSig && contentSig === this.autoExcludeContentSig) {
+            return false;
         }
 
-        // Sort by name length ascending so the shorter name is the outer loop.
-        candidates.sort((a, b) => a.name.length - b.name.length);
+        if (nameSig !== this.autoExcludeNameSig) {
+            this.autoExcludeNameSig = nameSig;
 
-        // Pass 1 (sync): collect containment pairs. The shorter name must be a
-        // strict substring of a longer name (equal-length names are skipped).
-        const pairs: { shorter: TFile; longer: TFile }[] = [];
-        for (let i = 0; i < candidates.length; i++) {
-            const shorter = candidates[i];
-            for (let j = i + 1; j < candidates.length; j++) {
-                const longer = candidates[j];
-                if (longer.name.length === shorter.name.length) continue;
-                if (longer.name.includes(shorter.name)) {
-                    pairs.push({ shorter: shorter.file, longer: longer.file });
+            // Candidates: notes that are currently indexed (not already excluded).
+            const candidates: { file: TFile; name: string }[] = [];
+            for (const file of allFiles) {
+                if (this.shouldExcludeFile(file)) continue;
+                const name = file.basename;
+                if (name && name.length >= 2) candidates.push({ file, name });
+            }
+
+            // Sort by name length ascending so the shorter name is the outer loop.
+            candidates.sort((a, b) => a.name.length - b.name.length);
+
+            // Pass 1: collect containment pairs. The shorter name must be a
+            // strict substring of a longer name (equal-length names are
+            // skipped).
+            //
+            // This is O(n^2) over the whole vault, so it yields to the event
+            // loop periodically. Running it straight through froze Obsidian for
+            // the whole duration on a large vault when the setting was switched
+            // on. Pairs are stored as paths so they survive the index rebuilds
+            // that auto-exclude itself triggers.
+            const pairs: { shorterPath: string; longerPath: string }[] = [];
+            for (let i = 0; i < candidates.length; i++) {
+                const shorter = candidates[i];
+                if (i % 200 === 199) await new Promise((resolve) => setTimeout(resolve, 0));
+                for (let j = i + 1; j < candidates.length; j++) {
+                    const longer = candidates[j];
+                    if (longer.name.length === shorter.name.length) continue;
+                    if (longer.name.includes(shorter.name)) {
+                        pairs.push({ shorterPath: shorter.file.path, longerPath: longer.file.path });
+                    }
                 }
             }
+            this.autoExcludePairs = pairs;
         }
+        this.autoExcludeContentSig = contentSig;
 
-        // Pass 2 (async): read first sentences only for the (few) containment pairs.
+        // Pass 2 (async): read first sentences only for the (few) containment
+        // pairs. getFirstSentence is cached by mtime, so on a normal save only
+        // the edited file hits the disk.
         let changed = false;
-        for (const pair of pairs) {
-            const shortSentence = await this.getFirstSentence(pair.shorter);
-            const longSentence = await this.getFirstSentence(pair.longer);
+        const stillMatching = new Set<string>();
+        for (const pair of this.autoExcludePairs) {
+            const shorter = this.app.vault.getFileByPath(pair.shorterPath);
+            const longer = this.app.vault.getFileByPath(pair.longerPath);
+            if (!shorter || !longer) continue;
+            const shortSentence = await this.getFirstSentence(shorter);
+            const longSentence = await this.getFirstSentence(longer);
             if (shortSentence && longSentence && shortSentence === longSentence) {
-                if (!this.autoExcludedPaths.has(pair.longer.path)) {
-                    this.autoExcludedPaths.add(pair.longer.path);
-                    this.removeFileFromTree(pair.longer);
+                stillMatching.add(pair.longerPath);
+                if (!this.autoExcludedPaths.has(pair.longerPath)) {
+                    this.autoExcludedPaths.add(pair.longerPath);
+                    this.removeFileFromTree(longer);
                     changed = true;
                 }
             }
         }
 
-        return changed;
-    }
-
-    findFiles(prefix: string): Set<TFile> {
-        let node: PrefixNode | undefined = this.root;
-        for (const char of prefix) {
-            node = node.children.get(char.toLowerCase());
-            if (!node) {
-                return new Set();
+        // Lift stale exclusions: the first sentence diverged (or the pair file
+        // disappeared), so the longer note is a real note again. Re-add it to
+        // the tree; addFileToTree re-checks every exclusion rule first. This
+        // also cleans up entries for deleted files. The old code kept such
+        // exclusions sticky until a full plugin reload.
+        for (const path of [...this.autoExcludedPaths]) {
+            if (stillMatching.has(path)) continue;
+            this.autoExcludedPaths.delete(path);
+            const file = this.app.vault.getFileByPath(path);
+            if (file) {
+                this.addFileToTree(file);
             }
+            changed = true;
         }
-        return node.files;
+
+        return changed;
     }
 
     resetSearch() {
@@ -1439,24 +1659,31 @@ export class PrefixTree {
 
     pushChar(char: string) {
         const newNodes: VisitedPrefixNode[] = [];
+        // Nodes already queued, so the membership test below is O(1). It used to
+        // rebuild an array of every queued node and scan it linearly for each
+        // node in _currentNodes, which made pushChar quadratic in the number of
+        // live nodes - and it runs once per character.
+        const queued = new Set<PrefixNode>();
         const chars = [char, char.toLowerCase()];
 
         chars.forEach((c) => {
             const isBoundary = PrefixTree.checkWordBoundary(c);
-            if (this.settings.matchAnyPartsOfWords || isBoundary || this.settings.matchEndOfWords) {
+            // Skip when already queued: for a lowercase char both entries of
+            // `chars` are identical, which used to enqueue the root twice.
+            if ((this.settings.matchAnyPartsOfWords || isBoundary || this.settings.matchEndOfWords)
+                && !queued.has(this.root)) {
                 newNodes.push(new VisitedPrefixNode(this.root, true, isBoundary));
+                queued.add(this.root);
             }
 
             for (const node of this._currentNodes) {
                 const child = node.node.children.get(c);
                 const startedAtBoundary = node.startedAtWordBeginning;
-                if (child) {
-                    const newPrefixNodes = newNodes.map((n) => n.node);
-                    if (!newPrefixNodes.includes(child)) {
-                        const newVisited = new VisitedPrefixNode(child, char == c, startedAtBoundary);
-                        newVisited.formattingDelta = node.formattingDelta;
-                        newNodes.push(newVisited);
-                    }
+                if (child && !queued.has(child)) {
+                    const newVisited = new VisitedPrefixNode(child, char === c, startedAtBoundary);
+                    newVisited.formattingDelta = node.formattingDelta;
+                    newNodes.push(newVisited);
+                    queued.add(child);
                 }
             }
         });
@@ -1556,8 +1783,105 @@ export class PrefixTree {
     }
 }
 
-export class CachedFile {
-    constructor(public mtime: number, public file: TFile, public aliases: string[], public tags: string[]) {}
+export interface FuzzyWindowScore {
+    bestOffset: number;
+    bestResults: ReturnType<PrefixTree['findFuzzyMatches']>;
+}
+
+/**
+ * Score every offset of a fuzzy sliding window and return the best one.
+ *
+ * Shared by liveLinker and readModeLinker, whose window logic used to be two
+ * ~70-line near-identical copies. `isCovered` lets each caller express the
+ * "an exact match already claims this range" test in its own coordinate system
+ * (live-mode offsets are absolute, read-mode offsets are text-node relative).
+ */
+export function scoreFuzzyWindow(opts: {
+    cache: PrefixTree;
+    settings: LinkerPluginSettings;
+    text: string;
+    baseFrom: number;
+    endPos: number;
+    rawWord: string;
+    maxOffset: number;
+    isWordBoundary: boolean;
+    excludeFile: TFile | null;
+    renderedFile: TFile | null;
+    isCovered: (checkFrom: number, checkTo: number) => boolean;
+}): FuzzyWindowScore | null {
+    const { cache, settings, text, baseFrom, endPos, rawWord, maxOffset, isWordBoundary, excludeFile, renderedFile, isCovered } = opts;
+    let bestOffset = -1;
+    let bestSim = -1;
+    let bestResults: ReturnType<PrefixTree['findFuzzyMatches']> | null = null;
+    for (let offset = 0; offset <= maxOffset; offset++) {
+        const rawCandidate = rawWord.slice(offset);
+        const leadWs = rawCandidate.length - rawCandidate.replace(/^\s+/, '').length;
+        const candidate = rawCandidate.trim();
+        if (!candidate) continue;
+        // Mirror the exact path's word-boundary rule: with matchAnyPartsOfWords
+        // off, a window that neither starts nor ends at a word boundary must be
+        // rejected exactly like an exact match would be. The exact path accepts
+        // when EITHER side is a boundary; same here.
+        if (!settings.matchAnyPartsOfWords
+            && settings.matchBeginningOfWords
+            && settings.matchEndOfWords
+            && !isWordBoundary) {
+            const candidateStart = baseFrom + offset + leadWs;
+            const startBoundary = candidateStart === 0
+                ? PrefixTree.checkWordBoundary(text[0] ?? '')
+                : PrefixTree.checkWordBoundary(text[candidateStart - 1] ?? '');
+            if (!startBoundary) continue;
+        }
+        if (candidate.length < cache.minFuzzyKeywordLen - 2) continue;
+        // Right-side short-circuit: a candidate more than 2x the longest indexed
+        // keyword can never shrink enough (via stopword stripping) to match.
+        if (candidate.length > cache.maxFuzzyKeywordLen * 2 + 4) continue;
+        const normWord = cache.fuzzyNormalize(candidate, settings.stemmingLanguage);
+        if (!normWord) continue;
+        // Length short-circuit: a query whose normalized length is >2 away from
+        // every indexed fuzzy keyword can never reach the >=80% threshold.
+        if (!cache.couldMatchFuzzyLength(normWord.length)) continue;
+        const fuzzyResults = cache.findFuzzyMatches(normWord, settings.fuzzyMatchThreshold, excludeFile, renderedFile);
+        if (fuzzyResults.length > 0) {
+            // Pre-check this window would actually emit: the caller only tries
+            // bestOffset, so a window that is covered by an exact match or whose
+            // files are all extension-excluded must never win - otherwise this
+            // scan position produces no link at all.
+            if (isCovered(baseFrom + offset + leadWs, endPos)) continue;
+            const usable = fuzzyResults.some((fr) =>
+                [...fr.files].some((f) =>
+                    !hasExcludedExtension(f.path, settings.excludedExtensions)));
+            if (!usable) continue;
+
+            const sim = fuzzyResults[0].similarity;
+            if (sim > bestSim) {
+                bestSim = sim;
+                bestOffset = offset;
+                bestResults = fuzzyResults;
+                // Already perfect — a shorter window cannot beat it.
+                if (sim >= 0.9999) break;
+            }
+        }
+    }
+    if (bestOffset < 0) return null;
+    return { bestOffset, bestResults: bestResults ?? [] };
+}
+
+/** Normalize a user-entered extension ("mp4" or ".mp4") to a lowercased,
+ *  leading-dot suffix so only a real extension matches. The old bare endsWith
+ *  made "mp4" also exclude files merely NAMED like it, and an empty entry
+ *  (''.endsWith('') is always true) exclude every file. */
+function normalizeExtensionSuffix(ext: string): string {
+    const trimmed = ext.trim();
+    return (trimmed.startsWith('.') ? trimmed : '.' + trimmed).toLowerCase();
+}
+
+/** True when the path ends with one of the configured excluded extensions.
+ *  Shared by the prefix tree, the fuzzy index and both render modes so every
+ *  layer applies the identical (normalized) extension rule. */
+export function hasExcludedExtension(path: string, extensions: string[]): boolean {
+    const lower = path.toLowerCase();
+    return extensions.some((ext) => lower.endsWith(normalizeExtensionSuffix(ext)));
 }
 
 export class LinkerCache {
@@ -1587,7 +1911,15 @@ export class LinkerCache {
     }
 
     clearCache() {
+        // Read the setting again: it is captured in the constructor, but this
+        // instance is a singleton, so without refreshing it a change to the
+        // fuzzy minimum length would only take effect after a plugin reload.
+        this.cache.fuzzyMinLength = this.settings.fuzzyMinLength ?? 4;
+        // The cached per-file metadata embeds the directory patterns, so it has
+        // to go too when the index is rebuilt after a settings change.
+        this.cache.fetcher.clearCache();
         this.cache.clear();
+        this.cache.resetReady();
         // updateCache() skips rebuilding while the active file path is unchanged.
         // Without clearing it here, a settings change (updateManager calls
         // clearCache) would wipe the index and leave it EMPTY until the user
@@ -1603,18 +1935,28 @@ export class LinkerCache {
         // Skip update if plugin is not activated
         if (!this.settings.linkerActivated) return;
 
-        if (!this.app?.workspace?.getActiveFile()) {
-            return;
-        }
+        // A missing active file must NOT skip the build. On load the workspace
+        // often has not restored the last note yet, and skipping left the index
+        // empty; the next incremental build then indexed a single note and
+        // markReady() fired on that, so readers rendered against an index holding
+        // one entry.
+        const activeFile = this.app?.workspace?.getActiveFile()?.path;
 
         // We only need to update cache if the active file has changed
-        const activeFile = this.app.workspace.getActiveFile()?.path;
-        if (activeFile === this.activeFilePath && !force) {
+        if (activeFile && activeFile === this.activeFilePath && !force) {
             return;
         }
 
-        void this.cache.updateTree(force ? undefined : [activeFile, this.activeFilePath])
-            .then(() => this.cache.markReady());
+        const full = force || !activeFile;
+        void this.cache.updateTree(full ? undefined : [activeFile, this.activeFilePath])
+            .then(() => {
+                // Only a FULL build proves the index is complete - see above.
+                if (full) this.cache.markReady();
+            })
+            .catch(() => {
+                // Leave isReady false so a later rebuild still marks it ready,
+                // and swallow it so a failed build is not an unhandled rejection.
+            });
 
         this.activeFilePath = activeFile;
 

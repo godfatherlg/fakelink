@@ -15,7 +15,7 @@ function basename(filePath: string): string {
     return lastSlashIndex === -1 ? filePath : filePath.substring(lastSlashIndex + 1);
 }
 
-function relative(from: string, to: string): string {
+export function relative(from: string, to: string): string {
     // Simplified relative path calculation for Obsidian environment
     if (from === to) return '';
 
@@ -46,7 +46,10 @@ function isSeparatorRow(line: string): boolean {
     return /^\|[\s\-:|]+\|$/.test(line.trim());
 }
 
-/** Split a table row into cells, keeping the | inside nested wikilinks intact. */
+/** Split a table row into cells, keeping the | inside nested wikilinks intact.
+ *  A backslash-escaped character (\| or \\) is kept together in the current
+ *  cell: an escaped pipe must not split the row, or the cell count goes out of
+ *  step with the rendered table and the conversion lands in the wrong cell. */
 function splitTableRow(line: string): string[] {
     const cells: string[] = [];
     let cur = '';
@@ -54,7 +57,8 @@ function splitTableRow(line: string): string[] {
     for (let i = 0; i < line.length; i++) {
         const c = line[i];
         const n = line[i + 1];
-        if (c === '[' && n === '[') { inLink = true; cur += c; }
+        if (c === '\\' && n !== undefined) { cur += c + n; i++; }
+        else if (c === '[' && n === '[') { inLink = true; cur += c; }
         else if (c === ']' && n === ']' && inLink) { inLink = false; cur += c; }
         else if (c === '|' && !inLink) { cells.push(cur); cur = ''; }
         else cur += c;
@@ -336,10 +340,24 @@ function locateInTableBlock(
  * regular menu path (main.ts) and the table-cell take-over menu
  * (virtualLinkDom.ts) share one implementation.
  */
+/**
+ * The MarkdownView whose DOM contains the given element, or null when no pane
+ * owns it (a hover popover, or a render detached from the workspace).
+ */
+function findMarkdownViewForElement(el: Element, app: App): MarkdownView | null {
+    for (const leaf of app.workspace.getLeavesOfType('markdown')) {
+        const view = leaf.view as MarkdownView;
+        if (view?.contentEl?.contains(el)) {
+            return view;
+        }
+    }
+    return null;
+}
+
 export function convertVirtualLinkToReal(linkElement: Element, target: TAbstractFile, app: App, settings: LinkerPluginSettings): void {
     // Get from and to position from the element
-    let from = parseInt(linkElement.getAttribute('from') || '-1');
-    let to = parseInt(linkElement.getAttribute('to') || '-1');
+    const from = parseInt(linkElement.getAttribute('from') || '-1');
+    const to = parseInt(linkElement.getAttribute('to') || '-1');
 
     if (from === -1 || to === -1) {
         return;
@@ -347,7 +365,14 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
 
     // Get the shown text
     const text = linkElement.getAttribute('origin-text') || '';
-    const activeFile = app.workspace.getActiveFile();
+    // Resolve the note and editor from the pane that actually contains this
+    // element, NOT from workspace.getActiveFile() / getActiveViewOfType():
+    // converting a link in an unfocused split pane used to write into whatever
+    // pane had focus, silently editing the wrong note.
+    const ownerView = findMarkdownViewForElement(linkElement, app);
+    const view = ownerView ?? app.workspace.getActiveViewOfType(MarkdownView);
+    const usedFallbackView = !ownerView;
+    const activeFile = view?.file ?? null;
     const activeFilePath = activeFile?.path ?? '';
 
     if (!activeFile) {
@@ -359,10 +384,11 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
     }
 
     let absolutePath = target.path;
-    let relativePath =
-        relative(dirname(activeFile.path), dirname(absolutePath)) +
-        '/' +
-        basename(absolutePath);
+    // relative() returns '' when both notes live in the same directory, and
+    // concatenating '/' onto that produced a leading-slash path like
+    // "/target.md" instead of just "target.md".
+    const relDir = relative(dirname(activeFile.path), dirname(absolutePath));
+    let relativePath = (relDir ? relDir + '/' : '') + basename(absolutePath);
     relativePath = relativePath.replace(/\\/g, '/'); // Replace backslashes with forward slashes
 
     // Problem: we cannot just take the fileToLinktext result, as it depends on the app settings
@@ -373,7 +399,7 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
     // We have to check, if it leads to the correct file
     const lastPart = replacementPath.split('/').pop();
     const shortestFile = app.metadataCache.getFirstLinkpathDest(lastPart || '', '');
-    let shortestPath = shortestFile?.path == target.path ? lastPart : absolutePath;
+    let shortestPath = shortestFile?.path === target.path ? lastPart : absolutePath;
 
     // Remove superfluous .md extension and add headerId if exists
     const pathSuffix = headerId ? `#${headerId}` : '';
@@ -387,11 +413,13 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
         if (relativePath.endsWith('.md')) {
             relativePath = relativePath.slice(0, -3);
         }
-        // Add headerId to all paths
-        absolutePath += pathSuffix;
-        shortestPath += pathSuffix;
-        relativePath += pathSuffix;
     }
+    // Append the heading anchor whether or not the link text carries .md. It used
+    // to be appended only inside the branch above, so a link text ending in .md
+    // lost the anchor and pointed at the top of the note.
+    absolutePath += pathSuffix;
+    shortestPath += pathSuffix;
+    relativePath += pathSuffix;
 
     const useMarkdownLinks = settings.useDefaultLinkStyleForConversion
         ? settings.defaultUseMarkdownLinks
@@ -412,23 +440,31 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
     // Create the replacement
     let replacement = '';
 
-    // If the file is the same as the shown text, and we can use short links, we use them
+    // If the file is the same as the shown text, and we can use short links, use
+    // them without a display name. Always carry the heading anchor: it used to be
+    // dropped here, so a heading whose text equalled the note name pointed at the
+    // top of the note instead of at the heading.
     if (replacementPath === text && linkFormat === 'shortest') {
-        replacement = `[[${replacementPath}]]`;
+        replacement = useMarkdownLinks
+            ? `[${text}](${replacementPath + pathSuffix})`
+            : `[[${replacementPath + pathSuffix}]]`;
     }
     // Otherwise create a specific link, using the shown text
     else {
-        if (linkFormat === 'shortest') {
-            replacement = createLink(shortestPath || absolutePath, text, useMarkdownLinks);
-        } else if (linkFormat === 'relative') {
+        if (linkFormat === 'relative') {
             replacement = createLink(relativePath, text, useMarkdownLinks);
         } else if (linkFormat === 'absolute') {
             replacement = createLink(absolutePath, text, useMarkdownLinks);
+        } else {
+            // shortest (default), and the fallback for any unrecognised value so
+            // an old or migrated setting can never leave `replacement` empty -
+            // replaceRange('', from, to) would delete the matched text.
+            replacement = createLink(shortestPath || absolutePath, text, useMarkdownLinks);
         }
     }
 
     // Replace the text
-    const editor = app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+    const editor = view?.editor ?? null;
 
     let fromEditorPos: EditorPosition | undefined;
     let toEditorPos: EditorPosition | undefined;
@@ -460,6 +496,19 @@ export function convertVirtualLinkToReal(linkElement: Element, target: TAbstract
 
     if (!fromEditorPos || !toEditorPos) {
         return;
+    }
+
+    // No pane owned the element, so `editor` is the focused one and may belong
+    // to a different note. Confirm the offsets still cover exactly this link's
+    // text before writing - refusing to convert is far better than splicing a
+    // link into an unrelated position of another note.
+    if (usedFallbackView && editor && text) {
+        const doc = editor.getValue();
+        const start = editor.posToOffset(fromEditorPos);
+        const end = editor.posToOffset(toEditorPos);
+        if (start < 0 || end > doc.length || doc.slice(start, end) !== text) {
+            return;
+        }
     }
 
     // Table cell: a | inside the wikilink must be escaped to \| or the table

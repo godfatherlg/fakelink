@@ -171,6 +171,15 @@ export async function jumpToLine(
     const view = leaf.view;
     if (!(view instanceof MarkdownView)) return;
 
+    // Line jumps place the cursor, which needs CodeMirror - but an already
+    // open note can be sitting in reading mode, where view.editor is null.
+    // The wait below would then time out and line 186 crashes with a
+    // TypeError. Switch such a view to source mode first (the URI format
+    // already implies source mode through its view-mode=source parameter).
+    if (view.getMode() !== 'source') {
+        await leaf.setViewState({ type: 'markdown', state: { file: file.path, mode: 'source' } });
+    }
+
     // Self-heal: correct the line number when the recorded one has drifted.
     const targetLine = await resolveLineByAnchor(app, settings, file, line, anchor);
     await waitForEditor(view, targetLine, settings.lineJumpWaitSeconds * 1000);

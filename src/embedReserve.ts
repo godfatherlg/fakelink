@@ -26,14 +26,33 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
     const CACHE_KEY = '__fakelinkSizeCache2';
     const SIZE_CACHE_LIMIT = 1500;
     let sizeCacheSaveTimer: number | null = null;
+    // Without this a pending write fired after the plugin was disabled and wrote
+    // a snapshot taken from the dead instance over data.json.
+    plugin.register(() => {
+        if (sizeCacheSaveTimer !== null) window.clearTimeout(sizeCacheSaveTimer);
+        sizeCacheSaveTimer = null;
+    });
+    // Collect ResizeObservers and their hard-cap timers so unload disconnects
+    // them instead of leaving them observing a detached element.
+    const activeResizeObservers = new Set<ResizeObserver>();
+    const releaseTimers = new Set<number>();
+    plugin.register(() => {
+        for (const o of activeResizeObservers) o.disconnect();
+        activeResizeObservers.clear();
+        for (const t of releaseTimers) window.clearTimeout(t);
+        releaseTimers.clear();
+    });
     const persistSizeCache = () => {
         if (sizeCacheSaveTimer !== null) window.clearTimeout(sizeCacheSaveTimer);
         sizeCacheSaveTimer = window.setTimeout(() => {
             sizeCacheSaveTimer = null;
             void (async () => {
                 try {
-                    const loaded: unknown = await plugin.loadData();
-                    const stored = (loaded ?? {}) as Record<string, unknown>;
+                    // Build on the LIVE settings object instead of re-reading
+                    // data.json: a saveSettings() landing between our loadData()
+                    // and saveData() used to be overwritten by this older
+                    // snapshot, silently reverting the change just made.
+                    const stored = { ...(plugin.settings as unknown as Record<string, unknown>) };
                     const capMap = <V>(m: Map<string, V>, n: number): Record<string, V> => {
                         const out: Record<string, V> = {};
                         for (const [k, v] of Array.from(m.entries()).slice(-n)) out[k] = v;
@@ -51,6 +70,23 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
                         widths: tailMap(plugin.pdfWidthHeights, 50),
                         scales: tailMap(plugin.pdfScaleSamples, 50),
                     };
+                    // The snapshot is capped, but the LIVE maps kept growing for
+                    // the whole session - every image/pdf/embed ever measured
+                    // stayed in memory (keyed by path AND mtime, so editing a
+                    // file adds more keys). Trim the live maps to the same
+                    // limits; a dropped entry is simply re-measured later.
+                    const trimLiveMap = <K, V>(m: Map<K, V>, n: number) => {
+                        let excess = m.size - n;
+                        for (const k of m.keys()) {
+                            if (excess-- <= 0) break;
+                            m.delete(k);
+                        }
+                    };
+                    trimLiveMap(plugin.imageSizes, SIZE_CACHE_LIMIT);
+                    trimLiveMap(plugin.pdfHeights, 300);
+                    trimLiveMap(plugin.embedHeights, 300);
+                    trimLiveMap(plugin.pdfWidthHeights, 50);
+                    trimLiveMap(plugin.pdfScaleSamples, 50);
                     await plugin.saveData(stored);
                 } catch { /* cache persistence is best-effort */ }
             })();
@@ -238,18 +274,26 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
             }, 700);
         });
         ro.observe(el);
+        activeResizeObservers.add(ro);
         // Hard cap in case the element never resizes at all.
-        window.setTimeout(release, 6000);
+        releaseTimers.add(window.setTimeout(release, 6000));
     };
     // One observer serves everything that has to react to inserted nodes.
     // Four separate ones (PDF crops, images, note embeds, hover popovers)
     // would run four callbacks for every DOM change anywhere in the app -
     // the only always-on cost this plugin has - so they share one instead.
     const onInsert: ((node: HTMLElement) => void)[] = [];
+    // Cheap pre-check. Every handler below queries the whole inserted subtree, and
+    // there are four of them per added node. A long note or a big table inserts
+    // many nodes, so skip the entire set when the subtree cannot contain anything
+    // any handler looks for (pdf crops are .internal-embed, note embeds are
+    // .internal-embed too, and images/popovers are listed explicitly).
+    const PRECHECK_SEL = 'img, .internal-embed, .hover-popover';
     const insertObserver = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             for (const node of Array.from(mutation.addedNodes)) {
                 if (!node.instanceOf(HTMLElement)) continue;
+                if (!node.matches(PRECHECK_SEL) && !node.querySelector(PRECHECK_SEL)) continue;
                 for (const handler of onInsert) handler(node);
             }
         }
@@ -377,7 +421,18 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
         img.dataset.fkSized = '1';
         img.setCssStyles({ aspectRatio: dim.w + ' / ' + dim.h });
         // Hand the element back to its natural ratio once it has loaded.
-        img.addEventListener('load', () => { img.setCssStyles({ aspectRatio: '' }); }, { once: true });
+        //
+        // Must check `complete` first: this runs after an async header read, and
+        // if the image finished loading during that read the 'load' event has
+        // already been dispatched - registering the listener then meant it never
+        // fired and the reserved ratio stuck on the element forever.
+        const clear = () => img.setCssStyles({ aspectRatio: '' });
+        if (img.complete) {
+            clear();
+            return;
+        }
+        img.addEventListener('load', clear, { once: true });
+        img.addEventListener('error', clear, { once: true });
     };
 
     const reserveImage = (img: HTMLImageElement) => {
@@ -517,6 +572,7 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
             timer = window.setTimeout(measure, 400);
         });
         ro.observe(el);
+        activeResizeObservers.add(ro);
     };
     onInsert.push((node) => {
         if (node.matches(EMBED_SEL)) reserveEmbed(node);
@@ -639,12 +695,13 @@ export function registerEmbedReservation(plugin: LinkerPlugin): void {
         // Same opt-in as the editor path: an unmodified Obsidian jump already
         // centres the heading, and a real link proves it stays there.
         if (!plugin.settings.alignHeadingAfterJump) return;
-        let domTarget: number | undefined;
+        // No baseline callback: onBaseline only fires in 'hold' mode, so the
+        // targetViewport it fed was always undefined here.
         window.setTimeout(() => keepScrolledHeadingAligned(
             scope, 'dom-click', alignWindow(),
-            (el, h) => scrollEditor(el, h, domTarget),
+            scrollEditor,
             undefined,
-            (o) => { domTarget = o; },
+            undefined,
             'centre',
         ), 60);
     }, true);

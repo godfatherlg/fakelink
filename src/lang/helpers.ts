@@ -64,8 +64,6 @@ const zhCN: Record<string, string> = {
     'When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.': '启用后，只有包含起止符号的标题才会产生虚拟链接。无标记的标题不会产生虚拟链接。',
     'Allow virtual links in headers': '允许标题中的虚拟链接',
     'When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.': '启用后，虚拟链接将显示在 Markdown 标题中。可以配合 Quick Switcher++ 进行标题的检索使用。',
-    'Header jump retry delay (ms)': '标题跳转重试延时（毫秒）',
-    'When you click a virtual link pointing to a heading, the plugin jumps again after a short delay to correct position drift in large files. This is the base delay in milliseconds; it retries 3 times with increasing intervals. Minimum 100.': '点击指向标题的虚拟链接时，插件会在短暂延时后再次跳转，以修正大文件中的定位漂移。这是基础延时（毫秒），共重试 3 次且间隔递增。最小值为 100。',
     'Fuzzy meaning matching': '词义模糊匹配',
     'When enabled, keywords are normalized before matching so related forms link to the same note or heading. English: each word is reduced to its stem and irregular verbs are aligned (e.g. "He ran to the store" matches "he runs to the store"). Chinese: common function words are stripped (e.g. "我的项目计划" matches "项目计划"). Off by default.': '启用后，关键词在匹配前会被归一化，使相关形式链到同一个笔记或标题。英文：每个词还原为词根并对齐不规则动词（如 "He ran to the store" 可链 "he runs to the store"）。中文：去除常见虚词（如 "我的项目计划" 可链 "项目计划"）。默认关闭。',
     'Fuzzy matching language': '词义模糊匹配语言',
@@ -79,6 +77,19 @@ const zhCN: Record<string, string> = {
     'Maximum number of characters stripped from the front of a text run while searching for a fuzzy match. Lower values are faster but may miss a term buried more than this many characters after the last punctuation/space. Default 10.': '模糊匹配时，从文本段开头最多截去的字符数。值越小越快，但可能漏掉那些距上一个标点/空格超过该字符数的词条。默认 10。',
     'Titles or note names whose normalized length is longer than this are processed by fuzzy matching; those of this length or shorter are skipped (exact matching still works). This keeps fuzzy matching focused on long titles/notes, where inflected or fuzzy variants are common, and avoids false links on short words. Default 6 (Chinese: only titles longer than 6 characters). Range 1-20.': '词义模糊匹配仅处理归一化后长度【大于】此值的标题或笔记名；长度等于或小于此值的会被跳过（精确匹配不受影响）。这样模糊匹配只针对长标题/长文章名——词形变体通常出现在长词上，短词容易误链。默认 6，即只有长于 6 个汉字的标题才做模糊处理。范围 1-20。',
     'Convert all virtual links in note to real links (preview)': '将笔记中所有虚拟链接转换为真实链接（预览）',
+
+    'Toggle virtual linker': '切换虚拟链接',
+    'Toggle header marker symbol': '切换标题标记符号',
+    'Convert all virtual links in selection to real links': '将选中内容中的虚拟链接转换为真实链接',
+    'Convert all virtual links in multiple notes to real links': '将多篇笔记中的虚拟链接转换为真实链接',
+    'Auto (by script)': '自动（按文字）',
+    'English': '英文',
+    'Chinese': '中文',
+    'Shortest': '最短路径',
+    'Relative': '相对路径',
+    'Absolute': '绝对路径',
+    'List of directory names (separated by new line)': '目录名列表（每行一个）',
+    '{count} more reference(s)': '{count} 个更多引用',
     'Skip links with multiple targets (batch convert)': '批量转换时跳过多指向的链接',
     'When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.': '使用「将笔记中所有虚拟链接转换为真实链接（预览）」时，指向多个笔记的虚拟链接会被跳过，方便你手动逐一转换。关闭后它们会包含在列表中，但默认不勾选，转换时仅取第一个目标。',
 
@@ -226,15 +237,24 @@ const zhCN: Record<string, string> = {
 
     'What is new': '更新了什么',
     'See the full release notes': '查看完整更新说明',
-    'Fix: exact matches against numbered headings (e.g. "1. Title") no longer show the fuzzy-match colour. Also: the batch-convert dialogs now follow the app language instead of hardcoded Chinese.': '修复：匹配带编号标题（如「1. 标题」）时不再显示模糊匹配的颜色。另外：批量转换对话框现在跟随应用语言显示，不再硬编码中文。',
 
-    'Fix: a note being previewed while a different note had focus no longer lost its heading links (shown in the fuzzy colour). The exact/fuzzy decision now uses the note being rendered.': '修复：当某个笔记正在预览、而另一个笔记处于激活状态时，被预览的笔记里指向激活笔记标题的链接不再消失（也不再显示为模糊匹配的颜色）。精确/模糊的判定现在依据「正在渲染的笔记」。',
-
-    'Fix: the What\'s-new notes now display in the app language instead of always English.': '修复：更新说明（What\'s new）现在会根据应用语言显示，而非始终为英文。',
-
-    'Fix: per-note keyword exclusions (the frontmatter opt-in property and the frontmatter exclude list) now read the note being rendered instead of the focused one.': '修复：按笔记排除关键词（frontmatter 启用标记与 frontmatter 排除列表）现在读取「正在渲染的笔记」，而非编辑器激活的笔记。',
+    'Fixed: in a split view the non-focused pane now renders against its own note; folder exclusions, per-note keyword exclusions and the self-link rule no longer read the focused note.': '修复：分屏视图下未激活的窗格现在按自身的笔记渲染；文件夹排除、按笔记关键词排除与自链接规则不再读取激活的笔记。',
+    'Fixed: case-sensitive keywords no longer receive fuzzy or stemmed links, which used to bypass the case rule.': '修复：区分大小写的关键词不再产生模糊或词干链接，此前这些路径会绕过大小写规则。',
+    'Fixed: notes deleted or renamed no longer linger in the fuzzy index, per-view listeners are released on close, and converting a link in an unfocused pane edits that pane.': '修复：被删除或重命名的笔记不再残留在模糊索引中，各视图的监听在关闭时释放，在未激活窗格中转换链接现在编辑的是该窗格。',
+    'Faster and stricter: per-note exclusion lists and file metadata are cached, saving a note no longer rebuilds the whole vault index, and fuzzy matching now respects the word-boundary settings and the fuzzy minimum length without a reload.': '更快更严格：按笔记排除列表与文件元数据已缓存，保存笔记不再重建整个库索引，模糊匹配现在即时遵循词边界设置与模糊最小长度，无需重载。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
+
+    'Add to excluded keywords': '加入排除关键词',
+    'Convert to real link': '转换为真实链接',
+    'Exclude this file': '排除此文件',
+    'Include this file': '包含此文件',
+    'Exclude this directory': '排除此文件夹',
+    'Include this directory': '包含此文件夹',
+
+    'The note changed while the dialog was open. Please run the command again.': '对话框打开期间笔记已切换，请重新运行该命令。',
+
+    'When enabled, advanced options are shown throughout the settings tab. Turn it off for a simpler view.': '启用后，设置面板各处会显示高级选项；关闭可获得更简洁的视图。',
     'Virtual links are currently disabled. Enable them in the settings before running the batch conversion.': '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。',
     'Select some text first, then run this command.': '请先选择一段文本，再运行此命令。',
     'in the selection': '选中内容中',

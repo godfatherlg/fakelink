@@ -24,7 +24,10 @@ const step1ab = (s: string): string => {
     // (caresses -> caress, ponies -> poni).
     if (s.endsWith('sses') || s.endsWith('ies')) { s = s.slice(0, -2); adj(s.length - 1); }
     else if (s.endsWith('ss')) { adj(s.length - 1); }
-    else if (s.endsWith('s') && s.length > 2) { adj(s.length - 2); }
+    // Porter's (*v*) s rule: drop the trailing s only when the part before it
+    // contains a vowel. A bare length check would stem vowel-less words like
+    // "gps" into "gp", which the original algorithm keeps intact.
+    else if (s.endsWith('s') && s.slice(0, -1).split('').some((c) => 'aeiou'.includes(c))) { adj(s.length - 2); }
 
     s = s.slice(0, k + 1);
 
@@ -228,7 +231,11 @@ const registry: Record<string, StemFn> = {
  * original (trimmed, lowercased) word so callers can compare consistently.
  */
 export function stem(word: string, language: string): string {
-    const fn = registry[language];
+    // 'auto' has no dedicated stemmer: it means "detect per word", and the caller
+    // (fuzzyNormalize) already picks the branch by character set. Treat 'auto' as
+    // English here - otherwise the English branch silently did nothing (default
+    // stemmingLanguage is 'auto', so Porter stemming was never applied).
+    const fn = registry[language === 'auto' ? 'en' : language];
     if (!fn) return word.toLowerCase();
     return fn(word);
 }
@@ -236,3 +243,5 @@ export function stem(word: string, language: string): string {
 export function isStemmingSupported(language: string): boolean {
     return language in registry;
 }
+
+

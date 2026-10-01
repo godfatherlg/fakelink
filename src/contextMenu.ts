@@ -1,13 +1,38 @@
-import { App, Menu, TAbstractFile, TFolder } from 'obsidian';
+import { App, Menu, TAbstractFile, TFile, TFolder } from 'obsidian';
 import { LinkerMetaInfoFetcher } from '../linker/linkerInfo';
 import { clearContextLock } from '../linker/virtualLinkDom';
 import { convertVirtualLinkToReal } from '../linker/convertLink';
+import { getVirtualLinkRawPath } from '../linker/virtualLinkMatch';
+import { LinkerCache } from '../linker/linkerCache';
+import { t } from './lang/helpers';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('../main').default;
 
 // The right-click menu built for files, folders and virtual links. It used to
 // be a method on the plugin; it now takes the plugin as a parameter.
+
+// The MouseEvent of the right-click that produced the current file-menu.
+//
+// It used to be captured by registering a { once: true } 'contextmenu' listener
+// from inside the file-menu handler. Listeners added while an event is being
+// dispatched are NOT invoked for that same event (DOM spec), so that captured
+// the NEXT right-click and applied the hover lock to an already-closed Menu;
+// and every invocation never followed by another right-click left a listener
+// attached for good - one per menu opened.
+let lastContextMenuEvent: MouseEvent | null = null;
+let lastContextMenuAt = 0;
+
+/** Register the persistent capture listener once, from onload. Obsidian removes
+ *  it again when the plugin unloads. */
+export function registerContextMenuEventCapture(plugin: LinkerPluginType): void {
+    plugin.registerDomEvent(
+        document,
+        'contextmenu',
+        (event: MouseEvent) => { lastContextMenuEvent = event; lastContextMenuAt = Date.now(); },
+        true
+    );
+}
 
 export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: TAbstractFile, _source: string) {
 
@@ -25,11 +50,11 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
     const isDirectory = app.vault.getAbstractFileByPath(file.path) instanceof TFolder;
 
     if (!isDirectory) {
-        const metaInfo = fetcher.getMetaInfo(file);
-
-        const contextMenuHandler = (event: MouseEvent) => {
+        // Runs synchronously with the event captured by the persistent listener
+        // above, instead of firing on the next right-click.
+        const applyContextLock = (event: MouseEvent | null) => {
             // Access the element that triggered the context menu
-            const targetElement = event.target;
+            const targetElement = event?.target ?? null;
 
             if (!targetElement || !(targetElement instanceof HTMLElement)) {
                 return;
@@ -38,34 +63,38 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
             // Check if clicked on multiple references indicator
             const isMultipleReferences = targetElement.classList.contains('multiple-files-references') || 
                                         targetElement.closest('.multiple-files-references') !== null;
-            
-            // If clicked on multiple references indicator, find the containing virtual link element
-            if (isMultipleReferences) {
-                const virtualLinkSpan = targetElement.closest('.virtual-link-span') || 
-                                       targetElement.closest('.virtual-link');
-                
-                if (virtualLinkSpan) {
-                    // Add temporary lock class to prevent collapse
-                    virtualLinkSpan.classList.add('virtual-link-hover-lock');
-                    const spanEl = virtualLinkSpan as HTMLElement;
-                    spanEl.dataset.fkContextLock = '1';
 
-                    // Unlock only when the menu closes: drop the 10s timer (that was
-                    // the source of "collapses after 10s") and use menu.onHide - the
-                    // list stays expanded while the menu is open, and collapses once
-                    // it closes after the user chooses (or presses Esc / clicks
-                    // elsewhere).
-                    menu.onHide(() => {
-                        virtualLinkSpan.classList.remove('virtual-link-hover-lock');
-                        delete spanEl.dataset.fkContextLock;
-                        // Also remove the key from the right-click lock set:
-                        // getLinkRootSpan's mousedown adds it on right-click, and
-                        // without removing it here any same-name link rebuilt later
-                        // would restore the lock and [1|2|3] would never collapse.
-                        const key = virtualLinkSpan.querySelector('.virtual-link-a')?.getAttribute('origin-text') || '';
-                        if (key) clearContextLock(key);
-                    });
-                }
+            const virtualLinkSpan = targetElement.closest('.virtual-link-span') ||
+                                     targetElement.closest('.virtual-link');
+
+            // If clicked on multiple references indicator, find the containing virtual link element
+            if (isMultipleReferences && virtualLinkSpan) {
+                const spanEl = virtualLinkSpan as HTMLElement;
+                // Add temporary lock class to prevent collapse
+                virtualLinkSpan.classList.add('virtual-link-hover-lock');
+                spanEl.dataset.fkContextLock = '1';
+            }
+
+            // Unlock when the menu closes - for ANY click inside a virtual link,
+            // not only on [1|2|3]. getLinkRootSpan's mousedown adds the lock key
+            // on every right-click over a virtual link, and every widget rebuild
+            // restores the lock class from that set. Registering the cleanup only
+            // for [1|2|3] clicks leaked the key when the user right-clicked the
+            // link text itself (the usual case): the same-named links in every
+            // note came back locked forever and [1|2|3] stayed expanded - hover
+            // could no longer collapse it. The file-menu opens for those clicks
+            // too, so menu.onHide is the right place to clear it.
+            if (virtualLinkSpan) {
+                menu.onHide(() => {
+                    const spanEl = virtualLinkSpan as HTMLElement;
+                    virtualLinkSpan.classList.remove('virtual-link-hover-lock');
+                    delete spanEl.dataset.fkContextLock;
+                    // Also remove the key from the right-click lock set: without
+                    // this, any same-name link rebuilt later would restore the
+                    // lock and [1|2|3] would never collapse.
+                    const key = virtualLinkSpan.querySelector('.virtual-link-a')?.getAttribute('origin-text') || '';
+                    if (key) clearContextLock(key);
+                });
             }
 
             // Check, if we are clicking on a virtual link inside a note or a note in the file explorer
@@ -75,23 +104,17 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
 
             // Use the virtual link element for attribute access if found
             const linkElement = virtualLinkElement || targetElement;
-            const from = parseInt(linkElement.getAttribute('from') || '-1');
-            const to = parseInt(linkElement.getAttribute('to') || '-1');
 
-            if (from === -1 || to === -1) {
-                menu.addItem((item) => {
-                    // Item to convert a virtual link to a real link
-                    item.setTitle(
-                        'Converting link is not here'
-                    ).setIcon('link');
-                });
-            }
+            // (A dead menu item used to be added here - it showed up on every
+            // file menu as soon as the captured event was reused for a menu
+            // that was not opened by a right-click.) Menu items below read the
+            // element's attributes only inside their own onClick handlers.
             // Check, if the element has the "virtual-link" class
-            else if (isVirtualLink) {
+            if (isVirtualLink) {
                 // Always show "Add to excluded keywords" option for virtual links
                 menu.addItem((item) => {
                     // Item to add virtual link text to excluded keywords
-                    item.setTitle('Add to excluded keywords')
+                    item.setTitle(t('Add to excluded keywords'))
                         .setIcon('ban')
                         .onClick(async () => {
                             const text = linkElement.getAttribute('origin-text') || '';
@@ -107,23 +130,41 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
                 // Regular context - show standard conversion
                 menu.addItem((item) => {
                     // Item to convert a virtual link to a real link
-                    item.setTitle('Convert to real link')
+                    item.setTitle(t('Convert to real link'))
                         .setIcon('link')
                         .onClick(() => {
-                            convertVirtualLinkToReal(linkElement, file, app, settings);
+                            // Resolve the link's TARGET. `file` here is the note the
+                            // menu was opened on (file-menu's argument), which for an
+                            // editor right-click IS the host note - converting with it
+                            // produced a self-link pointing at the current note.
+                            const anchor = linkElement.matches?.('.virtual-link-a')
+                                ? linkElement
+                                : linkElement.querySelector('.virtual-link-a');
+                            // Read the RAW path from data-href: the href attribute is
+                            // percent-encoded by the browser, so resolving from it
+                            // failed for paths with spaces/non-ASCII characters and
+                            // fell back to `file` - a self-link.
+                            const rawHref = getVirtualLinkRawPath(anchor);
+                            const target = rawHref
+                                ? (app.vault.getAbstractFileByPath(rawHref.split('#')[0]) ?? file)
+                                : file;
+                            convertVirtualLinkToReal(linkElement, target, app, settings);
                         });
                 });
             }
-
-            // Remove the listener to prevent multiple triggers
-            activeDocument.removeEventListener('contextmenu', contextMenuHandler);
         }
 
-        if (!metaInfo.excludeFile && (metaInfo.includeAllFiles || metaInfo.includeFile || metaInfo.isInIncludedDir)) {
+        // Decide from the index's own exclusion rules instead of a
+        // re-implemented subset of them. The old conditions disagreed with
+        // shouldExcludeFile: with "include all files" enabled, a file inside an
+        // excluded directory (already excluded!) was still offered "Exclude
+        // this file" - a dead menu item.
+        const excludedByIndex = LinkerCache.getInstance(app, settings).cache.isFileExcluded(file as TFile);
+        if (!excludedByIndex) {
             // Item to exclude a virtual link from the linker
             // This action adds the settings.tagToExcludeFile to the file
             menu.addItem((item) => {
-                item.setTitle('Exclude this file')
+                item.setTitle(t('Exclude this file'))
                     .setIcon('trash')
                     .onClick(async () => {
                         // Get the shown text
@@ -171,11 +212,11 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
                         }
                     });
             });
-        } else if (!metaInfo.includeFile && (!metaInfo.includeAllFiles || metaInfo.excludeFile || metaInfo.isInExcludedDir)) {
+        } else {
             //Item to include a virtual link from the linker
             // This action adds the settings.tagToIncludeFile to the file
             menu.addItem((item) => {
-                item.setTitle('Include this file')
+                item.setTitle(t('Include this file'))
                     .setIcon('plus')
                     .onClick(async () => {
                         // Get the shown text
@@ -225,8 +266,11 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
             });
         }
 
-        // Capture the MouseEvent when the context menu is triggered
-        activeDocument.addEventListener('contextmenu', contextMenuHandler, { once: true });
+        // A menu not opened by a right-click (the "..." button, a command) has no
+        // event of its own, so anything older than a moment cannot belong to it -
+        // reusing it would lock a link the user never right-clicked.
+        const freshEvent = Date.now() - lastContextMenuAt < 1500 ? lastContextMenuEvent : null;
+        applyContextLock(freshEvent);
     } else {
         // Check if the directory is in the linker directories
         const path = file.path + '/';
@@ -236,7 +280,7 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
         // If the directory is in the linker directories, add the option to exclude it
         if ((fetcher.includeAllFiles && !isInExcludedDir) || isInIncludedDir) {
             menu.addItem((item) => {
-                item.setTitle('Exclude this directory')
+                item.setTitle(t('Exclude this directory'))
                     .setIcon('trash')
                     .onClick(async () => {
                         // Get the shown text
@@ -259,7 +303,7 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
         } else if ((!fetcher.includeAllFiles && !isInIncludedDir) || isInExcludedDir) {
             // If the directory is in the excluded directories, add the option to include it
             menu.addItem((item) => {
-                item.setTitle('Include this directory')
+                item.setTitle(t('Include this directory'))
                     .setIcon('plus')
                     .onClick(async () => {
                         // Get the shown text

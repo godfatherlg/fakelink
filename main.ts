@@ -1,6 +1,5 @@
 import { App, Editor, MarkdownView, Menu, Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian';
 import { DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
-import { EditorSelection } from '@codemirror/state';
 import { t } from './src/lang/helpers';
 
 import { GlossaryLinker } from './linker/readModeLinker';
@@ -11,7 +10,7 @@ import { buildIndentBackground, createMathBusyWatcher, headingRowElement, patchD
 import { LinkerSettingTab } from './src/settingsTab';
 import { WhatsNewModal, WHATS_NEW_VERSION } from './src/whatsNew';
 import { copyLineUri, jumpToLine, openFileOnly } from './src/lineJump';
-import { addContextMenuItem } from './src/contextMenu';
+import { addContextMenuItem, registerContextMenuEventCapture } from './src/contextMenu';
 import { registerEmbedReservation } from './src/embedReserve';
 
 // Only one centring loop may run per editor. The caller (keepAligned) requests
@@ -19,6 +18,9 @@ import { registerEmbedReservation } from './src/embedReserve';
 // loop, the loops would each write the scroll and the symptom is "keeps
 // scrolling" - most visible in preview popovers.
 const activeCenterLoops = new WeakMap<EditorView, AbortController>();
+// WeakMap is not iterable, so a parallel set lets onunload() abort every
+// centring loop (and detach its window listeners) at once.
+const activeCenterControllers = new Set<AbortController>();
 
 // A heading this close to where it belongs is left alone. Six pixels was the
 // old floor and it was too tight: content that merely settled a little moved
@@ -250,15 +252,32 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
 };
 
 export default class LinkerPlugin extends Plugin {
+    // Settings that change WHAT GOES INTO the index (prefix tree / fuzzy map).
+    // Changing any other setting only refreshes the open views; a full vault
+    // re-index for a colour tweak is wasted work. The list errs on the safe
+    // side: a missed index-relevant key costs one extra rebuild per change,
+    // while wrongly listing a render-only key would leave stale matching.
+    private static readonly INDEX_RELEVANT_SETTINGS: ReadonlySet<string> = new Set([
+        'linkerActivated', 'includeAllFiles', 'linkerDirectories',
+        'excludedDirectories', 'excludedDirectoriesForLinking', 'excludedExtensions',
+        'matchAnyPartsOfWords', 'matchEndOfWords', 'matchBeginningOfWords',
+        'includeHeaders', 'headerMatchSymbols', 'headerMatchOnlyBetweenSymbols',
+        'headerMatchStartSymbol', 'headerMatchEndSymbol',
+        'matchCaseSensitive', 'capitalLetterProportionForAutomaticMatchCase',
+        'tagToIgnoreCase', 'tagToMatchCase', 'propertyNameToMatchCase', 'propertyNameToIgnoreCase',
+        'tagToExcludeFile', 'tagToIncludeFile', 'includeAliases',
+        'headingSymbolWhitelist', 'enableStemming', 'stemmingLanguage',
+        'fuzzyMatchThreshold', 'fuzzyMinLength', 'autoExcludeContainedCopies',
+        'filenameAffixExclusions', 'excludedKeywords', 'perNoteExcludeKeywords',
+    ]);
+
     // Check if in Canvas view
     private isInCanvas(): boolean {
-        // Only check if the current active view is Canvas
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        if (activeView && activeView.getViewType() === 'canvas') {
-            return true;
-        }
-
-        return false;
+        // getActiveViewOfType(MarkdownView) hands back a MarkdownView, whose
+        // getViewType() is always 'markdown' - so the old test here could never
+        // match and the Canvas branch in handleLayoutChange below was dead code.
+        // Ask the active leaf which view it actually hosts.
+        return this.app.workspace.activeLeaf?.view?.getViewType?.() === 'canvas';
     }
 
     public async handleLayoutChange() {
@@ -316,11 +335,28 @@ export default class LinkerPlugin extends Plugin {
      * cancel by scrolling, clicking or typing. Kept in one place so the paths
      * cannot drift apart - this area has been adjusted more than once.
      */
-    private startCentring(cm: EditorView): AbortController {
+    private startCentring(cm: EditorView, maxMs: number): AbortController {
         activeCenterLoops.get(cm)?.abort();
         const controller = new AbortController();
         activeCenterLoops.set(cm, controller);
-        const stop = () => controller.abort();
+        activeCenterControllers.add(controller);
+        // Safety net. The centring loops below end on several paths (element
+        // detached, retry budget spent, deadline reached, "already centred") and
+        // only some of them aborted, so the rest left the three window listeners
+        // attached for the rest of the session - once per jump. Abort on a
+        // deadline no matter which path was taken.
+        //
+        // The deadline must outlast the caller's own window: it is derived from
+        // headingAlignWatchSeconds (12s by default, up to 120s), and a fixed 8s
+        // here silently cut every longer window short.
+        window.setTimeout(() => {
+            if (activeCenterLoops.get(cm) === controller) {
+                activeCenterLoops.delete(cm);
+                activeCenterControllers.delete(controller);
+                controller.abort();
+            }
+        }, maxMs + 1000);
+        const stop = () => { activeCenterControllers.delete(controller); controller.abort(); };
         window.addEventListener('wheel', stop, { capture: true, passive: true, signal: controller.signal });
         window.addEventListener('mousedown', stop, { capture: true, signal: controller.signal });
         window.addEventListener('keydown', stop, { capture: true, signal: controller.signal });
@@ -372,7 +408,7 @@ export default class LinkerPlugin extends Plugin {
         // A later request replaces the previous loop (only the last survives when
         // the same spot is requested repeatedly, avoiding several loops writing
         // the scroll at once).
-        const controller = this.startCentring(cm);
+        const controller = this.startCentring(cm, maxMs);
 
         const startedAt = Date.now();
         let passes = 0;
@@ -501,7 +537,7 @@ export default class LinkerPlugin extends Plugin {
         // A later request replaces the previous loop: only the last survives when
         // the same spot is requested repeatedly, avoiding several loops writing
         // the scroll at once (the preview "keeps scrolling" is them fighting).
-        const controller = this.startCentring(cm);
+        const controller = this.startCentring(cm, maxMs);
         const scroller = cm.scrollDOM;
 
         const startedAt = Date.now();
@@ -721,6 +757,15 @@ export default class LinkerPlugin extends Plugin {
     async onload() {
         await this.loadSettings();
 
+        // LinkerCache is a module-level singleton that survives a plugin
+        // reload, and getInstance() never refreshes the settings reference it
+        // captured. The old instance would therefore keep reading the previous
+        // plugin instance's settings object - which updateSettings() never
+        // touches again - and every index-relevant setting changed after a
+        // reload would be silently ignored by the index. Rebuild the singleton
+        // so it holds this instance's settings object.
+        LinkerCache.instance = new LinkerCache(this.app, this.settings);
+
         this.applyStartupAppearance();
         this.registerWorkspaceEvents();
         this.registerIndexWatchers();
@@ -829,19 +874,13 @@ export default class LinkerPlugin extends Plugin {
                 }
                 
                 if (changes.length > 0) {
-                    // Preserve selection, excluding %% markers
-                    // When there is exactly one %% pair, set selection to content only
-                    if (changes.length === 1) {
-                        const ch = changes[0];
-                        const anchor = ch.from + 2;
-                        const head = ch.from + ch.insert.length - 2;
-                        update.view.dispatch({ 
-                            changes, 
-                            selection: EditorSelection.single(anchor, head) 
-                        });
-                    } else {
-                        update.view.dispatch({ changes });
-                    }
+                    // Apply the trim only.
+                    //
+                    // Selecting the trimmed text here (anchor/head wrapped around
+                    // the inner content) meant the very next keystroke REPLACED the
+                    // whole comment body instead of typing into it. It also fired
+                    // for pastes and undos, not just manual typing.
+                    update.view.dispatch({ changes });
                 }
             })
         );
@@ -938,7 +977,8 @@ export default class LinkerPlugin extends Plugin {
         const currentVersion = this.manifest.version;
         if (this.settings.lastSeenVersion && this.settings.lastSeenVersion !== currentVersion
             && WHATS_NEW_VERSION === currentVersion) {
-            window.setTimeout(() => new WhatsNewModal(this.app, currentVersion).open(), 1500);
+            this.whatsNewTimer = window.setTimeout(
+                () => new WhatsNewModal(this.app, currentVersion).open(), 1500);
         }
         if (this.settings.lastSeenVersion !== currentVersion) {
             this.settings.lastSeenVersion = currentVersion;
@@ -966,8 +1006,21 @@ export default class LinkerPlugin extends Plugin {
 
     private registerIndexWatchers(): void {
         // Set callback to update the cache when the settings are changed
-        this.updateManager.registerCallback(() => {
-            LinkerCache.getInstance(this.app, this.settings).clearCache();
+        this.updateManager.registerCallback((rebuildIndex) => {
+            if (!rebuildIndex) {
+                // An appearance-only change: the open views re-render through
+                // their own callbacks, but re-indexing the whole vault for a
+                // colour tweak is wasted work (and made sliders stutter on
+                // large vaults).
+                return;
+            }
+            const linkerCache = LinkerCache.getInstance(this.app, this.settings);
+            linkerCache.clearCache();
+            // clearCache() only wipes the index. The rebuild used to be driven
+            // solely by the live-linker views, so with no Live Preview editor open
+            // (reading mode, Canvas, or no file at all) nothing rebuilt it and
+            // every link stayed missing until a note was switched. Kick one off.
+            linkerCache.updateCache(true);
         });
 
         // When auto-exclude (renamed duplicates) re-indexes asynchronously,
@@ -983,11 +1036,10 @@ export default class LinkerPlugin extends Plugin {
         // index, which would stutter on a large vault. Creation, deletion and
         // renaming are rare enough that even a full rebuild goes unnoticed, and
         // a burst of them (a folder dropped in) is coalesced into one refresh.
-        let indexRefreshTimer: number | null = null;
         const scheduleIndexRefresh = (): void => {
-            if (indexRefreshTimer !== null) window.clearTimeout(indexRefreshTimer);
-            indexRefreshTimer = window.setTimeout(() => {
-                indexRefreshTimer = null;
+            if (this.indexRefreshTimer !== null) window.clearTimeout(this.indexRefreshTimer);
+            this.indexRefreshTimer = window.setTimeout(() => {
+                this.indexRefreshTimer = null;
                 this.updateManager.update();
             }, 800);
         };
@@ -1017,7 +1069,17 @@ export default class LinkerPlugin extends Plugin {
         // the one note that was saved.
         this.registerEvent(this.app.metadataCache.on('changed', (file) => {
             if (!(file instanceof TFile) || file.extension !== 'md') return;
-            void LinkerCache.getInstance(this.app, this.settings).cache.updateTree([file.path]);
+            // Auto-exclude (renamed duplicates) only re-runs from updateCache(),
+            // which happens on note switches and full rebuilds. Run it after the
+            // tree update too, so a duplicate created/renamed while the user
+            // stays on the same note stops producing links immediately instead
+            // of after the next note switch.
+            const linkerCache = LinkerCache.getInstance(this.app, this.settings);
+            void linkerCache.cache.updateTree([file.path]).then(() => {
+                void linkerCache.cache.computeAutoExclude().then((changed) => {
+                    if (changed) linkerCache.onIndexChanged?.();
+                });
+            });
         }));
     }
 
@@ -1033,7 +1095,13 @@ export default class LinkerPlugin extends Plugin {
 
     // Take over the obsidian://adv-uri protocol so line links (fired from an
     // external browser/handler too) are jumped by FakeLink itself.
-    private registerAdvUriProtocol(): void {
+    private advUriRegistered = false;
+
+    public registerAdvUriProtocol(): void {
+        // Re-entrant: called at startup AND when the user flips jumpEnabled on
+        // in settings. Guard against double registration.
+        if (this.advUriRegistered) return;
+        this.advUriRegistered = true;
 
         // Take over the obsidian://adv-uri protocol so line links (including
         // those fired from an external browser/handler) are jumped by FakeLink.
@@ -1042,7 +1110,8 @@ export default class LinkerPlugin extends Plugin {
         // action); when AU is disabled, FakeLink owns it and uses
         // scrollIntoView(center=false), which also fixes the "top few lines
         // won't scroll" bug that Advanced URI's centered scroll has.
-        window.setTimeout(() => {
+        this.protocolRegisterTimer = window.setTimeout(() => {
+            this.protocolRegisterTimer = null;
             const advancedUriLoaded = (this.app as unknown as { plugins?: { plugins?: Record<string, unknown> } })
                 .plugins?.plugins?.['obsidian-advanced-uri'] != null;
             if (advancedUriLoaded) {
@@ -1087,6 +1156,10 @@ export default class LinkerPlugin extends Plugin {
             })
         );
 
+        // Records the right-click that produced each file-menu so the menu can
+        // lock the hover-expanded list synchronously (see src/contextMenu.ts).
+        registerContextMenuEventCapture(this);
+
         // Context menu item to convert virtual links to real links
         this.registerEvent(this.app.workspace.on('file-menu', (menu, file, source) => this.addContextMenuItem(menu, file, source)));
     }
@@ -1094,7 +1167,7 @@ export default class LinkerPlugin extends Plugin {
     private registerCommands(): void {
         this.addCommand({
             id: 'toggle-virtual-linker',
-            name: 'Toggle virtual linker',
+            name: t('Toggle virtual linker'),
             callback: () => {
                 void this.updateSettings({ linkerActivated: !this.settings.linkerActivated });
                 this.updateManager.update();
@@ -1103,7 +1176,7 @@ export default class LinkerPlugin extends Plugin {
 
         this.addCommand({
             id: 'toggle-header-marker',
-            name: 'Toggle header marker symbol',
+            name: t('Toggle header marker symbol'),
             callback: () => {
                 void this.updateSettings({ headerAutoAppendSuffix: !this.settings.headerAutoAppendSuffix });
             }
@@ -1111,7 +1184,7 @@ export default class LinkerPlugin extends Plugin {
 
         this.addCommand({
             id: 'convert-selected-virtual-links',
-            name: 'Convert all virtual links in selection to real links',
+            name: t('Convert all virtual links in selection to real links'),
             editorCallback: (editor: Editor, view: MarkdownView) => {
                 if (!editor.somethingSelected()) {
                     new Notice(t('Select some text first, then run this command.'));
@@ -1129,7 +1202,8 @@ export default class LinkerPlugin extends Plugin {
                     this.app,
                     this.settings,
                     this,
-                    [rangeFrom, rangeTo]
+                    [rangeFrom, rangeTo],
+                    view
                 );
                 modal.open();
             }
@@ -1140,9 +1214,9 @@ export default class LinkerPlugin extends Plugin {
         // preview list so the user can uncheck any they want to keep virtual.
         this.addCommand({
             id: 'convert-all-virtual-links-preview',
-            name: 'Convert all virtual links in note to real links (preview)',
+            name: t('Convert all virtual links in note to real links (preview)'),
             editorCallback: (editor: Editor, view: MarkdownView) => {
-                const modal = new BatchConvertModal(this.app, this.settings, this);
+                const modal = new BatchConvertModal(this.app, this.settings, this, null, view);
                 modal.open();
             }
         });
@@ -1150,7 +1224,7 @@ export default class LinkerPlugin extends Plugin {
         // Convert virtual links across MULTIPLE notes, chosen by the user.
         this.addCommand({
             id: 'convert-multiple-files-virtual-links',
-            name: 'Convert all virtual links in multiple notes to real links',
+            name: t('Convert all virtual links in multiple notes to real links'),
             callback: () => {
                 const modal = new BatchConvertFilesModal(this.app, this.settings, this);
                 modal.open();
@@ -1186,12 +1260,9 @@ export default class LinkerPlugin extends Plugin {
         multipleRefs.forEach(ref => ref.remove());
     }
 
-    // Reserves the final height of PDF++ cropped page embeds (see onload).
-    private pdfReserveObserver: MutationObserver | null = null;
     // Image embeds: reserve their real size before they load, so they stop
     // reflowing everything below them. Dimensions come from the file header and
     // are cached per path, so each image is read at most once.
-    private imageReserveObserver: MutationObserver | null = null;
     public imageSizes = new Map<string, { w: number; h: number }>();
     public imageSizeInflight = new Map<string, Promise<{ w: number; h: number } | null>>();
     // Markdown embeds (block references, whole-note embeds): their height cannot
@@ -1209,13 +1280,59 @@ export default class LinkerPlugin extends Plugin {
     // at least two samples agree - a full-width render (where height also
     // depends on the crop width) scatters those ratios and disables the model.
     public pdfScaleSamples = new Map<number, { c: number; h: number }[]>();
-    private embedReserveObserver: MutationObserver | null = null;
     public embedHeights = new Map<string, { w: number; h: number }[]>();
+
+    /** Pending debounce timers, released in onunload(); see registerIndexWatchers
+     *  and the delayed adv-uri protocol registration. */
+    private indexRefreshTimer: number | null = null;
+    private protocolRegisterTimer: number | null = null;
+    private whatsNewTimer: number | null = null;
+    private saveTimer: number | null = null;
+
     onunload() {
-        this.pdfReserveObserver?.disconnect();
-        this.imageReserveObserver?.disconnect();
-        this.embedReserveObserver?.disconnect();
         this.cleanupVirtualLinks();
+
+        // Timers: without this a pending refresh fires against a plugin instance
+        // that has already been disabled or reloaded.
+        if (this.indexRefreshTimer !== null) {
+            window.clearTimeout(this.indexRefreshTimer);
+            this.indexRefreshTimer = null;
+        }
+        if (this.protocolRegisterTimer !== null) {
+            window.clearTimeout(this.protocolRegisterTimer);
+            this.protocolRegisterTimer = null;
+        }
+        if (this.bgSyncTimer !== null) {
+            window.clearTimeout(this.bgSyncTimer);
+            this.bgSyncTimer = null;
+        }
+        if (this.previewRerenderTimer !== null) {
+            window.clearTimeout(this.previewRerenderTimer);
+            this.previewRerenderTimer = null;
+        }
+        if (this.whatsNewTimer !== null) {
+            window.clearTimeout(this.whatsNewTimer);
+            this.whatsNewTimer = null;
+        }
+        if (this.saveTimer !== null) {
+            window.clearTimeout(this.saveTimer);
+            this.saveTimer = null;
+            void this.persistSettings();
+        }
+        // Drop the look this plugin puts on <body>, so disabling it really
+        // restores the default appearance.
+        this.clearAppearanceStyles();
+        // Stop the coalesced-rebuild timer and its callbacks from firing after
+        // unload (which would rebuild the whole index against a dead instance).
+        this.updateManager.dispose();
+        // Abort any in-flight heading-centring loop so its window listeners are
+        // detached immediately instead of lingering up to maxMs+1000.
+        for (const controller of activeCenterControllers) controller.abort();
+        activeCenterControllers.clear();
+        // LinkerCache is a module-level singleton, so leaving this callback set
+        // keeps the entire plugin instance (and its updateManager) alive after a
+        // reload, and lets a stale callback drive the new instance's updates.
+        LinkerCache.getInstance(this.app, this.settings).onIndexChanged = undefined;
     }
 
     async loadSettings() {
@@ -1276,15 +1393,54 @@ export default class LinkerPlugin extends Plugin {
     }
 
     /** Update plugin settings. */
+    // eslint-disable-next-line @typescript-eslint/require-await -- the async API is kept so callers awaiting settings persistence keep working
     async updateSettings(settings: Partial<LinkerPluginSettings> = {}) {
+        // Apply synchronously so every reader sees the new value immediately,
+        // then persist on a trailing debounce. A slider calls this once per
+        // notch, and writing data.json on each call (which also fans out to
+        // sync plugins) made dragging unusable.
         Object.assign(this.settings, settings);
+        this.scheduleSave();
+
+        // Rebuild the index only when an index-relevant setting changed. The
+        // open views always refresh (they own callbacks on the manager), but
+        // re-indexing the whole vault for a colour/opacity/suffix tweak made
+        // dragging sliders unusable on large vaults.
+        this.updateManager.update(
+            Object.keys(settings).some((key) => LinkerPlugin.INDEX_RELEVANT_SETTINGS.has(key))
+        );
         
-        // Create a settings object copy without circular references
-        const settingsToSave = {...this.settings};
-        // Remove properties that should not be serialized
+        // Keep the appearance in step no matter which code path changed a
+        // setting (settings tab, command, context menu item).
+        this.applyBackgroundStyles();
+
+        // If plugin is disabled, clear all virtual links
+        if (!this.settings.linkerActivated) {
+            this.cleanupVirtualLinks();
+        }
+        
+        // Force refresh all views so the change takes effect. Deferred and
+        // coalesced: a slider calls updateSettings once per notch, and
+        // re-rendering every open preview on each call made dragging unusable.
+        this.schedulePreviewRerender();
+    }
+
+    private previewRerenderTimer: number | null = null;
+
+    /** Coalesce the settings write-to-disk; see updateSettings(). */
+    private scheduleSave(): void {
+        if (this.saveTimer !== null) window.clearTimeout(this.saveTimer);
+        this.saveTimer = window.setTimeout(() => {
+            this.saveTimer = null;
+            void this.persistSettings();
+        }, 300);
+    }
+
+    private async persistSettings(): Promise<void> {
+        // Snapshot at write time, not at schedule time, so the latest change is
+        // what lands on disk.
+        const settingsToSave = { ...this.settings } as Partial<LinkerPluginSettings> & { app?: unknown };
         delete settingsToSave.app;
-        // delete settingsToSave.appMenuBarManager;
-        
         try {
             await this.saveData(settingsToSave);
         } catch {
@@ -1296,25 +1452,20 @@ export default class LinkerPlugin extends Plugin {
                 new Notice(t('Failed to save settings. The change may be lost when Obsidian reloads.'));
             }
         }
-        
-        this.updateManager.update();
-        
-        // Keep the appearance in step no matter which code path changed a
-        // setting (settings tab, command, context menu item).
-        this.applyBackgroundStyles();
+    }
 
-        // If plugin is disabled, clear all virtual links
-        if (!this.settings.linkerActivated) {
-            this.cleanupVirtualLinks();
-        }
-        
-        // Force refresh all views to ensure settings changes take effect immediately
-        this.app.workspace.getLeavesOfType('markdown').forEach(leaf => {
-            const view = leaf.view;
-            if (view instanceof MarkdownView && view.previewMode) {
-                view.previewMode.rerender(true);
-            }
-        });
+    /** Coalesce preview re-renders; see updateSettings(). */
+    private schedulePreviewRerender(): void {
+        if (this.previewRerenderTimer !== null) window.clearTimeout(this.previewRerenderTimer);
+        this.previewRerenderTimer = window.setTimeout(() => {
+            this.previewRerenderTimer = null;
+            this.app.workspace.getLeavesOfType('markdown').forEach((leaf) => {
+                const view = leaf.view;
+                if (view instanceof MarkdownView && view.previewMode) {
+                    view.previewMode.rerender(true);
+                }
+            });
+        }, 150);
     }
 
     private bgSyncTimer: number | null = null;
@@ -1356,6 +1507,36 @@ export default class LinkerPlugin extends Plugin {
             if (!body) return;
             for (const cls of known) body.classList.toggle(cls, wanted.indexOf(cls) !== -1);
             for (const [name, value] of vars) body.style.setProperty(name, value);
+        };
+        visit(activeWindow.document);
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const el = leaf.view?.containerEl;
+            if (el) visit(el.ownerDocument);
+        });
+    }
+
+    /** Undo applyBackgroundStyles(): drop the body classes and CSS variables it
+     *  writes, so disabling the plugin does not leave its look behind until
+     *  Obsidian is restarted. */
+    private clearAppearanceStyles(): void {
+        const known = [
+            'virtual-link-bg', 'virtual-link-bg-tint', 'virtual-link-bg-lines',
+            'virtual-link-bg-cursor', 'virtual-link-bg-tab-accent', 'virtual-link-bg-unfocused-mask',
+            'virtual-linker-alt-style', 'virtual-link-color-only',
+        ];
+        const vars = [
+            '--fakelink-line-alpha', '--fakelink-cursor-line-alpha',
+            '--virtual-link-color', '--virtual-link-header-color', '--virtual-link-note-color',
+            '--virtual-link-fuzzy-header-color', '--virtual-link-fuzzy-note-color',
+        ];
+        const seen = new Set<Document>();
+        const visit = (ownerDoc: Document) => {
+            if (seen.has(ownerDoc)) return;
+            seen.add(ownerDoc);
+            const body = ownerDoc.body;
+            if (!body) return;
+            for (const cls of known) body.classList.remove(cls);
+            for (const name of vars) body.style.removeProperty(name);
         };
         visit(activeWindow.document);
         this.app.workspace.iterateAllLeaves((leaf) => {

@@ -12,14 +12,17 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.6';
+export const WHATS_NEW_VERSION = '1.24.7';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fix: per-note keyword exclusions (the frontmatter opt-in property and the frontmatter exclude list) now read the note being rendered instead of the focused one.',
+    'Fixed: in a split view the non-focused pane now renders against its own note; folder exclusions, per-note keyword exclusions and the self-link rule no longer read the focused note.',
+    'Fixed: case-sensitive keywords no longer receive fuzzy or stemmed links, which used to bypass the case rule.',
+    'Fixed: notes deleted or renamed no longer linger in the fuzzy index, per-view listeners are released on close, and converting a link in an unfocused pane edits that pane.',
+    'Faster and stricter: per-note exclusion lists and file metadata are cached, saving a note no longer rebuilds the whole vault index, and fuzzy matching now respects the word-boundary settings and the fuzzy minimum length without a reload.',
 ];
 
 export class WhatsNewModal extends Modal {

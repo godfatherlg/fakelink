@@ -142,6 +142,13 @@ export class LinkerSettingTab extends PluginSettingTab {
                 await this.plugin.updateSettings({ autoToggleByMode: value as boolean });
                 void this.plugin.handleLayoutChange();
                 break;
+            case 'jumpEnabled':
+                await this.plugin.updateSettings({ jumpEnabled: value as boolean });
+                // Turning it on at runtime has to register the protocol handler
+                // too - it was only registered at startup, and the setting's
+                // description promises it registers on enable.
+                if (value) this.plugin.registerAdvUriProtocol();
+                break;
             case 'colorOnlyDisplay':
                 await this.plugin.updateSettings({ colorOnlyDisplay: value as boolean });
                 this.applyBodyClass('virtual-link-color-only', value as boolean);
@@ -273,6 +280,13 @@ export class LinkerSettingTab extends PluginSettingTab {
         return [
             // ---------- General ----------
             groupDef(t('General'), [
+                // Needs a control of its own: it gates every `visible: adv` below,
+                // so if it is ever false (older data.json, hand-edited, or written
+                // by an earlier version) every advanced option disappears and
+                // there is no way to bring them back.
+                toggleDef(t('Show advanced settings'), 'advancedSettings', {
+                    desc: t('When enabled, advanced options are shown throughout the settings tab. Turn it off for a simpler view.'),
+                }),
                 toggleDef(t('Activate virtual linker'), 'linkerActivated', {
                     desc: t('To show/hide virtual links in the body of regular notes (paragraphs, lists, etc.), please turn on/off this toggle. Note: This toggle cannot control virtual links inside tables and Canvas (due to different rendering mechanisms). If virtual links in tables or Canvas are not displayed or show rendering glitches, do not toggle this switch — simply restart the plugin (via QuickAdd or other means).'),
                 }),
@@ -374,9 +388,9 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('When enabled, keywords are normalized before matching so related forms link to the same note or heading. English: each word is reduced to its stem and irregular verbs are aligned (e.g. "He ran to the store" matches "he runs to the store"). Chinese: common function words are stripped (e.g. "我的项目计划" matches "项目计划"). Off by default.'),
                 }),
                 dropdownDef(t('Fuzzy matching language'), 'stemmingLanguage', {
-                    'auto': 'Auto (by script)',
-                    'en': 'English',
-                    'zh': 'Chinese',
+                    'auto': t('Auto (by script)'),
+                    'en': t('English'),
+                    'zh': t('Chinese'),
                 }, {
                     desc: t('Language used for fuzzy matching. "en" = English stemming + irregular verbs; "zh" = Chinese function-word stripping. Choose "auto" to apply both based on each keyword\'s script.'),
                     disabled: () => !s.enableStemming,
@@ -436,17 +450,17 @@ export class LinkerSettingTab extends PluginSettingTab {
                 }),
                 textAreaDef(t('Glossary linker directories'), 'linkerDirectories', {
                     desc: t('Directories to include for the virtual linker (separated by new lines).'),
-                    placeholder: 'List of directory names (separated by new line)',
+                    placeholder: t('List of directory names (separated by new line)'),
                     visible: () => !s.includeAllFiles,
                 }),
                 textAreaDef(t('Excluded directories'), 'excludedDirectories', {
                     desc: t('Directories from which files are to be excluded for the virtual linker (separated by new lines). Files in these directories will not create any virtual links in other files.'),
-                    placeholder: 'List of directory names (separated by new line)',
+                    placeholder: t('List of directory names (separated by new line)'),
                     visible: () => s.advancedSettings && s.includeAllFiles,
                 }),
                 textAreaDef(t('Excluded directories for generating virtual links'), 'excludedDirectoriesForLinking', {
                     desc: t('Directories in which the plugin will not create virtual links (separated by new lines).'),
-                    placeholder: 'List of directory names (separated by new line)',
+                    placeholder: t('List of directory names (separated by new line)'),
                     visible: adv,
                 }),
                 // The item above turns link generation off "by directory"; this
@@ -597,9 +611,9 @@ export class LinkerSettingTab extends PluginSettingTab {
                     visible: () => !s.useDefaultLinkStyleForConversion,
                 }),
                 dropdownDef(t('Link format'), 'linkFormat', {
-                    'shortest': 'Shortest',
-                    'relative': 'Relative',
-                    'absolute': 'Absolute',
+                    'shortest': t('Shortest'),
+                    'relative': t('Relative'),
+                    'absolute': t('Absolute'),
                 }, {
                     desc: t('The format of the generated links.'),
                     visible: () => !s.useDefaultLinkStyleForConversion,
