@@ -228,6 +228,10 @@ const zhCN: Record<string, string> = {
     'See the full release notes': '查看完整更新说明',
     'Fix: exact matches against numbered headings (e.g. "1. Title") no longer show the fuzzy-match colour. Also: the batch-convert dialogs now follow the app language instead of hardcoded Chinese.': '修复：匹配带编号标题（如「1. 标题」）时不再显示模糊匹配的颜色。另外：批量转换对话框现在跟随应用语言显示，不再硬编码中文。',
 
+    'Fix: a note being previewed while a different note had focus no longer lost its heading links (shown in the fuzzy colour). The exact/fuzzy decision now uses the note being rendered.': '修复：当某个笔记正在预览、而另一个笔记处于激活状态时，被预览的笔记里指向激活笔记标题的链接不再消失（也不再显示为模糊匹配的颜色）。精确/模糊的判定现在依据「正在渲染的笔记」。',
+
+    'Fix: the What\'s-new notes now display in Chinese when the app language is Chinese (they showed English in 1.24.3).': '修复：更新说明（What\'s new）在应用语言为中文时会显示中文（1.24.3 中误显示为英文）。',
+
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
     'Virtual links are currently disabled. Enable them in the settings before running the batch conversion.': '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。',
     'Select some text first, then run this command.': '请先选择一段文本，再运行此命令。',
