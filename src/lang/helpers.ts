@@ -230,7 +230,7 @@ const zhCN: Record<string, string> = {
 
     'Fix: a note being previewed while a different note had focus no longer lost its heading links (shown in the fuzzy colour). The exact/fuzzy decision now uses the note being rendered.': '修复：当某个笔记正在预览、而另一个笔记处于激活状态时，被预览的笔记里指向激活笔记标题的链接不再消失（也不再显示为模糊匹配的颜色）。精确/模糊的判定现在依据「正在渲染的笔记」。',
 
-    'Fix: the What\'s-new notes now display in Chinese when the app language is Chinese (they showed English in 1.24.3).': '修复：更新说明（What\'s new）在应用语言为中文时会显示中文（1.24.3 中误显示为英文）。',
+    'Fix: the What\'s-new notes now display in the app language instead of always English.': '修复：更新说明（What\'s new）现在会根据应用语言显示，而非始终为英文。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
     'Virtual links are currently disabled. Enable them in the settings before running the batch conversion.': '虚拟链接功能当前已关闭，请先在设置中启用后再运行批量转换。',

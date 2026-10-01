@@ -12,14 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.4';
+export const WHATS_NEW_VERSION = '1.24.5';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fix: the What\'s-new notes now display in Chinese when the app language is Chinese (they showed English in 1.24.3).',
+    'Fix: the What\'s-new notes now display in the app language instead of always English.',
 ];
 
 export class WhatsNewModal extends Modal {
