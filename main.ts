@@ -276,8 +276,9 @@ export default class LinkerPlugin extends Plugin {
         // getActiveViewOfType(MarkdownView) hands back a MarkdownView, whose
         // getViewType() is always 'markdown' - so the old test here could never
         // match and the Canvas branch in handleLayoutChange below was dead code.
-        // Ask the active leaf which view it actually hosts.
-        return this.app.workspace.activeLeaf?.view?.getViewType?.() === 'canvas';
+        // Ask the active leaf which view it actually hosts. getMostRecentLeaf
+        // is the supported replacement for the deprecated activeLeaf.
+        return this.app.workspace.getMostRecentLeaf()?.view?.getViewType?.() === 'canvas';
     }
 
     public async handleLayoutChange() {

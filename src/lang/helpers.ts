@@ -242,6 +242,8 @@ const zhCN: Record<string, string> = {
     'Fixed: case-sensitive keywords no longer receive fuzzy or stemmed links, which used to bypass the case rule.': '修复：区分大小写的关键词不再产生模糊或词干链接，此前这些路径会绕过大小写规则。',
     'Fixed: notes deleted or renamed no longer linger in the fuzzy index, per-view listeners are released on close, and converting a link in an unfocused pane edits that pane.': '修复：被删除或重命名的笔记不再残留在模糊索引中，各视图的监听在关闭时释放，在未激活窗格中转换链接现在编辑的是该窗格。',
     'Faster and stricter: per-note exclusion lists and file metadata are cached, saving a note no longer rebuilds the whole vault index, and fuzzy matching now respects the word-boundary settings and the fuzzy minimum length without a reload.': '更快更严格：按笔记排除列表与文件元数据已缓存，保存笔记不再重建整个库索引，模糊匹配现在即时遵循词边界设置与模糊最小长度，无需重载。',
+    'Fixed: timers now use window.setTimeout, so hover previews keep working in popout windows.': '修复：定时器改用 window.setTimeout，弹出窗口（popout）中的悬停预览可正常工作。',
+    'Fixed: the deprecated activeLeaf is replaced with getMostRecentLeaf(), and the file-exclusion check narrows the type with instanceof TFile instead of a cast.': '修复：弃用的 activeLeaf 已替换为 getMostRecentLeaf()，文件排除检查改用 instanceof TFile 类型窄化，替代类型强转。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

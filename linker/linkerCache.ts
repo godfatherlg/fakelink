@@ -1600,7 +1600,7 @@ export class PrefixTree {
             const pairs: { shorterPath: string; longerPath: string }[] = [];
             for (let i = 0; i < candidates.length; i++) {
                 const shorter = candidates[i];
-                if (i % 200 === 199) await new Promise((resolve) => setTimeout(resolve, 0));
+                if (i % 200 === 199) await new Promise((resolve) => window.setTimeout(resolve, 0));
                 for (let j = i + 1; j < candidates.length; j++) {
                     const longer = candidates[j];
                     if (longer.name.length === shorter.name.length) continue;

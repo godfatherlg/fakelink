@@ -159,7 +159,11 @@ export function addContextMenuItem(plugin: LinkerPluginType, menu: Menu, file: T
         // shouldExcludeFile: with "include all files" enabled, a file inside an
         // excluded directory (already excluded!) was still offered "Exclude
         // this file" - a dead menu item.
-        const excludedByIndex = LinkerCache.getInstance(app, settings).cache.isFileExcluded(file as TFile);
+        // instanceof narrows the TAbstractFile argument instead of casting it;
+        // folders have no frontmatter to tag, so they count as already excluded.
+        const excludedByIndex = file instanceof TFile
+            ? LinkerCache.getInstance(app, settings).cache.isFileExcluded(file)
+            : true;
         if (!excludedByIndex) {
             // Item to exclude a virtual link from the linker
             // This action adds the settings.tagToExcludeFile to the file
