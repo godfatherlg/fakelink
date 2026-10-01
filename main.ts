@@ -772,6 +772,29 @@ export default class LinkerPlugin extends Plugin {
         this.registerIndexWatchers();
         this.registerLinkers();
 
+        // Views that were already open when this load happened (plugin reload
+        // or app start) keep showing whatever the previous instance rendered -
+        // Obsidian does not re-apply newly registered editor extensions to
+        // them on its own, so links used to appear only after the user clicked
+        // into the note. Kick every open markdown view once the index is
+        // ready, in every window (popouts included).
+        const linkerCache = LinkerCache.getInstance(this.app, this.settings);
+        void linkerCache.cache.readyPromise.then(() => {
+            this.refreshOpenMarkdownViews();
+        });
+
+        // On a cold start the constructor's full build above can run before
+        // the vault has listed its files (indexed 0, NOT marked ready) and
+        // before the layout restored the open views. Rebuild once the layout
+        // is ready - Obsidian invokes this callback immediately when it
+        // already is (plugin reload inside a running app).
+        this.app.workspace.onLayoutReady(() => {
+            const lc = LinkerCache.getInstance(this.app, this.settings);
+            if (!lc.cache.isReady) {
+                lc.updateCache(true);
+            }
+        });
+
         this.registerIndentBackground();
         this.registerCommentSpaceTrim();
 
@@ -1469,16 +1492,45 @@ export default class LinkerPlugin extends Plugin {
         }, 150);
     }
 
+    /**
+     * Force every open markdown view to re-render against the current index.
+     * Runs once after load (see onload) and covers EVERY window - popouts
+     * included, which getLeavesOfType() misses.
+     *
+     * Reading-mode panes re-render directly. Live Preview editors are rebuilt
+     * through workspace.updateOptions(): Obsidian routes that call through
+     * iterateAllLeaves to every window's markdown views and reconfigures the
+     * CodeMirror instance, which mounts the freshly registered link extension
+     * (the linkers wait for the index themselves, so no race here).
+     */
+    private refreshOpenMarkdownViews(): void {
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const view = leaf.view;
+            if (!(view instanceof MarkdownView)) return;
+            if (view.getMode() === 'preview' && view.previewMode) {
+                view.previewMode.rerender(true);
+            }
+        });
+        this.app.workspace.updateOptions();
+    }
+
     private bgSyncTimer: number | null = null;
 
     /**
-     * Write the "Background" look to the <body> of every window.
+     * Write the "Background" look - and the display-style body classes - to the
+     * <body> of every window.
      *
      * styles.css hangs the entire optional look on these classes, and the two
      * alpha variables are the strength sliders. This used to target whichever
      * window was active at startup, which left every later window - and any
      * window other than the one hosting the settings tab - unstyled until a
      * reload. Each <body> gets the full set so switching a part off removes it.
+     *
+     * virtual-linker-alt-style / virtual-link-color-only are included for the
+     * same reason: applyStartupAppearance() only touches the active window, and
+     * on a plugin reload clearAppearanceStyles() strips them from EVERY window
+     * first - so popouts restored at startup (or opened later) would otherwise
+     * fall back to the shadow look and stay that way until Obsidian restarts.
      */
     applyBackgroundStyles(): void {
         const s = this.settings;
@@ -1491,9 +1543,12 @@ export default class LinkerPlugin extends Plugin {
             if (s.backgroundTabAccent) wanted.push('virtual-link-bg-tab-accent');
             if (s.backgroundUnfocusedMask) wanted.push('virtual-link-bg-unfocused-mask');
         }
+        if (s.alternativeDisplayStyle) wanted.push('virtual-linker-alt-style');
+        if (s.colorOnlyDisplay) wanted.push('virtual-link-color-only');
         const known = [
             'virtual-link-bg', 'virtual-link-bg-tint', 'virtual-link-bg-lines',
             'virtual-link-bg-cursor', 'virtual-link-bg-tab-accent', 'virtual-link-bg-unfocused-mask',
+            'virtual-linker-alt-style', 'virtual-link-color-only',
         ];
         const vars: [string, string][] = [
             ['--fakelink-line-alpha', String(s.backgroundLineOpacity / 100)],

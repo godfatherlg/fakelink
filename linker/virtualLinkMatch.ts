@@ -487,11 +487,15 @@ export class VirtualMatch {
         }
         // The href ATTRIBUTE gets serialized by the browser (spaces and
         // non-ASCII characters become %20 / %E4..., which the vault path
-        // resolver cannot reverse). Keep the raw path alongside - the same
-        // trick Obsidian uses for its own internal links - so the context
-        // menu and table-menu converters can resolve the true target even
-        // for paths with spaces or non-ASCII characters.
-        link.setAttribute('data-href', href);
+        // resolver cannot reverse). Keep the raw target alongside - the same
+        // trick Obsidian uses for its own internal links. Like Obsidian's own
+        // links, data-href carries the FULL target including the #heading
+        // anchor: the hover preview reads data-href (not href), so a path-only
+        // value made the popover open at the top of the note instead of
+        // scrolling to - and highlighting - the heading. Consumers that need
+        // the bare path split the anchor off (both getVirtualLinkRawPath
+        // callers do).
+        link.setAttribute('data-href', fullPath);
         link.textContent = linkText;
         link.target = '_blank';
         link.rel = 'noopener noreferrer';
@@ -1029,9 +1033,11 @@ export class VirtualMatch {
  * The href ATTRIBUTE is browser-serialized (spaces and non-ASCII characters
  * become %20 / %E4...), which getAbstractFileByPath cannot resolve - reading
  * it made "convert to real link" silently produce a self-link (context menu)
- * or vanish entirely (table menu) for such paths. data-href holds the path
- * exactly as written; the decodeURIComponent fallback covers anchors rendered
- * before that attribute existed.
+ * or vanish entirely (table menu) for such paths. data-href holds the full
+ * target exactly as written, INCLUDING the "#heading" anchor when the link
+ * has one - callers that need the bare vault path must split it off at the
+ * first '#'. The decodeURIComponent fallback covers anchors rendered before
+ * that attribute existed.
  */
 export function getVirtualLinkRawPath(anchor: Element | null | undefined): string {
     if (!anchor) return '';

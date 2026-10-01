@@ -1942,6 +1942,13 @@ export class LinkerCache {
         // one entry.
         const activeFile = this.app?.workspace?.getActiveFile()?.path;
 
+        // The index has not finished a REAL full build yet (e.g. the plugin
+        // loaded before the vault had listed its files on a cold start). An
+        // incremental build now would index the active file only, and the
+        // active-file guard below would then consider it "done" forever -
+        // every link outside that one note stays missing. Promote to full.
+        if (!this.cache.isReady) force = true;
+
         // We only need to update cache if the active file has changed
         if (activeFile && activeFile === this.activeFilePath && !force) {
             return;
@@ -1950,8 +1957,14 @@ export class LinkerCache {
         const full = force || !activeFile;
         void this.cache.updateTree(full ? undefined : [activeFile, this.activeFilePath])
             .then(() => {
-                // Only a FULL build proves the index is complete - see above.
-                if (full) this.cache.markReady();
+                // Only a FULL build that really indexed files proves the index
+                // is complete. On a cold start the first full build can run
+                // while the vault has not listed its files yet (indexed === 0);
+                // marking that as ready would leave the index empty forever,
+                // because nothing would ever rebuild it.
+                if (full && this.cache.setIndexedFilePaths.size > 0) {
+                    this.cache.markReady();
+                }
             })
             .catch(() => {
                 // Leave isReady false so a later rebuild still marks it ready,
