@@ -388,6 +388,14 @@ export class PrefixTree {
         const bucket = this.fuzzyBuckets.get(bucketKey);
         if (!bucket || bucket.length === 0) return [];
         const minSim = threshold / 100;
+        // Keyword exclusion has to be consulted below; skip the call entirely
+        // when the list is empty (the common case).
+        const hasExcludedKeywords = this.settings.excludedKeywords.length > 0;
+        // Same for the per-note frontmatter lists: getCurrentMatchNodes consults
+        // both the active note's list and every target file's own list.
+        const activeExcludeList = this.settings.enableFrontmatterExcludeList
+            ? this.getFrontmatterExcludeList()
+            : null;
         // For threshold >= 80%, any pair with length difference > 2 is impossible
         // to reach the threshold once the shorter string is at least 3 chars.
         const maxLenDiff = threshold >= 80 ? 2 : Math.max(1, Math.ceil(w.length * (1 - minSim)));
@@ -398,6 +406,34 @@ export class PrefixTree {
             if (sim >= minSim) {
                 const entries = this.fuzzyKeywordMap.get(key)!;
                 for (const e of entries) {
+                    // Keyword exclusion applies here too. getCurrentMatchNodes
+                    // drops an excluded keyword from the EXACT matches, and
+                    // without this the same keyword came straight back through
+                    // the fuzzy path - so a keyword the user excluded (globally,
+                    // or for the note being viewed under per-note mode)
+                    // reappeared as a fuzzy match. That is the "exact match
+                    // turned fuzzy" symptom, and it varied with which note was
+                    // open because per-note mode reads the ACTIVE file.
+                    if (hasExcludedKeywords
+                        && ((e.canonical !== undefined && this.isExcluded(e.canonical)) || this.isExcluded(key))) {
+                        continue;
+                    }
+                    // The per-note frontmatter lists are consulted on the exact
+                    // side too (the active note's list and each target file's own
+                    // list), so mirror them here as well.
+                    if (activeExcludeList) {
+                        const lowerKey = key.toLowerCase();
+                        const lowerCanonical = e.canonical?.toLowerCase();
+                        const hit = (list: Set<string>): boolean =>
+                            list.has(lowerKey) || (lowerCanonical !== undefined && list.has(lowerCanonical));
+                        if (hit(activeExcludeList)) continue;
+                        let excludedByTarget = false;
+                        for (const f of e.files) {
+                            if (hit(this.getFrontmatterExcludeListForFile(f))) { excludedByTarget = true; break; }
+                        }
+                        if (excludedByTarget) continue;
+                    }
+
                     // Respect excludeLinksToOwnNote: drop the current note from
                     // fuzzy results, mirroring getCurrentMatchNodes' excludedNote.
                     let files = e.files;
@@ -489,7 +525,17 @@ export class PrefixTree {
         return excluded;
     }
 
-    getCurrentMatchNodes(index: number, excludedNote?: TFile | null, specificFile?: TFile): MatchNode[] {
+    /**
+     * @param excludedNote  Note whose own matches are dropped (the note being
+     *                      rendered, when excludeLinksToOwnNote is on).
+     * @param specificFile  Restrict the result to this one file.
+     * @param renderedFile  The note being rendered, for the "a heading must not
+     *                      link to its own note" rule. Pass null when the call
+     *                      is not a render decision (headerId lookups) so the
+     *                      rule stays out of the way; omit it to fall back to
+     *                      the active file.
+     */
+    getCurrentMatchNodes(index: number, excludedNote?: TFile | null, specificFile?: TFile, renderedFile?: TFile | null): MatchNode[] {
         const matchNodes: MatchNode[] = [];
 
         if (excludedNote === undefined && this.settings.excludeLinksToOwnNote) {
@@ -624,12 +670,22 @@ export class PrefixTree {
             }
 
             if (matchNode.files.size > 0) {
-                // Never allow headers to link to their own file
+                // Never allow headers to link to their own file.
+                //
+                // "Their own file" means the note being RENDERED, not the one
+                // the workspace has focused. Previewing note B while note A is
+                // active must still link B's text to A's headings - testing the
+                // active file here emptied those matches, and the fuzzy path,
+                // which carries no such rule, then took over: the exact match
+                // appeared in the fuzzy colour. Same symptom the mappedFile
+                // comment in liveLinker describes for hover popovers.
                 if (matchNode.type === MatchType.Header) {
-                    const activeFile = this.app.workspace.getActiveFile();
-                    if (activeFile) {
+                    const ownFile = renderedFile === undefined
+                        ? this.app.workspace.getActiveFile()
+                        : renderedFile;
+                    if (ownFile) {
                         matchNode.files = new Set(
-                            Array.from(matchNode.files).filter(f => f.path !== activeFile.path)
+                            Array.from(matchNode.files).filter(f => f.path !== ownFile.path)
                         );
                     }
                 }
@@ -857,12 +913,10 @@ export class PrefixTree {
             return;
         }
 
-        // Remove the old nodes of the file
-        this.removeFileFromTree(file);
-
-        // Add the file to the set of indexed files
-        this.setIndexedFilePaths.add(path);
-        this.mapIndexedFilePathsToUpdateTime.set(path, file.stat.mtime);
+        // NOTE: the tree is deliberately NOT touched yet. Everything that can
+        // throw (reading the metadata cache, computing keywords) runs first, so
+        // a failure leaves the file's existing entries in place - see the
+        // comment next to removeFileFromTree further down.
 
         // Get the tags of the file
         // and normalize them by removing the # in front of tags
@@ -872,6 +926,20 @@ export class PrefixTree {
             .map((tag) => (tag.startsWith('#') ? tag.slice(1) : tag));
 
         const metadata = this.app.metadataCache.getFileCache(file);
+        // Obsidian has NOT parsed this file's metadata yet - getFileCache
+        // returns null until it has. Indexing it now would register the file
+        // with no headings and no aliases, and because the mtime is recorded as
+        // indexed it would never be retried: every link pointing at the file
+        // would silently degrade to fuzzy matching, heading ids and all. That
+        // is exactly the "opened note's exact matches turn fuzzy" symptom -
+        // previewing or opening a note can re-index it while its metadata is
+        // still being resolved.
+        //
+        // Bail out without touching the tree: previous entries (if any) stay,
+        // and nothing is marked as indexed, so the next updateTree() call -
+        // triggered by the metadataCache 'changed' listener - retries.
+        if (!metadata) return;
+
         let aliases: string[] = (metadata?.frontmatter?.aliases as string[]) ?? [];
         
         // Get headers from metadata cache — store as {keyword, headerId} pairs
@@ -943,6 +1011,20 @@ export class PrefixTree {
         } catch {
             // Error filtering aliases
         }
+
+        // Everything that can throw has run - only NOW touch the tree. Removing
+        // the old entries is destructive (prefix-tree nodes, heading ids, fuzzy
+        // entries); if a read above failed after that point, the file would be
+        // left unindexed and every link pointing at it would degrade to fuzzy
+        // matching, heading ids included. That is exactly the symptom a hover
+        // preview used to produce: previewing a note re-indexes it, and a
+        // metadata cache that is mid-update can fail the reads above. Doing the
+        // reads first means a failure simply leaves the previous entries alone.
+        this.removeFileFromTree(file);
+
+        // Register the file as indexed (removeFileFromTree just deleted these)
+        this.setIndexedFilePaths.add(path);
+        this.mapIndexedFilePathsToUpdateTime.set(path, file.stat.mtime);
 
         let names = [file.basename];
         if (aliases && this.settings.includeAliases) {
@@ -1372,6 +1454,28 @@ export class PrefixTree {
         this._currentNodes = newNodes;
     }
 
+    /**
+     * True when the traversal currently sits on at least one COMPLETE keyword
+     * (a node that has files), i.e. a keyword ends here.
+     *
+     * Callers use this to look for a match at this position even when the
+     * current character is not a word boundary. Without it, a keyword followed
+     * by another letter was never examined: CJK has no spaces and every Han
+     * character counts as a letter, so "欧拉方程是变量" never produced a
+     * boundary after 欧拉方程 - the exact match was skipped entirely and the
+     * fuzzy fallback took over (matching a longer run, in the fuzzy colour).
+     *
+     * Whether the match is then ACCEPTED is still decided by the caller's
+     * matchBeginningOfWords / matchEndOfWords rules - this only makes sure it is
+     * looked at.
+     */
+    hasWordEnd(): boolean {
+        for (const n of this._currentNodes) {
+            if (n.node.files.size > 0) return true;
+        }
+        return false;
+    }
+
     static checkWordBoundary(char: string): boolean {
         // \p{L}: any kind of letter; \p{N}: any kind of numeric character.
         // Digits count as word characters, so a name like "科目二冲刺带背3"
@@ -1396,6 +1500,10 @@ export class PrefixTree {
      * A bare number with no separator (e.g. "123") is left untouched.
      */
     static stripHeadingNumber(heading: string): string {
+        // Guard against a heading entry whose text is missing (metadata cache
+        // mid-update): returning it unchanged keeps the caller from throwing.
+        if (typeof heading !== 'string' || heading.length === 0) return heading;
+
         const num = '(?:[0-9]+|[零一二三四五六七八九十百千]+)';
         const sep = '[.、)）]';
         const re = new RegExp(
@@ -1414,6 +1522,12 @@ export class PrefixTree {
      * markers (e.g. 🔥) without those markers becoming part of the keyword.
      */
     private headingKeyword(heading: string): string {
+        // A metadata cache that is mid-update can hand out a heading entry
+        // without its text. Treat that as "no keyword" rather than throwing:
+        // a throw here used to leave the whole file unindexed (see
+        // addFileToTree), which turned every link to it into a fuzzy match.
+        if (typeof heading !== 'string' || heading.length === 0) return '';
+
         // Stripping the leading NUMBER is pure formatting, not derivation: the
         // user writes the heading's content verbatim, the number is only its
         // layout prefix. So a hit on the stripped keyword stays an EXACT match

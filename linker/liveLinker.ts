@@ -557,19 +557,26 @@ class AutoLinkerPlugin implements PluginValue {
 
         const dom = view.dom;
         let mappedFile = this.viewUpdateDomToFileMap.get(dom);
-        // A missing mapping must NOT be left to getCurrentMatchNodes, which falls
-        // back to workspace.getActiveFile(). Hover Editor focuses the note it
-        // opened, so while one of its windows has focus the "active file" is that
-        // note - and it would then be excluded as if it were the file being
-        // rendered. The visible effect: keywords whose only exact target is the
-        // note open in the floating window lose their exact match and fall back
-        // to a fuzzy one.
-        // Prefer the last real (non-floating) view, and when even that is unknown
-        // pass null (exclude nothing) rather than let it guess. Views inside a
-        // floating window keep the fallback below, where getActiveFile() is
-        // actually the right answer for them.
-        if (mappedFile === undefined && !isInHoverPopover(dom)) {
-            mappedFile = this.lastRealActiveView?.file ?? null;
+        // Resolve the file explicitly, so BOTH paths use the same value: the
+        // exact one (getCurrentMatchNodes) and the fuzzy one (findFuzzyMatches).
+        //
+        // Leaving it undefined was a trap. getCurrentMatchNodes reads undefined
+        // as "fall back to workspace.getActiveFile()" and then EXCLUDES that file
+        // (with excludeLinksToOwnNote on), while findFuzzyMatches reads undefined
+        // as "exclude nothing" (`if (excludeFile)`). In a hover popover - the one
+        // place that never has a mapping - that asymmetry dropped the EXACT match
+        // of a keyword pointing at the focused note while keeping the FUZZY one,
+        // so the exact match visibly turned into a fuzzy match, longer text and
+        // all.
+        //
+        // In a hover popover the active file is the right answer (Hover Editor
+        // focuses the note it opened); elsewhere prefer the last real view, and
+        // when even that is unknown pass null (exclude nothing) rather than let
+        // it guess.
+        if (mappedFile === undefined) {
+            mappedFile = isInHoverPopover(dom)
+                ? this.app.workspace.getActiveFile()
+                : (this.lastRealActiveView?.file ?? null);
         }
 
         // Check if the file is inside excluded folders
@@ -608,10 +615,23 @@ class AutoLinkerPlugin implements PluginValue {
                 // If we are at a word boundary, get the current fitting files
                 const isWordBoundary = PrefixTree.checkWordBoundary(char); // , this.settings.wordBoundaryRegex
                 let currentNodes: ReturnType<typeof this.linkerCache.cache.getCurrentMatchNodes> = [];
-                if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary) {
+                // Also look whenever a keyword ENDS here (hasWordEnd). Relying on
+                // the boundary alone skipped every keyword followed by another
+                // letter - CJK has no spaces and Han characters are letters, so
+                // "欧拉方程是变量" never offered a boundary after 欧拉方程 and the
+                // exact match was never seen. The rules below still decide whether
+                // the match is accepted.
+                if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary
+                    || this.linkerCache.cache.hasWordEnd()) {
                     currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
                         i,
-                        this.settings.excludeLinksToOwnNote ? mappedFile : null
+                        this.settings.excludeLinksToOwnNote ? mappedFile : null,
+                        undefined,
+                        // The heading "must not link to its own note" rule takes
+                        // the note being rendered - passing undefined here let it
+                        // fall back to the ACTIVE file, which is a different note
+                        // whenever one is previewing another.
+                        mappedFile
                     );
 
                     if (currentNodes.length > 0) {
@@ -711,10 +731,15 @@ class AutoLinkerPlugin implements PluginValue {
                                             return;
                                         }
 
+                                        // renderedFile = null: this call only
+                                        // fetches a heading id, it is not a
+                                        // render decision, so the own-note rule
+                                        // must not drop the file.
                                         const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(
                                             i,
                                             null,
-                                            file
+                                            file,
+                                            null
                                         );
                                         if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                             virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
@@ -901,7 +926,9 @@ class AutoLinkerPlugin implements PluginValue {
                                                     virtualMatch.setFileHeaderId(file, ownHeaderId);
                                                     return;
                                                 }
-                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                                // renderedFile = null - heading id
+                                                // lookup, not a render decision.
+                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file, null);
                                                 if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                                     virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
                                                 }

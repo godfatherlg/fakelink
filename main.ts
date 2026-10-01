@@ -1004,6 +1004,21 @@ export default class LinkerPlugin extends Plugin {
         this.registerEvent(this.app.vault.on('rename', (file) => {
             if (isNote(file)) scheduleIndexRefresh();
         }));
+
+        // A file can be re-indexed while Obsidian is still resolving its
+        // metadata. The indexer skips such a file (see addFileToTree) and leaves
+        // it unmarked, so without this listener it would only be retried on the
+        // next note switch - and until then every link pointing at it would
+        // show as a fuzzy match instead of an exact one. 'changed' fires once
+        // the metadata is actually there.
+        //
+        // Cheap to call on every change: updateTree() skips files that are
+        // already indexed at the same mtime, so an ordinary save only re-indexes
+        // the one note that was saved.
+        this.registerEvent(this.app.metadataCache.on('changed', (file) => {
+            if (!(file instanceof TFile) || file.extension !== 'md') return;
+            void LinkerCache.getInstance(this.app, this.settings).cache.updateTree([file.path]);
+        }));
     }
 
     private registerLinkers(): void {

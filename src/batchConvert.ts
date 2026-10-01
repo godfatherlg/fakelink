@@ -64,7 +64,7 @@ export function scanVirtualLinks(
         const isWordBoundary = PrefixTree.checkWordBoundary(char);
 
         if (settings.matchAnyPartsOfWords || settings.matchBeginningOfWords || isWordBoundary) {
-            const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote);
+            const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote, undefined, ownNote);
 
             for (const node of currentNodes) {
                 if (!settings.matchAnyPartsOfWords) {
@@ -138,7 +138,8 @@ export function scanVirtualLinks(
                 // file with the first match's header; instead we look up each file's
                 // own header so the generated link points to the right place.
                 filteredFiles.forEach((file: TFile) => {
-                    const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                    // renderedFile = null - heading id lookup, not a render decision.
+                    const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file, null);
                     if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                         vm.setFileHeaderId(file, fileNodes[0].headerId);
                     } else {
@@ -193,7 +194,8 @@ export function scanVirtualLinks(
                                 fr.headerId
                             );
                             filteredFiles.forEach((file: TFile) => {
-                                const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file);
+                                // renderedFile = null - heading id lookup, not a render decision.
+                                const fileNodes = cacheTree.getCurrentMatchNodes(i, null, file, null);
                                 if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                     vm.setFileHeaderId(file, fileNodes[0].headerId);
                                 } else {

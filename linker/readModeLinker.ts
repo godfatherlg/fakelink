@@ -388,13 +388,27 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                             // If we are at a word boundary, get the current fitting files
                             const isWordBoundary = PrefixTree.checkWordBoundary(char); // , this.settings.wordBoundaryRegex
-                            if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary) {
+                            // Also look whenever a keyword ENDS here - see the
+                            // matching comment in liveLinker: without this, a
+                            // keyword followed by another letter (the normal case
+                            // in CJK text) was never examined at all.
+                            if (this.settings.matchAnyPartsOfWords || this.settings.matchBeginningOfWords || isWordBoundary
+                                || this.linkerCache.cache.hasWordEnd()) {
                                 const sourceFile = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
                                 const currentFile =
                                     this.settings.excludeLinksToOwnNote && sourceFile instanceof TFile
                                         ? sourceFile
                                         : null;
-                                const currentNodes = this.linkerCache.cache.getCurrentMatchNodes(i, currentFile);
+                                const currentNodes = this.linkerCache.cache.getCurrentMatchNodes(
+                                    i,
+                                    currentFile,
+                                    undefined,
+                                    // The heading "must not link to its own note"
+                                    // rule takes the note being rendered - the
+                                    // active file is a different note whenever
+                                    // one is previewing another.
+                                    sourceFile instanceof TFile ? sourceFile : null
+                                );
                                 if (currentNodes.length > 0) {
                                     currentNodes.forEach((node) => {
                                         // Check if we want to include this note based on the settings
@@ -482,10 +496,13 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                         match.setFileHeaderId(file, ownHeaderId);
                                                         return;
                                                     }
+                                                    // renderedFile = null - heading id
+                                                    // lookup, not a render decision.
                                                     const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(
                                                         i,
                                                         null, // Do not exclude any files
-                                                        file  // Only get nodes for specific file
+                                                        file, // Only get nodes for specific file
+                                                        null
                                                     );
                                                     if (fileNodes.length > 0 && fileNodes[0].headerId) {
                                                         match.setFileHeaderId(file, fileNodes[0].headerId);
@@ -659,7 +676,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                                     virtualMatch.setFileHeaderId(file, ownHeaderId);
                                                                     return;
                                                                 }
-                                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file);
+                                                                // renderedFile = null - heading id lookup, not a render decision.
+                                                                const fileNodes = this.linkerCache.cache.getCurrentMatchNodes(i, null, file, null);
                                                                 if (fileNodes && fileNodes.length > 0 && fileNodes[0].headerId) {
                                                                     virtualMatch.setFileHeaderId(file, fileNodes[0].headerId);
                                                                 }
