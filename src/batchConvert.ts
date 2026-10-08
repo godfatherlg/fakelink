@@ -82,13 +82,13 @@ export function scanVirtualLinks(
             const currentNodes = cacheTree.getCurrentMatchNodes(i, ownNote, undefined, sourceNote);
 
             for (const node of currentNodes) {
-                if (!settings.matchAnyPartsOfWords) {
-                    if (
-                        (settings.matchBeginningOfWords && !node.startsAtWordBoundary) &&
-                        (settings.matchEndOfWords && !isWordBoundary)
-                    ) {
-                        continue;
-                    }
+                if (!PrefixTree.shouldAcceptWordMatch(
+                    settings,
+                    node.value,
+                    node.startsAtWordBoundary,
+                    isWordBoundary
+                )) {
+                    continue;
                 }
 
                 let nFrom = node.start;

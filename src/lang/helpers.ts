@@ -94,7 +94,7 @@ const zhCN: Record<string, string> = {
     'When using "Convert all virtual links to real links (preview)", virtual links that point to more than one note are skipped so you can convert them one by one manually. When off, they are included but unchecked by default and only the first target is converted.': '使用「将笔记中所有虚拟链接转换为真实链接（预览）」时，指向多个笔记的虚拟链接会被跳过，方便你手动逐一转换。关闭后它们会包含在列表中，但默认不勾选，转换时仅取第一个目标。',
 
     'Match any part of a word': '匹配单词的任意部分',
-    'When disabled, only complete word matches are linked. When enabled, any substring match will be linked.': '关闭时仅匹配完整单词。启用时任何子串匹配都会产生链接。',
+    'When disabled, only complete word matches are linked. When enabled, any substring match will be linked. These matching options only affect space-separated scripts such as English; Chinese, Japanese and Korean always match as substrings.': '关闭时仅匹配完整单词，启用时任何子串匹配都会产生链接。这些匹配选项仅对空格分隔的文字（如英文）生效；中文、日文、韩文始终按子串匹配。',
     'Match the beginning of words': '匹配单词开头',
     'When enabled, word prefixes will be linked even without complete word matches.': '启用后，单词前缀即使不是完整匹配也会被链接。',
     'Match the end of words': '匹配单词结尾',
@@ -244,6 +244,11 @@ const zhCN: Record<string, string> = {
     'Faster and stricter: per-note exclusion lists and file metadata are cached, saving a note no longer rebuilds the whole vault index, and fuzzy matching now respects the word-boundary settings and the fuzzy minimum length without a reload.': '更快更严格：按笔记排除列表与文件元数据已缓存，保存笔记不再重建整个库索引，模糊匹配现在即时遵循词边界设置与模糊最小长度，无需重载。',
     'Fixed: timers now use window.setTimeout, so hover previews keep working in popout windows.': '修复：定时器改用 window.setTimeout，弹出窗口（popout）中的悬停预览可正常工作。',
     'Fixed: the deprecated activeLeaf is replaced with getMostRecentLeaf(), and the file-exclusion check narrows the type with instanceof TFile instead of a cast.': '修复：弃用的 activeLeaf 已替换为 getMostRecentLeaf()，文件排除检查改用 instanceof TFile 类型窄化，替代类型强转。',
+    'Apology: I rarely write English notes, so the English word-matching features inherited from virtual-linker had gone largely untested. This release fixes them (issue #20); apologies to English users.': '致歉：作者很少使用英文笔记，源自 virtual-linker 的英文匹配功能长期未经充分验证；本次修复了这些问题（issue #20），对英文用户表示抱歉。',
+    'Fixed: the "Match the beginning / end of words" toggles now work for English.': '修复：「匹配单词开头 / 结尾」开关现在对英文生效。',
+    'Improved: Chinese, kana and Hangul always match as substrings, unaffected by the English word-boundary toggles.': '改进：中文、假名、谚文始终按子串匹配，不受英文词边界开关影响。',
+    'Fixed: open Live Preview notes render links right after a reload, without needing a click.': '修复：重载插件后，已打开的实时预览笔记无需点击即可显示链接。',
+    'Fixed: links no longer render then vanish after a reload.': '修复：重载后链接不再「渲染后又消失」。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

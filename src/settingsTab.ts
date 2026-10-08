@@ -301,7 +301,7 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('If enabled, the virtual linker will also match file aliases.'),
                 }),
                 toggleDef(t('Match any part of a word'), 'matchAnyPartsOfWords', {
-                    desc: t('When disabled, only complete word matches are linked. When enabled, any substring match will be linked.'),
+                    desc: t('When disabled, only complete word matches are linked. When enabled, any substring match will be linked. These matching options only affect space-separated scripts such as English; Chinese, Japanese and Korean always match as substrings.'),
                 }),
                 toggleDef(t('Match the beginning of words'), 'matchBeginningOfWords', {
                     desc: t('When enabled, word prefixes will be linked even without complete word matches.'),

@@ -779,6 +779,12 @@ export default class LinkerPlugin extends Plugin {
         // into the note. Kick every open markdown view once the index is
         // ready, in every window (popouts included).
         const linkerCache = LinkerCache.getInstance(this.app, this.settings);
+        // readyPromise can be swapped by resetReady() during a reload, so do NOT
+        // rely on it here — the same refresh is wired through onReady, which
+        // markReady() fires exactly once when the index first becomes usable.
+        linkerCache.onReady = () => {
+            this.refreshOpenMarkdownViews();
+        };
         void linkerCache.cache.readyPromise.then(() => {
             this.refreshOpenMarkdownViews();
         });
@@ -1100,6 +1106,12 @@ export default class LinkerPlugin extends Plugin {
             // of after the next note switch.
             const linkerCache = LinkerCache.getInstance(this.app, this.settings);
             void linkerCache.cache.updateTree([file.path]).then(() => {
+                // The file's metadata just became available (or changed). A full
+                // build that ran while getFileCache() was still null skipped it,
+                // so after re-indexing, refresh the open views — otherwise its
+                // links (file name / aliases / headings) stay invisible until the
+                // next edit. update(false) only repaints, it does not re-index.
+                this.updateManager.update(false);
                 void linkerCache.cache.computeAutoExclude().then((changed) => {
                     if (changed) linkerCache.onIndexChanged?.();
                 });
@@ -1511,7 +1523,13 @@ export default class LinkerPlugin extends Plugin {
                 view.previewMode.rerender(true);
             }
         });
+        // Live Preview editors: updateOptions() re-applies the editor extension,
+        // but it is not reliable for the ACTIVE editor (its CodeMirror view is
+        // already mounted), which is why links there still needed a click. The
+        // updateManager round-trip reaches every AutoLinkerPlugin directly and
+        // rebuilds its decorations without touching the index.
         this.app.workspace.updateOptions();
+        this.updateManager.update(false);
     }
 
     private bgSyncTimer: number | null = null;

@@ -348,16 +348,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 );
                                 if (currentNodes.length > 0) {
                                     currentNodes.forEach((node) => {
-                                        // Check if we want to include this note based on the settings
-                                        if (!this.settings.matchAnyPartsOfWords) {
-                                            if (
-                                                this.settings.matchBeginningOfWords &&
-                                                !node.startsAtWordBoundary &&
-                                                this.settings.matchEndOfWords &&
-                                                !isWordBoundary
-                                            ) {
-                                                return;
-                                            }
+                                        // Decide whether to keep this match under the
+                                        // word-boundary settings (see liveLinker).
+                                        if (!PrefixTree.shouldAcceptWordMatch(
+                                            this.settings,
+                                            node.value,
+                                            node.startsAtWordBoundary,
+                                            isWordBoundary
+                                        )) {
+                                            return;
                                         }
 
                                         const nFrom = node.start;

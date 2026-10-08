@@ -4,6 +4,13 @@ import { LinkerPluginSettings } from 'main';
 import { LinkerMetaInfoFetcher } from './linkerInfo';
 import { stem } from './stemmer';
 
+// Scripts written without spaces between words. For these the English notion of
+// a "word boundary" does not apply, so a keyword always matches as a substring.
+// Deliberately wider than fuzzyNormalize's hasCJK check (which looks only at the
+// basic Han block, because it feeds Chinese stop-word stripping): this also
+// covers the Han extensions, Hiragana/Katakana and Hangul.
+const UNSPACED_SCRIPT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
 // Irregular English verbs: map inflected forms to their base/infinitive so that
 // Porter stemming (which cannot handle irregular verbs) still aligns them.
 // e.g. ran -> run, went -> go, was -> be. Used by fuzzy matching.
@@ -354,11 +361,13 @@ export class PrefixTree {
         this.readyPromise = new Promise((resolve) => { this.readyResolve = resolve; });
     }
 
-    markReady() {
+    markReady(): boolean {
         if (!this.isReady) {
             this.isReady = true;
             this.readyResolve?.();
+            return true;
         }
+        return false;
     }
 
     /** The index was thrown away, so anything waiting on readyPromise has to wait
@@ -1654,7 +1663,11 @@ export class PrefixTree {
 
     resetSearch() {
         // this._current = this.root;
-        this._currentNodes = [new VisitedPrefixNode(this.root)];
+        // A scan starts at a word boundary (the start of the visible range / text
+        // node / note), so the first keyword must be treated as "starts at a word
+        // boundary". The old default (false) made a whole word at the start of a
+        // line look like a suffix, and the matchEndOfWords rule then dropped it.
+        this._currentNodes = [new VisitedPrefixNode(this.root, true, true)];
     }
 
     pushChar(char: string) {
@@ -1670,7 +1683,12 @@ export class PrefixTree {
             const isBoundary = PrefixTree.checkWordBoundary(c);
             // Skip when already queued: for a lowercase char both entries of
             // `chars` are identical, which used to enqueue the root twice.
-            if ((this.settings.matchAnyPartsOfWords || isBoundary || this.settings.matchEndOfWords)
+            // An unspaced-script char (Han / kana / Hangul) must also start a new
+            // match: those scripts have no word boundaries, so without this a
+            // keyword buried mid-text ("牙痛" in "我牙痛了") is never scanned when
+            // the boundary/prefix/suffix toggles are all off (issue #20 follow-up).
+            if ((this.settings.matchAnyPartsOfWords || isBoundary || this.settings.matchEndOfWords
+                || UNSPACED_SCRIPT_RE.test(c))
                 && !queued.has(this.root)) {
                 newNodes.push(new VisitedPrefixNode(this.root, true, isBoundary));
                 queued.add(this.root);
@@ -1718,6 +1736,38 @@ export class PrefixTree {
         // stays a single word instead of being cut off before the trailing digit.
         const pattern = /[^\p{L}\p{N}]/u;
         return pattern.test(char);
+    }
+
+    /**
+     * Decide whether a prefix-tree match should be accepted under the
+     * word-boundary settings.
+     *
+     * CJK (and other unspaced scripts) has no space-separated word boundaries, so
+     * it always matches as a substring and the three toggles are ignored. For
+     * scripts that do have word boundaries (English etc.) the match is accepted
+     * only when the relevant toggle allows it:
+     *   - starts && ends   -> a whole word, always accepted
+     *   - starts && !ends  -> a prefix, needs matchBeginningOfWords
+     *   - !starts && ends  -> a suffix, needs matchEndOfWords
+     *   - !starts && !ends -> an inner substring, only with matchAnyPartsOfWords
+     *
+     * Unspaced scripts (Han, Hiragana/Katakana, Hangul) always match as a
+     * substring; the set is defined by UNSPACED_SCRIPT_RE.
+     */
+    static shouldAcceptWordMatch(
+        settings: Pick<LinkerPluginSettings, 'matchAnyPartsOfWords' | 'matchBeginningOfWords' | 'matchEndOfWords'>,
+        matchedText: string,
+        startsAtWordBoundary: boolean,
+        endsAtWordBoundary: boolean
+    ): boolean {
+        // Unspaced scripts (Han, kana, Hangul) have no word boundaries: always
+        // match as a substring.
+        if (UNSPACED_SCRIPT_RE.test(matchedText)) return true;
+        if (settings.matchAnyPartsOfWords) return true;
+        if (startsAtWordBoundary && endsAtWordBoundary) return true;        // whole word
+        if (startsAtWordBoundary && !endsAtWordBoundary) return settings.matchBeginningOfWords; // prefix
+        if (!startsAtWordBoundary && endsAtWordBoundary) return settings.matchEndOfWords;       // suffix
+        return false;                                                       // inner substring
     }
 
     /**
@@ -1895,6 +1945,10 @@ export class LinkerCache {
     // Invoked after an async re-index (e.g. auto-excluding a renamed duplicate)
     // changes the tree, so the caller can refresh its decorations.
     onIndexChanged?: () => void;
+    // Invoked the FIRST time the index becomes usable (see markReady). Unlike
+    // readyPromise this survives resetReady() swapping the promise, so the caller
+    // reliably learns "the index is ready" and can refresh the open views.
+    onReady?: () => void;
 
     constructor(public app: App, public settings: LinkerPluginSettings) {
         const { vault } = app;
@@ -1963,7 +2017,9 @@ export class LinkerCache {
                 // marking that as ready would leave the index empty forever,
                 // because nothing would ever rebuild it.
                 if (full && this.cache.setIndexedFilePaths.size > 0) {
-                    this.cache.markReady();
+                    if (this.cache.markReady()) {
+                        this.onReady?.();
+                    }
                 }
             })
             .catch(() => {

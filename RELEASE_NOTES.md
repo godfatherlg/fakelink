@@ -1,19 +1,23 @@
-# 1.24.9
+# 1.24.10
 
 ## 中文
 
-**冷启动与弹出窗口修复**
+**英文匹配修复 + 重载渲染修复**
 
-- **修复**：冷启动时索引构建早于仓库文件列表，索引可能被判为"就绪"却一个文件都没索引，导致链接永久缺失；现在空构建不再标记就绪，并在布局就绪后自动全量重建
-- **修复**：启动或插件重载时，已打开的笔记不再需要点击才会显示链接——索引就绪后会主动刷新所有窗口（含弹出窗口）中打开的笔记
-- **修复**：备用显示样式 / 仅颜色显示的样式类现在应用到所有窗口，弹出窗口不再回退到阴影样式
-- **修复**：悬停预览读取的 data-href 现在包含 `#标题` 锚点，预览弹窗会滚动到并高亮对应标题，而不是停在笔记顶部
+> 致歉：作者本人很少使用英文笔记，因此这个插件源自 virtual-linker 的英文单词匹配相关功能，长期以来一直没有经过充分验证。本次根据用户反馈（issue #20）修复了这些问题，对英文用户此前遇到的不便深表抱歉。
+
+- **修复**：「匹配单词开头 / 结尾」开关此前对英文不生效（关闭后前缀 / 后缀仍会匹配）；现在「任意部分 / 开头 / 结尾」三个开关按预期工作
+- **改进**：中文、日文假名、韩文谚文以及汉字扩展区等无空格文字始终按「子串」匹配，不再受英文词边界开关影响；设置说明已同步标注
+- **修复**：插件重载后，已打开的实时预览（Live Preview）笔记无需点击即可显示链接
+- **修复**：重载后链接「渲染出来又消失」的问题——索引重建的瞬间不再用空索引清空已有链接
 
 ## English
 
-**Cold-start & popout fixes**
+**English matching fixes + reload rendering fixes**
 
-- **Fix**: on a cold start the index build could run before the vault listed its files and be marked ready with zero files indexed, leaving links missing forever; an empty build no longer marks the index ready, and a full rebuild now runs automatically once the layout is ready
-- **Fix**: notes that are already open at startup or after a plugin reload no longer need a click before links appear - every open note in every window (popouts included) is refreshed once the index is ready
-- **Fix**: the alternative / color-only display style classes are now applied to every window, so popouts no longer fall back to the shadow look
-- **Fix**: the data-href read by the hover preview now includes the `#heading` anchor, so the popover scrolls to and highlights the heading instead of opening at the top of the note
+> Apology: I rarely write English notes myself, so the English word-matching features inherited from virtual-linker had gone largely untested for a long time. This release fixes those issues (reported in issue #20). My apologies to English users for the inconvenience.
+
+- **Fix**: the "Match the beginning / end of words" toggles had no effect on English (prefixes / suffixes still matched after turning them off); the three toggles ("any part / beginning / end") now work as expected
+- **Improve**: unspaced scripts — Chinese, Hiragana/Katakana, Hangul and Han extensions — always match as substrings and are no longer affected by the English word-boundary toggles; the setting description now says so
+- **Fix**: after a plugin reload, open Live Preview notes show their links without needing a click
+- **Fix**: links no longer "render then vanish" after a reload — the moment the index is being rebuilt no longer wipes existing links with an empty index

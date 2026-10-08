@@ -139,6 +139,10 @@ class AutoLinkerPlugin implements PluginValue {
     private lastCursorPos: number = 0;
     private lastActiveFile: string = '';
     private lastViewUpdate: ViewUpdate | null = null;
+    // The editor view this plugin decorates. Stored so an updateManager refresh
+    // can rebuild even before the first ViewUpdate arrives (right after a reload
+    // the index becomes ready before the editor fires its first update).
+    private view: EditorView;
     // Debounce state for pure scrolling: hold off rebuilding until scrolling stops,
     // so links appear "a bit later" once instead of being rebuilt on every scroll
     // tick (which is what caused the jitter).
@@ -171,6 +175,7 @@ class AutoLinkerPlugin implements PluginValue {
         this.app = app;
         this.plugin = plugin; // Store plugin reference
         this.settings = settings;
+        this.view = view;
 
         const { vault } = this.app;
         this.vault = vault;
@@ -212,6 +217,11 @@ class AutoLinkerPlugin implements PluginValue {
         this.unsubscribeUpdate = updateManager.registerCallback(() => {
             if (this.lastViewUpdate) {
                 this.update(this.lastViewUpdate, true);
+            } else {
+                // No ViewUpdate has reached this plugin yet (the index can become
+                // ready before the editor fires its first update). Build straight
+                // from the stored view so links appear without a click.
+                this.rebuildFromView();
             }
         });
     }
@@ -286,6 +296,13 @@ class AutoLinkerPlugin implements PluginValue {
         const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
 
         if (force || (cursorMoved && cursorMatters) || update.docChanged || fileChanged || update.viewportChanged || treeChanged) {
+            // The index was just reset (resetReady) and is being rebuilt: using
+            // the empty index here would clear every link. Keep the current
+            // decorations and wait for the onReady refresh instead.
+            if (!this.linkerCache.cache.isReady) {
+                this.lastViewUpdate = update;
+                return;
+            }
             // Pure scroll (viewport change with no doc/cursor/file change): debounce
             // so the rebuild happens once after scrolling stops, not on every tick.
             // Links then appear "a bit later" but without the per-tick DOM churn that
@@ -327,6 +344,19 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         this.lastViewUpdate = update;
+    }
+
+    /**
+     * Rebuild decorations straight from the stored view, without going through a
+     * ViewUpdate. Used by the updateManager callback when no update has arrived
+     * yet (see the constructor); the empty dispatch makes CodeMirror re-read the
+     * freshly built decorations.
+     */
+    private rebuildFromView(): void {
+        // Same guard as update(): do not rebuild against an empty (just-reset) index.
+        if (!this.linkerCache.cache.isReady) return;
+        this.decorations = this.buildDecorations(this.view, true);
+        this.view.dispatch({});
     }
 
     destroy() {
@@ -540,7 +570,15 @@ class AutoLinkerPlugin implements PluginValue {
         // Set to exclude files that are already linked by a virtual link
         const alreadyLinkedFiles = new Set<TFile>();
 
-        for (const { from, to } of view.visibleRanges) {
+        // Right after a reload the editor can have no viewport yet (visibleRanges
+        // stays empty until the user focuses/clicks it), which made links wait for
+        // an interaction. Fall back to the head of the document in that case so the
+        // first screen still renders; once the viewport exists the normal path
+        // takes over.
+        const scanRanges = view.visibleRanges.length > 0
+            ? view.visibleRanges
+            : [{ from: 0, to: Math.min(view.state.doc.length, 5000) }];
+        for (const { from, to } of scanRanges) {
             this.linkerCache.reset();
             const text = view.state.doc.sliceString(from, to);
 
@@ -580,14 +618,16 @@ class AutoLinkerPlugin implements PluginValue {
 
                     if (currentNodes.length > 0) {
                         for (const node of currentNodes) {
-                            // Check if we want to include this note based on the settings
-                            if (!this.settings.matchAnyPartsOfWords) {
-                                if (
-                                    (this.settings.matchBeginningOfWords && !node.startsAtWordBoundary) &&
-                                    (this.settings.matchEndOfWords && !isWordBoundary)
-                                ) {
-                                    continue;
-                                }
+                            // Decide whether to keep this match under the word-boundary
+                            // settings. CJK matches as a substring; the toggles only
+                            // shape space-separated scripts (English etc.).
+                            if (!PrefixTree.shouldAcceptWordMatch(
+                                this.settings,
+                                node.value,
+                                node.startsAtWordBoundary,
+                                isWordBoundary
+                            )) {
+                                continue;
                             }
 
                             const nFrom = node.start;

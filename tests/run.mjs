@@ -110,6 +110,43 @@ test('punctuation and spaces are boundaries', () => {
     assert.equal(PrefixTree.checkWordBoundary('.'), true);
 });
 
+console.log('LinkerCache.shouldAcceptWordMatch');
+
+const S = (matchAnyPartsOfWords, matchBeginningOfWords, matchEndOfWords) => ({
+    matchAnyPartsOfWords, matchBeginningOfWords, matchEndOfWords,
+});
+
+test('CJK always matches as a substring regardless of the toggles', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), '牙痛', false, false), true);
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), '牙痛', true, true), true);
+});
+
+test('kana, Hangul and Han extensions also match as substrings', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), 'かな', false, false), true);    // Hiragana
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), 'カナ', false, false), true);    // Katakana
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), '한글', false, false), true);    // Hangul
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), '\u{20000}', false, false), true); // Han ext-B
+});
+
+test('a whole English word is always accepted', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, false), 'nit', true, true), true);
+});
+
+test('a prefix needs matchBeginningOfWords', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, true), 'nit', true, false), false);
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, true, false), 'nit', true, false), true);
+});
+
+test('a suffix needs matchEndOfWords', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, true, false), 'nit', false, true), false);
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, false, true), 'nit', false, true), true);
+});
+
+test('an inner substring is rejected unless matchAnyPartsOfWords is on', () => {
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(false, true, true), 'nit', false, false), false);
+    assert.equal(PrefixTree.shouldAcceptWordMatch(S(true, false, false), 'nit', false, false), true);
+});
+
 console.log('convertLink.relative');
 
 // Shared by both conversion paths (convertLink and batchConvert), so the
