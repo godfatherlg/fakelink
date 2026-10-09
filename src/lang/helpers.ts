@@ -252,6 +252,8 @@ const zhCN: Record<string, string> = {
     'Fixed: the active tab label colour now always applies (it used to depend on the theme).': '修复：激活标签页的字体颜色现在始终生效（此前是否生效取决于主题）。',
     'Fixed: in a split view only the focused pane\'s active tab is accented, so there is a single active tab.': '修复：分栏时只有聚焦窗格的激活标签显示强调样式，因此始终只有一个激活页。',
     'Improved: inactive tabs dim further, making the active one easier to spot.': '改进：未激活标签淡化更明显，激活页更易分辨。',
+    'Improved: the active tab is marked by accent bars on both the top and bottom, making it easier to spot.': '改进：激活标签页改用顶部 + 底部双强调条标记，更容易一眼定位。',
+    'Improved: inactive tabs are no longer dimmed, so every label stays easy to read.': '改进：未激活标签不再淡化，所有标签文字保持清晰可读。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

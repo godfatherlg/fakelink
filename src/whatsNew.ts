@@ -12,16 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.11';
+export const WHATS_NEW_VERSION = '1.24.12';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fixed: the active tab label colour now always applies (it used to depend on the theme).',
-    'Fixed: in a split view only the focused pane\'s active tab is accented, so there is a single active tab.',
-    'Improved: inactive tabs dim further, making the active one easier to spot.',
+    'Improved: the active tab is marked by accent bars on both the top and bottom, making it easier to spot.',
+    'Improved: inactive tabs are no longer dimmed, so every label stays easy to read.',
 ];
 
 export class WhatsNewModal extends Modal {

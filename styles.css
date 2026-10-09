@@ -659,13 +659,16 @@ body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .work
   background: var(--fakelink-tab-bg);
   color: var(--fakelink-tab-accent);
   font-weight: 600;
-  /* The accent underline is an inset shadow rather than a border-bottom: a real
-   * border is part of the box, so every tab switch made it appear/disappear and
-   * nudged its content up and down by 3px. An inset shadow paints inside the
-   * box and costs no layout. The drop shadow stays in the same declaration. */
+  /* Two accent bars (top and bottom) mark the active tab. They are inset
+   * shadows rather than borders: a real border is part of the box, so every tab
+   * switch made it appear/disappear and nudged the content by its width. An
+   * inset shadow paints inside the box and costs no layout. The bars let the
+   * active tab stand out on its own, so the inactive ones never have to be
+   * dimmed — dimming them made their labels hard to read. */
   box-shadow:
+    inset 0 3px 0 var(--fakelink-tab-accent),
     inset 0 -3px 0 var(--fakelink-tab-accent),
-    0 2px 6px var(--fakelink-tab-shadow);
+    0 2px 8px var(--fakelink-tab-shadow);
   border-radius: 6px 6px 0 0;
   /* Deliberately not `transition: all`: that animates every property Obsidian
    * touches on these elements too, including ones it changes for reasons of
@@ -691,10 +694,12 @@ body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .work
   font-weight: 600;
 }
 
-/* Inactive tabs step back further, so the active one reads at a glance even
- * before the colour is noticed. */
+/* Inactive tabs keep full opacity. The active one is marked by its own accent
+ * bars, colour and background, so the others never need dimming to make it
+ * stand out — a dim (0.72 was tried, then 0.9) only made their labels harder
+ * to read. */
 body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header:not(.is-active) {
-  opacity: 0.72;
+  opacity: 1;
   transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
