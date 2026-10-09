@@ -12,18 +12,16 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.10';
+export const WHATS_NEW_VERSION = '1.24.11';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Apology: I rarely write English notes, so the English word-matching features inherited from virtual-linker had gone largely untested. This release fixes them (issue #20); apologies to English users.',
-    'Fixed: the "Match the beginning / end of words" toggles now work for English.',
-    'Improved: Chinese, kana and Hangul always match as substrings, unaffected by the English word-boundary toggles.',
-    'Fixed: open Live Preview notes render links right after a reload, without needing a click.',
-    'Fixed: links no longer render then vanish after a reload.',
+    'Fixed: the active tab label colour now always applies (it used to depend on the theme).',
+    'Fixed: in a split view only the focused pane\'s active tab is accented, so there is a single active tab.',
+    'Improved: inactive tabs dim further, making the active one easier to spot.',
 ];
 
 export class WhatsNewModal extends Modal {

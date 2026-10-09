@@ -652,7 +652,10 @@ body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs:not(.mod-active)
   background-color: var(--fakelink-tab-dim);
 }
 
-body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container .workspace-tab-header.is-active {
+/* Only the FOCUSED pane's active tab gets the full accent. Every pane has its
+ * own .is-active tab, so without the .mod-active guard a split view showed two
+ * (or more) "active" tabs at once. */
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container .workspace-tab-header.is-active {
   background: var(--fakelink-tab-bg);
   color: var(--fakelink-tab-accent);
   font-weight: 600;
@@ -672,12 +675,26 @@ body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container 
 }
 
 /* Keep the tab's icon in step with its label */
-body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header-container .workspace-tab-header.is-active svg {
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container .workspace-tab-header.is-active svg {
   color: var(--fakelink-tab-accent);
 }
 
+/* The label itself. It lives in child elements (.workspace-tab-header-inner /
+ * .workspace-tab-header-inner-title), and a theme that colours those directly
+ * beats the colour set on the header above — inheritance always loses to a rule
+ * of its own. That is why the active label changed colour only sometimes: it
+ * followed the header when nothing else styled it, and kept the theme's colour
+ * when something did. Paint the label too. */
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container .workspace-tab-header.is-active .workspace-tab-header-inner,
+body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tabs.mod-active .workspace-tab-header-container .workspace-tab-header.is-active .workspace-tab-header-inner-title {
+  color: var(--fakelink-tab-accent);
+  font-weight: 600;
+}
+
+/* Inactive tabs step back further, so the active one reads at a glance even
+ * before the colour is noticed. */
 body.virtual-link-bg.virtual-link-bg-tab-accent .workspace-tab-header:not(.is-active) {
-  opacity: 0.9;
+  opacity: 0.72;
   transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 

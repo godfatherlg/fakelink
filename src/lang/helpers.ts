@@ -249,6 +249,9 @@ const zhCN: Record<string, string> = {
     'Improved: Chinese, kana and Hangul always match as substrings, unaffected by the English word-boundary toggles.': '改进：中文、假名、谚文始终按子串匹配，不受英文词边界开关影响。',
     'Fixed: open Live Preview notes render links right after a reload, without needing a click.': '修复：重载插件后，已打开的实时预览笔记无需点击即可显示链接。',
     'Fixed: links no longer render then vanish after a reload.': '修复：重载后链接不再「渲染后又消失」。',
+    'Fixed: the active tab label colour now always applies (it used to depend on the theme).': '修复：激活标签页的字体颜色现在始终生效（此前是否生效取决于主题）。',
+    'Fixed: in a split view only the focused pane\'s active tab is accented, so there is a single active tab.': '修复：分栏时只有聚焦窗格的激活标签显示强调样式，因此始终只有一个激活页。',
+    'Improved: inactive tabs dim further, making the active one easier to spot.': '改进：未激活标签淡化更明显，激活页更易分辨。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

@@ -1,23 +1,17 @@
-# 1.24.10
+# 1.24.11
 
 ## 中文
 
-**英文匹配修复 + 重载渲染修复**
+**标签页强调样式修复**
 
-> 致歉：作者本人很少使用英文笔记，因此这个插件源自 virtual-linker 的英文单词匹配相关功能，长期以来一直没有经过充分验证。本次根据用户反馈（issue #20）修复了这些问题，对英文用户此前遇到的不便深表抱歉。
-
-- **修复**：「匹配单词开头 / 结尾」开关此前对英文不生效（关闭后前缀 / 后缀仍会匹配）；现在「任意部分 / 开头 / 结尾」三个开关按预期工作
-- **改进**：中文、日文假名、韩文谚文以及汉字扩展区等无空格文字始终按「子串」匹配，不再受英文词边界开关影响；设置说明已同步标注
-- **修复**：插件重载后，已打开的实时预览（Live Preview）笔记无需点击即可显示链接
-- **修复**：重载后链接「渲染出来又消失」的问题——索引重建的瞬间不再用空索引清空已有链接
+- **修复**：激活标签页的字体颜色此前时有时无——颜色只设在了标签外层，靠子元素继承，而主题（或 Obsidian 自身）一旦给标题文字单独设了颜色就会覆盖继承；现在直接给标题元素上色，任何主题下都稳定生效
+- **修复**：分栏（分屏）时每个窗格当前的标签都会被加上强调样式，看起来像同时有多个「激活页」；现在只有当前聚焦的那个窗格会有完整强调色，其余窗格保持普通外观
+- **改进**：未激活的标签淡化得更明显（不透明度 0.9 → 0.72），激活页更容易一眼分辨
 
 ## English
 
-**English matching fixes + reload rendering fixes**
+**Active-tab styling fixes**
 
-> Apology: I rarely write English notes myself, so the English word-matching features inherited from virtual-linker had gone largely untested for a long time. This release fixes those issues (reported in issue #20). My apologies to English users for the inconvenience.
-
-- **Fix**: the "Match the beginning / end of words" toggles had no effect on English (prefixes / suffixes still matched after turning them off); the three toggles ("any part / beginning / end") now work as expected
-- **Improve**: unspaced scripts — Chinese, Hiragana/Katakana, Hangul and Han extensions — always match as substrings and are no longer affected by the English word-boundary toggles; the setting description now says so
-- **Fix**: after a plugin reload, open Live Preview notes show their links without needing a click
-- **Fix**: links no longer "render then vanish" after a reload — the moment the index is being rebuilt no longer wipes existing links with an empty index
+- **Fix**: the active tab's label colour only applied sometimes — it was set on the tab's outer element and inherited, so any theme (or Obsidian itself) that colours the label element directly overrode it. The label element is now coloured directly, so the accent holds under any theme
+- **Fix**: in a split view every pane's current tab got the accent, so it looked like several "active" tabs at once. Only the FOCUSED pane's active tab is accented now; the other panes keep their normal look
+- **Improve**: inactive tabs dim further (opacity 0.9 → 0.72), so the active one stands out at a glance
