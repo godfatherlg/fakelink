@@ -12,15 +12,16 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.12';
+export const WHATS_NEW_VERSION = '1.24.13';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Improved: the active tab is marked by accent bars on both the top and bottom, making it easier to spot.',
-    'Improved: inactive tabs are no longer dimmed, so every label stays easy to read.',
+    'Fixed: strikethrough no longer turns into underline on a fresh install (alternative display style is off by default).',
+    'Changed: advanced settings are hidden by default, so new users see a cleaner settings tab.',
+    'Changed: a few non-core options now default to off (header symbol keywords, current-line linking, line jumping).',
 ];
 
 export class WhatsNewModal extends Modal {

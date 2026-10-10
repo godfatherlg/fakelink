@@ -254,6 +254,9 @@ const zhCN: Record<string, string> = {
     'Improved: inactive tabs dim further, making the active one easier to spot.': '改进：未激活标签淡化更明显，激活页更易分辨。',
     'Improved: the active tab is marked by accent bars on both the top and bottom, making it easier to spot.': '改进：激活标签页改用顶部 + 底部双强调条标记，更容易一眼定位。',
     'Improved: inactive tabs are no longer dimmed, so every label stays easy to read.': '改进：未激活标签不再淡化，所有标签文字保持清晰可读。',
+    'Fixed: strikethrough no longer turns into underline on a fresh install (alternative display style is off by default).': '修复：全新安装时删除线不再变成下划线（替代显示样式默认关闭）。',
+    'Changed: advanced settings are hidden by default, so new users see a cleaner settings tab.': '调整：高级设置默认隐藏，新用户看到的设置面板更简洁。',
+    'Changed: a few non-core options now default to off (header symbol keywords, current-line linking, line jumping).': '调整：部分非核心选项改为默认关闭（标题符号关键词、当前行不显示链接、行跳转）。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

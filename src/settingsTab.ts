@@ -347,18 +347,19 @@ export class LinkerSettingTab extends PluginSettingTab {
                 }),
                 toggleDef(t('Enable header symbol keywords'), 'headerMatchSymbols', {
                     desc: t('When enabled, text between start and end symbols in headers will be used as virtual link keywords. Tip: use EasyTyping to select text and add symbols.'),
+                    visible: adv,
                 }),
                 textDef(t('Start symbol'), 'headerMatchStartSymbol', {
                     desc: t('Symbol marking the start of the keyword in headers. Must be different from end symbol.'),
-                    visible: () => s.headerMatchSymbols,
+                    visible: () => s.advancedSettings && s.headerMatchSymbols,
                 }),
                 textDef(t('End symbol'), 'headerMatchEndSymbol', {
                     desc: t('Symbol marking the end of the keyword in headers. Must be different from start symbol.'),
-                    visible: () => s.headerMatchSymbols,
+                    visible: () => s.advancedSettings && s.headerMatchSymbols,
                 }),
                 toggleDef(t('Only match headers between symbols'), 'headerMatchOnlyBetweenSymbols', {
                     desc: t('When enabled, only headers containing start and end symbols will produce virtual links. Unmarked headers will not produce virtual links.'),
-                    visible: () => s.headerMatchSymbols,
+                    visible: () => s.advancedSettings && s.headerMatchSymbols,
                 }),
                 toggleDef(t('Auto-insert heading lock symbol'), 'headerAutoAppendSuffix', {
                     desc: t('When enabled, a unique symbol is automatically placed at the front of new or modified header text, preventing accidental matching by regular body text.'),
@@ -564,20 +565,21 @@ export class LinkerSettingTab extends PluginSettingTab {
             groupDef(t('Line jumping'), [
                 toggleDef(t('Jump to line on adv-uri click'), 'jumpEnabled', {
                     desc: t('When enabled, FakeLink registers the obsidian://adv-uri protocol and handles line jumping itself, including links fired from external apps (e.g. a browser or a custom obsidianjump:// handler). Obsidian allows only ONE plugin to handle this protocol, so you must NOT enable the Advanced URI plugin at the same time — keep it disabled, otherwise one of the two plugins will fail to load. Generate line links via the right-click menu "Copy line link (adv-uri)".'),
+                    visible: adv,
                 }),
                 toggleDef(t('Self-heal line links'), 'lineLinkSelfHeal', {
                     desc: t('When enabled, copied line links also store the text of the target line. If the note is edited and line numbers drift, the jump re-finds the line by its text instead of landing on the wrong line. Works for both plain and aliased line links. Line links copied before enabling this have no anchor and keep the old behavior.'),
-                    visible: () => s.jumpEnabled,
+                    visible: () => s.advancedSettings && s.jumpEnabled,
                 }),
                 numberDef(t('Line jump wait limit (seconds)'), 'lineJumpWaitSeconds', {
                     desc: t('The maximum time (in SECONDS) to wait for the target file to render before positioning the cursor. Small files jump almost immediately; large files wait up to this limit. The number you type is the number of seconds (8 = 8 seconds); 0 means do not wait.'),
                     min: 0,
                     max: 60,
-                    visible: () => s.jumpEnabled,
+                    visible: () => s.advancedSettings && s.jumpEnabled,
                 }),
                 toggleDef(t('Open in new tab'), 'jumpOpenInNewTab', {
                     desc: t('When the target file is not already open, open it in a new tab. When off, the current tab is reused.'),
-                    visible: () => s.jumpEnabled,
+                    visible: () => s.advancedSettings && s.jumpEnabled,
                 }),
             ]),
 
@@ -673,6 +675,7 @@ export class LinkerSettingTab extends PluginSettingTab {
                 }),
                 toggleDef(t('Alternative display style'), 'alternativeDisplayStyle', {
                     desc: t('When enabled, strikethrough is replaced with underline, and %%comments%% are collapsed into small dots that expand on the active line.'),
+                    visible: adv,
                 }),
                 toggleDef(t('Apply default link styling'), 'applyDefaultLinkStyling', {
                     desc: t('If toggled, the default link styling will be applied to virtual links. Furthermore, you can style the links yourself with a CSS-snippet affecting the class `virtual-link`. (Find the CSS snippet directory at Appearance -> CSS Snippets -> Open snippets folder)'),

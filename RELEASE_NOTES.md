@@ -1,15 +1,17 @@
-# 1.24.12
+# 1.24.13
 
 ## 中文
 
-**标签页激活标识优化**
+**默认设置调整（修复删除线变下划线）**
 
-- **改进**：激活标签页现在用「顶部 + 底部」两条强调色条标记，比原来只有底部一条更醒目，一眼就能定位当前页
-- **改进**：未激活的标签不再被淡化（不透明度恢复为 1）——之前压到 0.72 会让标签文字看不清；现在区分完全靠给激活页加标识，而不是把其他标签调淡，标签栏所有文字都保持清晰
+- **修复**：新安装时「替代显示样式」不再默认开启，删除线（`~~...~~`）恢复为标准显示（此前新用户装上插件后删除线会变成下划线，issue #22）
+- **调整**：「显示高级设置」现在默认关闭，设置面板默认只显示核心选项，界面更简洁；打开它才会显示高级选项
+- **调整**：以下功能改为默认关闭（打开「显示高级设置」后可开启）：「启用标题符号关键词」「当前行不显示链接」「行跳转（点击 adv-uri 跳转 / 在新标签页打开）」
 
 ## English
 
-**Active-tab marker reworked**
+**Default settings reworked (fixes strikethrough → underline)**
 
-- **Improve**: the active tab is now marked by two accent bars (top and bottom) instead of a single bottom one, so it is much easier to spot at a glance
-- **Improve**: inactive tabs are no longer dimmed (opacity back to 1) — the previous 0.72 dim made their labels hard to read. The active tab now stands out purely by its own markers, not by fading the others, so every label in the tab bar stays legible
+- **Fix**: "Alternative display style" is no longer on by default, so strikethrough (`~~...~~`) renders normally for new installs (previously it became underlined, issue #22)
+- **Change**: "Show advanced settings" is now off by default — the settings tab shows only the core options, and toggling it reveals the advanced ones
+- **Change**: these now default to off (enable after turning on "Show advanced settings"): "Enable header symbol keywords", "Avoid linking in current line", and line jumping ("Jump to line on adv-uri click" / "Open in new tab")
