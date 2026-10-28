@@ -188,6 +188,14 @@ export class LinkerSettingTab extends PluginSettingTab {
                 await this.plugin.updateSettings({ cursorLineOpacity: value as number });
                 this.applyCssVar('--fakelink-cursor-line-alpha', String((value as number) / 100));
                 break;
+            case 'cursorLinePseudo3d':
+                await this.plugin.updateSettings({ cursorLinePseudo3d: value as boolean });
+                this.applyBackgroundClasses();
+                break;
+            case 'cursorLineColor':
+                await this.plugin.updateSettings({ cursorLineColor: value as string });
+                this.applyCssVar('--fakelink-cursor-line-color', (value as string) || 'var(--fakelink-caret)');
+                break;
             case 'alternativeDisplayStyle':
                 await this.plugin.updateSettings({ alternativeDisplayStyle: value as boolean });
                 this.applyBodyClass('virtual-linker-alt-style', value as boolean);
@@ -640,11 +648,19 @@ export class LinkerSettingTab extends PluginSettingTab {
                     visible: () => s.backgroundHighlight && s.backgroundLines,
                 }),
                 toggleDef(t('Cursor line'), 'backgroundCursorLine', {
-                    desc: t('Warm orange highlight on the line the cursor is on, together with the caret colour.'),
+                    desc: t('Marks the cursor line: its line number gets a colour chip and, when the pseudo-3D band is on, the line gets a subtle raised band. Also colours the caret.'),
                     visible: () => s.backgroundHighlight,
                 }),
+                toggleDef(t('Pseudo-3D band'), 'cursorLinePseudo3d', {
+                    desc: t('Adds a subtle raised band across the cursor line (a light top edge and a dark bottom edge). Turn it off if the band moving with the caret feels tiring.'),
+                    visible: () => s.backgroundHighlight && s.backgroundCursorLine,
+                }),
+                colorDef(t('Cursor line colour'), 'cursorLineColor', {
+                    desc: t('Colour for the cursor-line line number chip and the pseudo-3D band. Leave empty to use the caret colour.'),
+                    visible: () => s.backgroundHighlight && s.backgroundCursorLine,
+                }),
                 sliderDef(t('Cursor line strength'), 'cursorLineOpacity', 0, 100, 1, {
-                    desc: t('Opacity of the warm orange highlight on the line the cursor is on. 35 is the default.'),
+                    desc: t('Strength of the cursor-line marks (line number chip and the pseudo-3D band). 35 is the default.'),
                     visible: () => s.backgroundHighlight && s.backgroundCursorLine,
                 }),
                 toggleDef(t('Tab accent'), 'backgroundTabAccent', {

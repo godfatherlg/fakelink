@@ -1,17 +1,17 @@
-# 1.24.13
+## Cursor line: line-number chip, optional pseudo-3D band, and a colour picker
 
-## 中文
+The cursor line used to be a single warm background across the whole line. In 1.24.14 it is split into two signals you control separately:
 
-**默认设置调整（修复删除线变下划线）**
+- **Line-number chip** — the cursor line's line number gets a coloured chip in the gutter. It sits outside the text, so the current line is always identifiable without painting anything over the body.
+- **Pseudo-3D band** — optional, and on by default. A light top edge, a dark bottom edge and a faint gradient make the line look slightly raised. Turn it off in *Settings → Background → Pseudo-3D band* if a band following the caret feels tiring to your eyes.
 
-- **修复**：新安装时「替代显示样式」不再默认开启，删除线（`~~...~~`）恢复为标准显示（此前新用户装上插件后删除线会变成下划线，issue #22）
-- **调整**：「显示高级设置」现在默认关闭，设置面板默认只显示核心选项，界面更简洁；打开它才会显示高级选项
-- **调整**：以下功能改为默认关闭（打开「显示高级设置」后可开启）：「启用标题符号关键词」「当前行不显示链接」「行跳转（点击 adv-uri 跳转 / 在新标签页打开）」
+Both signals use the same colour:
 
-## English
+- **Cursor line colour** — pick any colour; leave it empty to follow the caret colour (brown in light themes, orange in dark ones).
+- **Cursor line strength** — one slider scales the line-number chip and the band together.
 
-**Default settings reworked (fixes strikethrough → underline)**
+The band is derived from the cursor-line colour (translucent tints of it) rather than a fixed grey shadow, so it blends with the background instead of looking like a foreign colour laid on top.
 
-- **Fix**: "Alternative display style" is no longer on by default, so strikethrough (`~~...~~`) renders normally for new installs (previously it became underlined, issue #22)
-- **Change**: "Show advanced settings" is now off by default — the settings tab shows only the core options, and toggling it reveals the advanced ones
-- **Change**: these now default to off (enable after turning on "Show advanced settings"): "Enable header symbol keywords", "Avoid linking in current line", and line jumping ("Jump to line on adv-uri click" / "Open in new tab")
+### Under the hood
+
+Obsidian's editor never marks the cursor's line number, so CSS had nothing to target. The plugin now registers CodeMirror's `highlightActiveLineGutter` extension, which adds `.cm-activeLineGutter` to the current line's number. The class is painted only while the *Cursor line* background part is enabled, so nothing changes for users who keep it off.

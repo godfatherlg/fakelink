@@ -12,16 +12,16 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.13';
+export const WHATS_NEW_VERSION = '1.24.14';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fixed: strikethrough no longer turns into underline on a fresh install (alternative display style is off by default).',
-    'Changed: advanced settings are hidden by default, so new users see a cleaner settings tab.',
-    'Changed: a few non-core options now default to off (header symbol keywords, current-line linking, line jumping).',
+    'Improved: the cursor line now marks its line number with a colour chip, so the current line stays identifiable even with the in-text band off.',
+    'New: a "Pseudo-3D band" toggle and a "Cursor line colour" picker; the line number chip and the band both follow the chosen colour.',
+    'Improved: the pseudo-3D band is built from the cursor-line colour instead of a grey shadow, so it blends with the background.',
 ];
 
 export class WhatsNewModal extends Modal {

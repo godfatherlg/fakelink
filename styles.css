@@ -518,6 +518,10 @@ body.virtual-link-bg {
   --fakelink-line-bg: rgba(135, 206, 235, var(--fakelink-line-alpha));
   --fakelink-cursor-line-bg: rgba(255, 220, 180, var(--fakelink-cursor-line-alpha));
   --fakelink-caret: #8B4513;
+  /* Cursor-line gutter chip. Same neutral language as the text band: a
+   * translucent black over whatever surface is behind it, so it reads as a
+   * slightly darker version of the background instead of a coloured block. */
+  --fakelink-gutter-active-bg: rgba(0, 0, 0, 0.16);
   --fakelink-tab-accent: #1a73e8;
   /* Both tab styles are available: this gradient comes from 激活页面明显化.css,
    * the flat #f8fbff from 背景.css - set the variable to whichever you prefer. */
@@ -549,6 +553,8 @@ body.theme-dark.virtual-link-bg {
   --fakelink-line-bg: rgba(120, 170, 255, var(--fakelink-line-alpha));
   --fakelink-cursor-line-bg: rgba(255, 190, 120, var(--fakelink-cursor-line-alpha));
   --fakelink-caret: #ffb27a;
+  /* Dark surfaces: a translucent white lifts the chip out of the background. */
+  --fakelink-gutter-active-bg: rgba(255, 255, 255, 0.18);
   --fakelink-tab-accent: #7aa2f7;
   --fakelink-tab-bg: linear-gradient(135deg, #23272e 0%, #1c2026 100%);
   --fakelink-tab-shadow: rgba(0, 0, 0, 0.35);
@@ -596,10 +602,34 @@ body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-lin
   background-color: var(--fakelink-line-bg);
 }
 
-/* Cursor line + caret (from 背景.css) */
-body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-content .cm-line.cm-active {
-  background-color: var(--fakelink-cursor-line-bg);
+/* Cursor line + caret (from 背景.css)
+ * Two independent signals, both driven by --fakelink-cursor-line-color (the
+ * "Cursor line colour" setting, empty = caret colour) and scaled by the
+ * "Cursor line strength" slider:
+ *  - the gutter (line number) always gets a colour chip, outside the text;
+ *  - the text area gets an optional pseudo-3D band (top highlight, bottom
+ *    shade, faint gradient), enabled by the "Pseudo-3D band" toggle. It is
+ *    kept soft and animated over 120ms, so moving the caret fades instead of
+ *    flashing; the toggle exists because, for some eyes, any band following
+ *    the caret still tires. */
+body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-gutters .cm-gutterElement.cm-activeLineGutter,
+body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-activeLineGutter {
+  background-color: color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 100%), transparent) !important;
+  color: var(--text-normal) !important;
+  border-radius: 3px;
+}
+
+body.virtual-link-bg.virtual-link-bg-cursor.virtual-link-bg-cursor-3d .markdown-source-view.mod-cm6 .cm-content .cm-line.cm-active {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 18%), transparent) 0%,
+    transparent 100%
+  );
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 75%), transparent),
+    inset 0 -1px 0 color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 45%), transparent);
   border-radius: 4px;
+  transition: background 0.12s ease, box-shadow 0.12s ease;
 }
 
 body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-content {

@@ -1,5 +1,5 @@
 import { App, Editor, MarkdownView, Menu, Notice, Plugin, TAbstractFile, TFile, WorkspaceLeaf } from 'obsidian';
-import { DecorationSet, EditorView, ViewPlugin, ViewUpdate } from '@codemirror/view';
+import { DecorationSet, EditorView, ViewPlugin, ViewUpdate, highlightActiveLineGutter } from '@codemirror/view';
 import { t } from './src/lang/helpers';
 
 import { GlossaryLinker } from './linker/readModeLinker';
@@ -101,6 +101,8 @@ export interface LinkerPluginSettings {
     backgroundTint: boolean;        // overall app tint
     backgroundLines: boolean;       // list / indent / table / callout backgrounds
     backgroundCursorLine: boolean;  // cursor line highlight + caret colour
+    cursorLinePseudo3d: boolean;    // the raised 3D band inside the cursor line
+    cursorLineColor: string;        // custom cursor-line colour ('' = caret colour)
     backgroundTabAccent: boolean;      // active tab header styling
     backgroundUnfocusedMask: boolean;  // mask over the workspace while unfocused
     // Legacy field, kept ONLY as migration input. It is not part of the current
@@ -214,6 +216,8 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     backgroundTabs: true, // deprecated: migration source only, never read at runtime
     backgroundLineOpacity: 10,
     cursorLineOpacity: 35,
+    cursorLinePseudo3d: true,
+    cursorLineColor: '',
     frontmatterExcludeProperty: 'fakelink-exclude',
     perNoteExcludeKeywords: false,
     enableFrontmatterExcludeList: false,
@@ -1127,6 +1131,12 @@ export default class LinkerPlugin extends Plugin {
 
         // Register the live linker for the live edit mode
         this.registerEditorExtension(liveLinkerPlugin(this.app, this.settings, this.updateManager, this));
+
+        // Obsidian's gutter never marks the cursor's line number, so
+        // `.cm-activeLineGutter` is absent and CSS cannot target it. This
+        // extension adds that class; styles.css paints it only while the
+        // "Cursor line" background part is on, so nothing changes otherwise.
+        this.registerEditorExtension(highlightActiveLineGutter());
     }
 
     // Take over the obsidian://adv-uri protocol so line links (fired from an
@@ -1557,7 +1567,10 @@ export default class LinkerPlugin extends Plugin {
             wanted.push('virtual-link-bg');
             if (s.backgroundTint) wanted.push('virtual-link-bg-tint');
             if (s.backgroundLines) wanted.push('virtual-link-bg-lines');
-            if (s.backgroundCursorLine) wanted.push('virtual-link-bg-cursor');
+            if (s.backgroundCursorLine) {
+                wanted.push('virtual-link-bg-cursor');
+                if (s.cursorLinePseudo3d) wanted.push('virtual-link-bg-cursor-3d');
+            }
             if (s.backgroundTabAccent) wanted.push('virtual-link-bg-tab-accent');
             if (s.backgroundUnfocusedMask) wanted.push('virtual-link-bg-unfocused-mask');
         }
@@ -1565,12 +1578,15 @@ export default class LinkerPlugin extends Plugin {
         if (s.colorOnlyDisplay) wanted.push('virtual-link-color-only');
         const known = [
             'virtual-link-bg', 'virtual-link-bg-tint', 'virtual-link-bg-lines',
-            'virtual-link-bg-cursor', 'virtual-link-bg-tab-accent', 'virtual-link-bg-unfocused-mask',
+            'virtual-link-bg-cursor', 'virtual-link-bg-cursor-3d', 'virtual-link-bg-tab-accent', 'virtual-link-bg-unfocused-mask',
             'virtual-linker-alt-style', 'virtual-link-color-only',
         ];
         const vars: [string, string][] = [
             ['--fakelink-line-alpha', String(s.backgroundLineOpacity / 100)],
             ['--fakelink-cursor-line-alpha', String(s.cursorLineOpacity / 100)],
+            // Empty means "follow the caret colour". A var() fallback keeps one
+            // source of truth instead of duplicating the hex in two places.
+            ['--fakelink-cursor-line-color', s.cursorLineColor || 'var(--fakelink-caret)'],
         ];
 
         const seen = new Set<Document>();
