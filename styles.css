@@ -614,8 +614,12 @@ body.virtual-link-bg.virtual-link-bg-lines .markdown-source-view.mod-cm6 .cm-lin
  *    the caret still tires. */
 body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-gutters .cm-gutterElement.cm-activeLineGutter,
 body.virtual-link-bg.virtual-link-bg-cursor .markdown-source-view.mod-cm6 .cm-activeLineGutter {
-  background-color: color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 100%), transparent) !important;
-  color: var(--text-normal) !important;
+  background-color: color-mix(in srgb, var(--fakelink-cursor-line-color) calc(var(--fakelink-cursor-line-alpha) * 100%), transparent);
+  /* Obsidian sets `.cm-gutters { color: var(--text-faint) !important }`, which
+   * beats any `color` we could declare without !important. -webkit-text-fill-
+   * color paints the glyphs directly and is not subject to that, so it wins
+   * without an !important of our own. */
+  -webkit-text-fill-color: var(--text-normal);
   border-radius: 3px;
 }
 

@@ -39,6 +39,7 @@ const zhCN: Record<string, string> = {
     'Improved: the cursor line now marks its line number with a colour chip, so the current line stays identifiable even with the in-text band off.': '改进：光标行现在会用色块标记行号，即使关闭行内色带也能辨认当前行。',
     'New: a "Pseudo-3D band" toggle and a "Cursor line colour" picker; the line number chip and the band both follow the chosen colour.': '新增：「伪 3D 色带」开关与「光标行颜色」选择器，行号色块和色带都跟随所选颜色。',
     'Improved: the pseudo-3D band is built from the cursor-line colour instead of a grey shadow, so it blends with the background.': '改进：伪 3D 色带改为基于光标行颜色生成（非灰色阴影），能与背景更好地融合。',
+    'Changed: the cursor-line gutter styles no longer use !important, as requested by the Obsidian review. Appearance is unchanged.': '调整：光标行行号样式不再使用 !important（按 Obsidian 审核要求），外观不变。',
     'Tab accent': '标签页强调',
     'Makes the active tab header stand out: a raised background, an accent-coloured underline and label, a bolder label and a soft shadow.': '让激活的标签页头部更突出：加高的背景、强调色的下划线与标题、更粗的标题字重，以及柔和投影。',
     'Unfocused mask': '失焦蒙版',
