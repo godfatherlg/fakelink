@@ -178,7 +178,7 @@ class AutoLinkerPlugin implements PluginValue {
     // lives outside the editor and fires no ViewUpdate, so a capture-phase
     // input listener plus a MutationObserver on the source view keep the
     // decorations rebuilt while the panel opens/closes or the query changes.
-    private searchTracker: { observer: MutationObserver | null; container: HTMLElement | null; rebuild: (() => void) | null } = {
+    private searchTracker: { observer: MutationObserver | null; container: Element | null; rebuild: (() => void) | null } = {
         observer: null, container: null, rebuild: null,
     };
 
@@ -249,8 +249,8 @@ class AutoLinkerPlugin implements PluginValue {
      * this would loop forever.
      */
     private attachSearchTracking(): void {
-        const container = (this.view.dom.closest('.markdown-source-view') as HTMLElement | null)
-            ?? (this.view.dom.closest('.view-content') as HTMLElement | null);
+        const container = this.view.dom.closest('.markdown-source-view')
+            ?? this.view.dom.closest('.view-content');
         if (!container) return;
 
         const rebuild = () => {
@@ -263,7 +263,7 @@ class AutoLinkerPlugin implements PluginValue {
         container.addEventListener('keydown', rebuild, true);
 
         const touchesSearchPanel = (node: Node): boolean =>
-            node instanceof HTMLElement
+            node.instanceOf(HTMLElement)
             && (node.matches('.document-search-container') || node.querySelector('.document-search-container') !== null);
 
         const observer = new MutationObserver((mutations) => {
@@ -287,7 +287,7 @@ class AutoLinkerPlugin implements PluginValue {
      * rebuild - cheap, and only runs while a rebuild is due anyway.
      */
     private currentSearchQuery(): string | null {
-        const container = this.view.dom.closest('.markdown-source-view') as HTMLElement | null;
+        const container = this.view.dom.closest('.markdown-source-view');
         const panel = container?.querySelector('.document-search-container');
         if (!panel) return null;
         const input = panel.querySelector('.document-search input');
