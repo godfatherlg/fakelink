@@ -152,6 +152,19 @@ strike .virtual-link-span a {
   position: relative;
 }
 
+/* Document-search fallback (issue #23, upstream Virtual Linker #88).
+ * While Obsidian's search panel is open with a query, virtual links render as
+ * plain text marks instead of replace widgets, so the search highlight
+ * (.cm-searchMatch, itself a mark on the document text) shows through instead
+ * of being swallowed by the widget. The mark carries the same classes as the
+ * widget's root span (.virtual-link, .virtual-link-span, type/context
+ * classes), so every display mode - shadow chip, color-only, alt style - stays
+ * exactly as the user chose it, with no underline added. The widget and its
+ * click behaviour return as soon as the search closes or empties.
+ * No dedicated rule is needed: the shared classes do the styling, and
+ * Obsidian's .cm-searchMatch background outranks the chip background wherever
+ * the search actually hits. */
+
 /* Virtual link in header context: inherit header text color */
 html body .cm-header .virtual-link-a,
 html body .cm-header .virtual-link,

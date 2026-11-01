@@ -1,23 +1,29 @@
+# 1.24.16
+
 ## 中文
 
-### 移除 !important（Obsidian 审核要求）
+### 搜索时保持虚拟链接的显示模式
 
-光标行的行号色块样式不再使用 `!important`：
+修复了打开文档搜索时虚拟链接外观与平时不一致的问题：
 
-- **背景色**改为依靠更高的选择器优先级（七层类名）覆盖 Obsidian 默认的 gutter 底色。
-- **文字色**改用 `-webkit-text-fill-color`。Obsidian 自己对 `.cm-gutters` 声明了 `color: var(--text-faint) !important`，普通 `color` 无法覆盖它；而 `-webkit-text-fill-color` 直接作用于字形，可以绕开这个限制，同时我们自己的代码不再需要 `!important`。
+- 搜索期间虚拟链接现在**复用平时的样式类**（`.virtual-link-span` 及类型/上下文类），完全跟随用户的显示模式：阴影模式仍是灰色底，纯颜色模式仍是彩色文字，替代样式同样生效；标题/笔记/fuzzy 的颜色区分和斜体、加粗、高亮等上下文样式也保持一致。
+- 搜索命中的位置由 Obsidian 官方的 `.cm-searchMatch` 高亮自然覆盖（其优先级更高），不再需要特判。
+- 移除了之前误加的「链接色 + 下划线」样式——那让虚拟链接看起来像真实链接。
+- 因引用数量超限而隐藏链接的匹配，搜索时保持其平时的纯文本外观。
 
-外观与 1.24.14 完全一致。
+搜索关闭或清空后，虚拟链接恢复可点击交互。
 
 ---
 
 ## English
 
-### Removed !important (Obsidian review request)
+### Keep the display mode during document search
 
-The cursor line's gutter chip no longer uses `!important`:
+Fixed virtual links looking different from normal while the document search panel is open:
 
-- **Background**: now relies on higher selector specificity (seven classes) to override Obsidian's default gutter surface.
-- **Text colour**: uses `-webkit-text-fill-color`. Obsidian itself declares `color: var(--text-faint) !important` on `.cm-gutters`, which a plain `color` cannot beat; `-webkit-text-fill-color` paints the glyphs directly and sidesteps it, so our own code no longer needs `!important`.
+- While searching, virtual links now **reuse the same style classes** (`.virtual-link-span` plus type/context classes) as the widget, so the user's chosen display mode is fully respected: shadow mode keeps its grey chip, color-only mode keeps its colored text, and the alternative style works too. Header/note/fuzzy colouring and bold/italic/highlight contexts stay identical.
+- Search hits are covered by Obsidian's official `.cm-searchMatch` highlight, which simply wins by specificity - no special-casing needed.
+- Removed the earlier "link colour + underline" styling that made virtual links look like real links.
+- Matches hidden by the reference limit keep their usual plain-text look while searching.
 
-The appearance is identical to 1.24.14.
+Virtual links return to their clickable interaction as soon as the search closes or empties.

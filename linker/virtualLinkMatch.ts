@@ -710,9 +710,48 @@ export class VirtualMatch {
     // Extended) replace that helper, and when it is called on a Document the
     // element ends up appended to the document itself, which throws
     // "HierarchyRequestError: Only one element on document allowed".
+    /**
+     * The CSS classes of a virtual link's root span, shared by the widget DOM
+     * (getLinkRootSpan) and the document-search fallback mark (liveLinker):
+     * the mark must look exactly like the widget it stands in for, and every
+     * display mode (shadow chip / color-only / alt style) plus the link-type
+     * tints and the context styling key off these classes.
+     *
+     * The cm-* formatting classes are deliberately NOT included - the fallback
+     * mark sits inside the syntax-highlight span, so the nested selectors
+     * (.cm-strong .virtual-link ...) already apply there.
+     */
+    getRootSpanClasses(): string[] {
+        const classes: string[] = ['virtual-link', 'virtual-link-span'];
+
+        if (this.settings.applyDefaultLinkStyling) {
+            classes.push('virtual-link-default');
+        }
+
+        // Type-specific class for separate color support. Fuzzy matches get
+        // their own class so they can be tinted with the fuzzy base color.
+        if (this.isFuzzy) {
+            classes.push(this.type === MatchType.Header
+                ? 'virtual-link-type-fuzzy-header'
+                : 'virtual-link-type-fuzzy-note');
+        } else if (this.type === MatchType.Header) {
+            classes.push('virtual-link-type-header');
+        }
+
+        if (this.isBoldContext) classes.push('virtual-link-in-bold');
+        if (this.isItalicContext) classes.push('virtual-link-in-italic');
+        if (this.isHighlightContext) classes.push('virtual-link-in-highlight');
+        if (this.isTripleStarContext) classes.push('virtual-link-in-triple-star');
+        if (this.isStrikethroughContext) classes.push('virtual-link-in-strikethrough');
+        if (this.isCommentContext) classes.push('virtual-link-in-comment');
+        if (this.isInHeaderContext) classes.push('virtual-link-in-header');
+
+        return classes;
+    }
+
     getLinkRootSpan(inTableCellEditor = false) {
         const span = activeDocument.createElement('span');
-        span.classList.add('virtual-link', 'virtual-link-span');
+        span.classList.add(...this.getRootSpanClasses());
 
         // Restore the lock when this link is being right-click-locked (menu open).
         // CodeMirror may rebuild the widget wholesale after a right-click, and
@@ -720,20 +759,6 @@ export class VirtualMatch {
         if (contextLockedLinks.has(this.getLockKey())) {
             span.classList.add('virtual-link-hover-lock');
             span.dataset.fkContextLock = '1';
-        }
-
-        if (this.settings.applyDefaultLinkStyling) {
-            span.classList.add('virtual-link-default');
-        }
-
-        // Add type-specific class for separate color support. Fuzzy matches get
-        // their own class so they can be tinted with the fuzzy base color.
-        if (this.isFuzzy) {
-            span.classList.add(this.type === MatchType.Header
-                ? 'virtual-link-type-fuzzy-header'
-                : 'virtual-link-type-fuzzy-note');
-        } else if (this.type === MatchType.Header) {
-            span.classList.add('virtual-link-type-header');
         }
 
         // 'virtual-link-hover-lock' is the existing "do not collapse" switch
@@ -784,16 +809,10 @@ export class VirtualMatch {
             e.stopPropagation();
         }, true);
 
-        // Add context-specific classes
-        if (this.isBoldContext) {
-            span.classList.add('virtual-link-in-bold');
-        }
-        if (this.isItalicContext) {
-            span.classList.add('virtual-link-in-italic');
-        }
-        if (this.isHighlightContext) {
-            span.classList.add('virtual-link-in-highlight');
-        } else {
+        // Context classes come from getRootSpanClasses() - except the highlight
+        // MARK-ancestor check, which needs a mounted DOM position and can only
+        // run here.
+        if (!this.isHighlightContext) {
             let parent = span.parentElement;
             while (parent) {
                 if (parent.tagName === 'MARK') {
@@ -802,12 +821,6 @@ export class VirtualMatch {
                 }
                 parent = parent.parentElement;
             }
-        }
-        if (this.isTripleStarContext) {
-            span.classList.add('virtual-link-in-triple-star');
-        }
-        if (this.isStrikethroughContext) {
-            span.classList.add('virtual-link-in-strikethrough');
         }
 
         // ===== NEW implementation =====

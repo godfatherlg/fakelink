@@ -171,6 +171,17 @@ class AutoLinkerPlugin implements PluginValue {
     // view (readyPromise may resolve seconds after load).
     private destroyed = false;
 
+    // Document-search tracking (issue #23, upstream Virtual Linker #88). While
+    // Obsidian's search panel is open with a non-empty query, virtual links
+    // render as plain marks instead of replace widgets, so the search highlight
+    // - itself a mark on the same document text - shows through. The search box
+    // lives outside the editor and fires no ViewUpdate, so a capture-phase
+    // input listener plus a MutationObserver on the source view keep the
+    // decorations rebuilt while the panel opens/closes or the query changes.
+    private searchTracker: { observer: MutationObserver | null; container: HTMLElement | null; rebuild: (() => void) | null } = {
+        observer: null, container: null, rebuild: null,
+    };
+
     constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
         this.app = app;
         this.plugin = plugin; // Store plugin reference
@@ -224,6 +235,64 @@ class AutoLinkerPlugin implements PluginValue {
                 this.rebuildFromView();
             }
         });
+
+        this.attachSearchTracking();
+    }
+
+    /**
+     * Watches Obsidian's document search panel (Cmd/Ctrl+F). Opening, typing a
+     * query, clearing it and closing the panel all happen outside the editor,
+     * so none of them fire a ViewUpdate; without an explicit trigger the
+     * decorations would never rebuild and the search fallback would not appear.
+     * The MutationObserver only reacts to the panel itself appearing or
+     * disappearing - our own widget re-renders must not retrigger a rebuild or
+     * this would loop forever.
+     */
+    private attachSearchTracking(): void {
+        const container = (this.view.dom.closest('.markdown-source-view') as HTMLElement | null)
+            ?? (this.view.dom.closest('.view-content') as HTMLElement | null);
+        if (!container) return;
+
+        const rebuild = () => {
+            if (this.destroyed) return;
+            this.rebuildFromView();
+        };
+        this.searchTracker.rebuild = rebuild;
+
+        container.addEventListener('input', rebuild, true);
+        container.addEventListener('keydown', rebuild, true);
+
+        const touchesSearchPanel = (node: Node): boolean =>
+            node instanceof HTMLElement
+            && (node.matches('.document-search-container') || node.querySelector('.document-search-container') !== null);
+
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (let i = 0; i < mutation.addedNodes.length; i++) {
+                    if (touchesSearchPanel(mutation.addedNodes[i])) { rebuild(); return; }
+                }
+                for (let i = 0; i < mutation.removedNodes.length; i++) {
+                    if (touchesSearchPanel(mutation.removedNodes[i])) { rebuild(); return; }
+                }
+            }
+        });
+        observer.observe(container, { childList: true, subtree: true });
+        this.searchTracker.observer = observer;
+        this.searchTracker.container = container;
+    }
+
+    /**
+     * The current search query when Obsidian's document search panel is open
+     * with a non-empty query, otherwise null. Two querySelector calls per
+     * rebuild - cheap, and only runs while a rebuild is due anyway.
+     */
+    private currentSearchQuery(): string | null {
+        const container = this.view.dom.closest('.markdown-source-view') as HTMLElement | null;
+        const panel = container?.querySelector('.document-search-container');
+        if (!panel) return null;
+        const input = panel.querySelector('.document-search input');
+        const query = input instanceof HTMLInputElement ? input.value : '';
+        return query.length > 0 ? query : null;
     }
 
     update(update: ViewUpdate, force: boolean = false) {
@@ -372,6 +441,16 @@ class AutoLinkerPlugin implements PluginValue {
             this.app.workspace.offref(this.activeLeafChangeRef);
             this.activeLeafChangeRef = null;
         }
+        if (this.searchTracker.observer) {
+            this.searchTracker.observer.disconnect();
+            this.searchTracker.observer = null;
+        }
+        if (this.searchTracker.container && this.searchTracker.rebuild) {
+            this.searchTracker.container.removeEventListener('input', this.searchTracker.rebuild, true);
+            this.searchTracker.container.removeEventListener('keydown', this.searchTracker.rebuild, true);
+        }
+        this.searchTracker.container = null;
+        this.searchTracker.rebuild = null;
     }
 
     /**
@@ -519,6 +598,10 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         const dom = view.dom;
+        // While the document search panel is open with a query, virtual links
+        // fall back to plain marks (see attachSearchTracking). Read once per
+        // build; every input in the panel triggers a rebuild.
+        const searchQuery = this.currentSearchQuery();
         let mappedFile = this.viewUpdateDomToFileMap.get(dom);
         // Resolve the file explicitly, so BOTH paths use the same value: the
         // exact one (getCurrentMatchNodes) and the fuzzy one (findFuzzyMatches).
@@ -1200,14 +1283,39 @@ class AutoLinkerPlugin implements PluginValue {
 
 
                 if (!cursorNearby && !needImeFix && !(excludeLine && additionIsInCurrentLine && !additionIsInComment)) {
-                    builder.add(
-                        from,
-                        to,
-                        Decoration.replace({
-                            // widget: addition.widget,
-                            widget: new VirtualLinkWidget(addition),
-                        })
-                    );
+                    if (searchQuery !== null) {
+                        // Document search is open with a query: render a plain
+                        // mark instead of a replace widget. The search highlight
+                        // is itself a mark on the document text, and a replace
+                        // widget would swallow the highlighted run entirely
+                        // (issue #23, upstream Virtual Linker #88).
+                        //
+                        // The mark reuses the widget's root-span classes, so
+                        // whatever display mode the user chose (shadow chip /
+                        // color-only / alt style) - plus header/note/fuzzy tints
+                        // and bold/italic/highlight contexts - stays exactly as
+                        // usual. Only the click behaviour is absent, and it
+                        // returns as soon as the search closes or empties.
+                        // Matches hidden by the reference limit get the bare
+                        // class, matching their usual plain-text look.
+                        const classes = addition.isHiddenByReferenceLimit
+                            ? 'virtual-link-search-fallback'
+                            : 'virtual-link-search-fallback ' + addition.getRootSpanClasses().join(' ');
+                        builder.add(
+                            from,
+                            to,
+                            Decoration.mark({ class: classes })
+                        );
+                    } else {
+                        builder.add(
+                            from,
+                            to,
+                            Decoration.replace({
+                                // widget: addition.widget,
+                                widget: new VirtualLinkWidget(addition),
+                            })
+                        );
+                    }
                 }
             });
         }
