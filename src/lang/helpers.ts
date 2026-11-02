@@ -299,6 +299,9 @@ const zhCN: Record<string, string> = {
     'Done. {n} links converted ({errors} files failed, see the console).': '完成。{n} 个链接已固化（{errors} 个文件出错，详见控制台）。',
     'Done. Converted {n} virtual links across {files} notes.': '已完成。在 {files} 个笔记中固化了 {n} 个虚拟链接。',
     'Added: {path} ({n} total)': '已添加：{path}（共 {n} 个）',
+
+    'Searching (Ctrl/Cmd+F) keeps virtual links interactive: click, hover preview and bold/italic/highlight formatting keep working, the current match is marked with the official accent box inside the link, and inline markers such as ** / == / ~~ stay hidden while a query is active.': '搜索（Ctrl/Cmd+F）时虚拟链接保持可用：点击、hover 预览、加粗/斜体/高亮格式都正常，当前匹配在链接内显示官方的 accent 方框，搜索期间 ** / == / ~~ 等行内标记保持隐藏。',
+    'Matches inside a virtual link other than the current one get a faint outline hint, so the current match stays easy to spot.': '链接内除当前匹配外的其他命中使用淡色轮廓提示，方便一眼看出当前匹配。',
 };
 
 export function t(text: string): string {

@@ -741,19 +741,40 @@ export default class LinkerPlugin extends Plugin {
         return `#${toHex(mix(0))}${toHex(mix(1))}${toHex(mix(2))}`;
     }
 
+    /**
+     * Run a callback on the <body> of every window (main + popouts), once each.
+     *
+     * clearAppearanceStyles() strips the colour variables from EVERY window on
+     * unload, so restoring them on the active window only left any other window
+     * (a popout, a second pane in its own window) on the default colours until
+     * the plugin was reloaded again. Anything that writes a body class or a
+     * body-level CSS variable has to go through here.
+     */
+    private visitEveryWindowBody(fn: (body: HTMLElement) => void): void {
+        const seen = new Set<Document>();
+        const visit = (ownerDoc: Document) => {
+            if (seen.has(ownerDoc)) return;
+            seen.add(ownerDoc);
+            if (ownerDoc.body) fn(ownerDoc.body);
+        };
+        visit(activeWindow.document);
+        this.app.workspace.iterateAllLeaves((leaf) => {
+            const el = leaf.view?.containerEl;
+            if (el) visit(el.ownerDocument);
+        });
+    }
+
     // Fuzzy-match links use the base color mixed into the header / note color,
     // so they read as "same family but fuzzier" instead of an unrelated 4th color.
     applyFuzzyColors() {
         const t = Math.min(100, Math.max(0, this.settings.fuzzyColorMixRatio ?? 50)) / 100;
         const base = this.settings.fuzzyBaseColor;
-        activeWindow.document.body.style.setProperty(
-            '--virtual-link-fuzzy-header-color',
-            this.mixHexColors(base, this.settings.headerVirtualLinkColor, t)
-        );
-        activeWindow.document.body.style.setProperty(
-            '--virtual-link-fuzzy-note-color',
-            this.mixHexColors(base, this.settings.noteVirtualLinkColor, t)
-        );
+        const fuzzyHeader = this.mixHexColors(base, this.settings.headerVirtualLinkColor, t);
+        const fuzzyNote = this.mixHexColors(base, this.settings.noteVirtualLinkColor, t);
+        this.visitEveryWindowBody((body) => {
+            body.style.setProperty('--virtual-link-fuzzy-header-color', fuzzyHeader);
+            body.style.setProperty('--virtual-link-fuzzy-note-color', fuzzyNote);
+        });
     }
 
     settings: LinkerPluginSettings;
@@ -1019,10 +1040,14 @@ export default class LinkerPlugin extends Plugin {
             void this.saveData(this.settings);
         }
 
-        // Always set link colors (header vs note)
-        activeWindow.document.body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
-        activeWindow.document.body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
-        activeWindow.document.body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
+        // Always set link colors (header vs note) on every window: the unload
+        // path strips them from all windows, so a popout that is not the
+        // active one would otherwise stay on the default colours.
+        this.visitEveryWindowBody((body) => {
+            body.style.setProperty('--virtual-link-color', this.settings.noteVirtualLinkColor);
+            body.style.setProperty('--virtual-link-header-color', this.settings.headerVirtualLinkColor);
+            body.style.setProperty('--virtual-link-note-color', this.settings.noteVirtualLinkColor);
+        });
         // Fuzzy-match links: base color mixed into the header / note color.
         this.applyFuzzyColors();
     }

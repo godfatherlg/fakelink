@@ -12,14 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.15';
+export const WHATS_NEW_VERSION = '1.24.21';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Changed: the cursor-line gutter styles no longer use !important, as requested by the Obsidian review. Appearance is unchanged.',
+    'Searching (Ctrl/Cmd+F) keeps virtual links interactive: click, hover preview and bold/italic/highlight formatting keep working, the current match is marked with the official accent box inside the link, and inline markers such as ** / == / ~~ stay hidden while a query is active.',
+    'Matches inside a virtual link other than the current one get a faint outline hint, so the current match stays easy to spot.',
 ];
 
 export class WhatsNewModal extends Modal {
