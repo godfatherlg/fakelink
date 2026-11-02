@@ -48,7 +48,7 @@
 .markdown-source-view.fakelink-search-active .cm-formatting-highlight,
 .markdown-source-view.fakelink-search-active .cm-formatting-strikethrough,
 .markdown-source-view.fakelink-search-active .cm-formatting-code {
-  display: none !important;
+  display: none;
 }
 
 /* Color-only display mode: text color instead of background shadow */

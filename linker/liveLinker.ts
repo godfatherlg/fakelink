@@ -173,13 +173,14 @@ export class VirtualLinkWidget extends WidgetType {
         let last = 0;
         for (const [from, to, current] of merged) {
             if (from > last) target.appendChild(doc.createTextNode(text.slice(last, from)));
-            const mark = doc.createElement('span');
+            // createEl on an existing element (not on the Document) is safe
+            // even for a detached widget: the element is appended to the
+            // anchor itself, not to the document.
+            const mark = target.createEl('span', { text: text.slice(from, to) });
             // The current match reuses Obsidian's own highlight class, so it
             // gets the exact accent box the official search paints; the other
             // hits get the plugin's faint hint (see styles.css).
             mark.className = current ? 'obsidian-search-match-highlight' : 'fakelink-search-hit';
-            mark.textContent = text.slice(from, to);
-            target.appendChild(mark);
             last = to;
         }
         if (last < text.length) target.appendChild(doc.createTextNode(text.slice(last)));
