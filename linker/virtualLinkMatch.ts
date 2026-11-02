@@ -711,15 +711,13 @@ export class VirtualMatch {
     // element ends up appended to the document itself, which throws
     // "HierarchyRequestError: Only one element on document allowed".
     /**
-     * The CSS classes of a virtual link's root span, shared by the widget DOM
-     * (getLinkRootSpan) and the document-search fallback mark (liveLinker):
-     * the mark must look exactly like the widget it stands in for, and every
-     * display mode (shadow chip / color-only / alt style) plus the link-type
-     * tints and the context styling key off these classes.
+     * The CSS classes of a virtual link's root span. Every display mode
+     * (shadow chip / color-only / alt style) plus the link-type tints and the
+     * context styling key off these classes, so anything that renders a
+     * virtual link outside getLinkRootSpan() must add the same set.
      *
-     * The cm-* formatting classes are deliberately NOT included - the fallback
-     * mark sits inside the syntax-highlight span, so the nested selectors
-     * (.cm-strong .virtual-link ...) already apply there.
+     * The cm-* formatting classes are deliberately NOT included: they are
+     * added from the pre-computed context flags in VirtualLinkWidget.toDOM.
      */
     getRootSpanClasses(): string[] {
         const classes: string[] = ['virtual-link', 'virtual-link-span'];

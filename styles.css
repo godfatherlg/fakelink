@@ -25,6 +25,32 @@
   filter: brightness(var(--virtual-link-opacity));
 }
 
+/* Search-hit run inside a virtual link widget (issue #23).
+ * While Obsidian's in-editor search has a query, the link stays a widget -
+ * click, hover preview and markdown formatting keep working - so Obsidian's
+ * own search highlight never reaches the replaced text. The widget paints the
+ * hit run itself with a FAINT outline: Obsidian's accent box belongs to the
+ * current match only, and that is private state a plugin cannot read. Keeping
+ * this hint neutral leaves the accent box unambiguous wherever Obsidian can
+ * still draw it, while a hit inside a link is at least visible. */
+.virtual-link .fakelink-search-hit {
+  box-shadow: 0 0 0px 2px var(--text-faint);
+  border-radius: 2px;
+}
+
+/* While document search has a query, Obsidian selects the current match, which
+ * moves the caret inside any ** / == / ~~ wrapping and makes Live Preview
+ * reveal those markers. Hide the inline wrapping markers again so the searched
+ * run reads like normal text; structural markers (heading hashes, list
+ * bullets) are left alone so the page layout does not change. */
+.markdown-source-view.fakelink-search-active .cm-formatting-strong,
+.markdown-source-view.fakelink-search-active .cm-formatting-em,
+.markdown-source-view.fakelink-search-active .cm-formatting-highlight,
+.markdown-source-view.fakelink-search-active .cm-formatting-strikethrough,
+.markdown-source-view.fakelink-search-active .cm-formatting-code {
+  display: none !important;
+}
+
 /* Color-only display mode: text color instead of background shadow */
 body.virtual-link-color-only .virtual-link-span,
 body.virtual-link-color-only .virtual-link {

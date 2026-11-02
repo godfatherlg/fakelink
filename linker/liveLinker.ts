@@ -25,8 +25,67 @@ function isDescendant(parent: HTMLElement, child: HTMLElement, maxDepth: number 
     return false;
 }
 
+/**
+ * Collects the absolute ranges of a document-search query inside `text`.
+ *
+ * Obsidian's in-editor search (Cmd/Ctrl+F) is a case-insensitive literal
+ * search (`toLowerCase` + `indexOf` in 1.12.x), so that is the primary pass.
+ * A query containing regex metacharacters is additionally matched as a regex,
+ * covering the regex option of newer Obsidian versions. The result is a
+ * superset by design: a missed hit would leave a search hit unpainted inside
+ * the replace widget (the widget covers that text, so Obsidian's own highlight
+ * cannot reach it), while an extra hit only paints a slightly wider background
+ * run on a link.
+ */
+function collectSearchHits(
+    text: string,
+    query: string,
+    offset: number,
+    out: Array<[number, number]>,
+): void {
+    const needle = query.toLowerCase();
+    const haystack = text.toLowerCase();
+    let idx = haystack.indexOf(needle);
+    while (idx !== -1) {
+        out.push([offset + idx, offset + idx + needle.length]);
+        idx = haystack.indexOf(needle, idx + 1);
+    }
+
+    // A query with regex metacharacters may be a regex search. Matching it as
+    // a regex in addition to the literal pass is a superset: harmless.
+    if (/[\\^$.*+?()[\]{}|]/.test(query)) {
+        try {
+            const re = new RegExp(query, 'gi');
+            let match: RegExpExecArray | null;
+            while ((match = re.exec(text)) !== null) {
+                if (match[0].length === 0) {
+                    re.lastIndex++;
+                    continue;
+                }
+                out.push([offset + match.index, offset + match.index + match[0].length]);
+            }
+        } catch {
+            // Not a valid regex - the literal hits above are enough.
+        }
+    }
+}
+
 export class VirtualLinkWidget extends WidgetType {
-    constructor(public match: VirtualMatch) {
+    // Search-hit ranges inside this link, relative to match.from. Empty in the
+    // normal case; set only while Obsidian's document search has a query that
+    // overlaps the link (see buildDecorations). The link stays a widget -
+    // click, hover preview and markdown formatting keep working - and the hit
+    // runs are painted inside it, because Obsidian's own search highlight
+    // cannot reach text that a replace widget has taken over (issue #23).
+    //
+    // The third tuple flag marks the CURRENT match (the one Obsidian puts the
+    // accent box on): it is read from Obsidian's own decoration in
+    // collectOfficialSearchHighlights, so the widget reproduces the official
+    // look instead of inventing one.
+    constructor(
+        public match: VirtualMatch,
+        private searchHits: Array<[number, number, boolean]> = [],
+    ) {
         super();
     }
     
@@ -69,8 +128,61 @@ export class VirtualLinkWidget extends WidgetType {
         if (this.match.isTripleStarContext) {
             element.classList.add('cm-strong', 'cm-em');
         }
+
+        if (this.searchHits.length > 0) {
+            this.highlightSearchHits(element);
+        }
         
         return element;
+    }
+
+    /**
+     * Paints the search-hit runs inside this link. The anchor's text is
+     * originText itself, so the relative offsets map 1:1 onto its characters;
+     * a link hidden by the reference limit renders the same text in a plain
+     * span. Rebuilding the text nodes is safe: the anchor has no child
+     * elements of its own.
+     */
+    private highlightSearchHits(element: HTMLElement): void {
+        const target = element.querySelector('a') ?? element;
+        const text = target.textContent ?? '';
+        if (!text) return;
+
+        const hits = this.searchHits
+            .map(([from, to, current]) => [Math.max(0, from), Math.min(text.length, to), current] as [number, number, boolean])
+            .filter(([from, to]) => from < to)
+            .sort((a, b) => a[0] - b[0]);
+        if (hits.length === 0) return;
+
+        // Literal and regex passes may report overlapping ranges for the same
+        // run; merge them so the slices stay in order. The current flag wins
+        // when either side carries it.
+        const merged: Array<[number, number, boolean]> = [];
+        for (const [from, to, current] of hits) {
+            const last = merged[merged.length - 1];
+            if (last && from <= last[1]) {
+                last[1] = Math.max(last[1], to);
+                last[2] = last[2] || current;
+            } else {
+                merged.push([from, to, current]);
+            }
+        }
+
+        const doc = target.ownerDocument;
+        target.textContent = '';
+        let last = 0;
+        for (const [from, to, current] of merged) {
+            if (from > last) target.appendChild(doc.createTextNode(text.slice(last, from)));
+            const mark = doc.createElement('span');
+            // The current match reuses Obsidian's own highlight class, so it
+            // gets the exact accent box the official search paints; the other
+            // hits get the plugin's faint hint (see styles.css).
+            mark.className = current ? 'obsidian-search-match-highlight' : 'fakelink-search-hit';
+            mark.textContent = text.slice(from, to);
+            target.appendChild(mark);
+            last = to;
+        }
+        if (last < text.length) target.appendChild(doc.createTextNode(text.slice(last)));
     }
 
     // CodeMirror calls eq() to decide whether an existing widget's DOM may be
@@ -88,7 +200,19 @@ export class VirtualLinkWidget extends WidgetType {
     // would be identical, which is the common case.
     eq(other: WidgetType): boolean {
         if (!(other instanceof VirtualLinkWidget)) return false;
-        return other.match.renderKey() === this.match.renderKey();
+        if (other.match.renderKey() !== this.match.renderKey()) return false;
+        // The search-hit overlay is part of the rendered result: a widget
+        // whose hits changed must be rebuilt, or a stale highlight stays on
+        // screen after the query changes.
+        if (other.searchHits.length !== this.searchHits.length) return false;
+        for (let i = 0; i < this.searchHits.length; i++) {
+            if (other.searchHits[i][0] !== this.searchHits[i][0]
+                || other.searchHits[i][1] !== this.searchHits[i][1]
+                || other.searchHits[i][2] !== this.searchHits[i][2]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Whether CodeMirror should ignore events inside this widget:
@@ -171,15 +295,25 @@ class AutoLinkerPlugin implements PluginValue {
     // view (readyPromise may resolve seconds after load).
     private destroyed = false;
 
+    // True while the document search panel has a query (set in buildDecorations).
+    // update() uses it to react to Obsidian's search-effect dispatches.
+    private searchActive = false;
+
     // Document-search tracking (issue #23, upstream Virtual Linker #88). While
-    // Obsidian's search panel is open with a non-empty query, virtual links
-    // render as plain marks instead of replace widgets, so the search highlight
-    // - itself a mark on the same document text - shows through. The search box
-    // lives outside the editor and fires no ViewUpdate, so a capture-phase
-    // input listener plus a MutationObserver on the source view keep the
-    // decorations rebuilt while the panel opens/closes or the query changes.
-    private searchTracker: { observer: MutationObserver | null; container: Element | null; rebuild: (() => void) | null } = {
-        observer: null, container: null, rebuild: null,
+    // Obsidian's search panel is open with a non-empty query, the virtual links
+    // that overlap a hit paint the hit run inside their widget, so the search
+    // position stays visible even though a replace widget covers the text. The
+    // search box lives outside the editor and fires no ViewUpdate, so a
+    // capture-phase input listener plus a MutationObserver on the source view
+    // keep the decorations rebuilt while the panel opens/closes or the query
+    // changes.
+    private searchTracker: {
+        observer: MutationObserver | null;
+        container: Element | null;
+        rebuild: (() => void) | null;
+        click: ((event: MouseEvent) => void) | null;
+    } = {
+        observer: null, container: null, rebuild: null, click: null,
     };
 
     constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
@@ -261,6 +395,18 @@ class AutoLinkerPlugin implements PluginValue {
 
         container.addEventListener('input', rebuild, true);
         container.addEventListener('keydown', rebuild, true);
+        // Toggling a search option (case / regex / whole word in newer
+        // Obsidian versions) changes the hit set without firing a ViewUpdate.
+        // Clicks inside the panel are cheap to re-check and rebuilding is
+        // idempotent.
+        const onClick = (event: MouseEvent) => {
+            const target = event.target as Node | null;
+            if (target?.instanceOf(HTMLElement) && target.closest('.document-search-container')) {
+                rebuild();
+            }
+        };
+        container.addEventListener('click', onClick, true);
+        this.searchTracker.click = onClick;
 
         const touchesSearchPanel = (node: Node): boolean =>
             node.instanceOf(HTMLElement)
@@ -290,9 +436,46 @@ class AutoLinkerPlugin implements PluginValue {
         const container = this.view.dom.closest('.markdown-source-view');
         const panel = container?.querySelector('.document-search-container');
         if (!panel) return null;
-        const input = panel.querySelector('.document-search input');
+        // `.document-search input` is the find field in 1.12.x; the bare input
+        // fallback keeps this working if the panel layout changes.
+        const input = panel.querySelector('.document-search input') ?? panel.querySelector('input');
         const query = input instanceof HTMLInputElement ? input.value : '';
         return query.length > 0 ? query : null;
+    }
+
+    /**
+     * The ranges Obsidian is currently painting its own search highlight on.
+     *
+     * In the editor Obsidian gives only the CURRENT match the accent box; that
+     * match is private state, but the decoration it is drawn with lives in the
+     * editor's decoration facet - readable even where a replace widget hides
+     * the box. Reading it lets a hit inside a widget reuse the exact official
+     * look instead of inventing a style.
+     *
+     * The facet walk is not free, which is why this only runs while a search
+     * query is active and only once per rebuild.
+     */
+    private collectOfficialSearchHighlights(view: EditorView): Array<[number, number]> {
+        const ranges: Array<[number, number]> = [];
+        try {
+            const docLength = view.state.doc.length;
+            for (const source of view.state.facet(EditorView.decorations)) {
+                const set = typeof source === 'function' ? source(view) : source;
+                if (!set) continue;
+                set.between(0, docLength, (from: number, to: number, value: unknown) => {
+                    if (!(value instanceof Decoration)) return;
+                    const spec = value.spec as { class?: string; attributes?: Record<string, string> } | undefined;
+                    const cls = spec?.class ?? spec?.attributes?.class ?? '';
+                    if (cls.includes('obsidian-search-match-highlight')) {
+                        ranges.push([from, to]);
+                    }
+                });
+            }
+        } catch {
+            // The facet may hold anything; failing to read it only costs the
+            // accent on the current match.
+        }
+        return ranges;
     }
 
     update(update: ViewUpdate, force: boolean = false) {
@@ -364,7 +547,15 @@ class AutoLinkerPlugin implements PluginValue {
         // once something else forced a rebuild (a click moved the cursor).
         const treeChanged = syntaxTree(update.startState) !== syntaxTree(update.state);
 
-        if (force || (cursorMoved && cursorMatters) || update.docChanged || fileChanged || update.viewportChanged || treeChanged) {
+        // Obsidian's search dispatches state effects (add / filter the
+        // highlight set) WITHOUT touching the document - that is what moves
+        // the current match on Enter / the next-match button. Without this the
+        // in-widget accent box stayed on the previous match: the official
+        // decoration moved, but our rebuild never ran.
+        const searchStep = this.searchActive
+            && update.transactions.some(tr => tr.effects.length > 0);
+
+        if (force || (cursorMoved && cursorMatters) || update.docChanged || fileChanged || update.viewportChanged || treeChanged || searchStep) {
             // The index was just reset (resetReady) and is being rebuilt: using
             // the empty index here would clear every link. Keep the current
             // decorations and wait for the onReady refresh instead.
@@ -377,7 +568,7 @@ class AutoLinkerPlugin implements PluginValue {
             // Links then appear "a bit later" but without the per-tick DOM churn that
             // read as jitter.
             const isPureScroll = update.viewportChanged && !update.docChanged && !fileChanged && !force
-                && !cursorMoved;
+                && !cursorMoved && !searchStep;
             if (isPureScroll) {
                 this.pendingScrollBuild = { view: update.view, viewIsActive: updateIsOnActiveView };
                 this.lastViewUpdate = update;
@@ -449,8 +640,15 @@ class AutoLinkerPlugin implements PluginValue {
             this.searchTracker.container.removeEventListener('input', this.searchTracker.rebuild, true);
             this.searchTracker.container.removeEventListener('keydown', this.searchTracker.rebuild, true);
         }
+        if (this.searchTracker.container && this.searchTracker.click) {
+            this.searchTracker.container.removeEventListener('click', this.searchTracker.click, true);
+        }
         this.searchTracker.container = null;
         this.searchTracker.rebuild = null;
+        this.searchTracker.click = null;
+        // Searching flags the view so styles.css can hide the formatting
+        // markers; do not leave that class behind when this plugin goes away.
+        this.view.dom.closest('.markdown-source-view')?.classList.remove('fakelink-search-active');
     }
 
     /**
@@ -598,10 +796,24 @@ class AutoLinkerPlugin implements PluginValue {
         }
 
         const dom = view.dom;
-        // While the document search panel is open with a query, virtual links
-        // fall back to plain marks (see attachSearchTracking). Read once per
-        // build; every input in the panel triggers a rebuild.
+        // While the document search panel is open with a query, links that
+        // overlap a hit get the hit runs painted inside their widget (see
+        // attachSearchTracking and collectSearchHits). Read once per build;
+        // every input in the panel triggers a rebuild.
         const searchQuery = this.currentSearchQuery();
+        this.searchActive = searchQuery !== null;
+        // Obsidian's CURRENT match (the one it puts the accent box on) lives
+        // in its own decoration; read it once per build so a hit inside a
+        // widget can reproduce the official look instead of inventing one.
+        const officialHits = searchQuery !== null ? this.collectOfficialSearchHighlights(view) : [];
+
+        // Searching selects the current match, which moves the caret inside
+        // any ** / == / ~~ wrapping and makes Live Preview reveal those
+        // markers. Flag the view so styles.css can hide them again while the
+        // search panel has a query - the markers are plain DOM text at that
+        // point, so CSS can put them back to their usual hidden look.
+        this.view.dom.closest('.markdown-source-view')
+            ?.classList.toggle('fakelink-search-active', searchQuery !== null);
         let mappedFile = this.viewUpdateDomToFileMap.get(dom);
         // Resolve the file explicitly, so BOTH paths use the same value: the
         // exact one (getCurrentMatchNodes) and the fuzzy one (findFuzzyMatches).
@@ -664,6 +876,15 @@ class AutoLinkerPlugin implements PluginValue {
         for (const { from, to } of scanRanges) {
             this.linkerCache.reset();
             const text = view.state.doc.sliceString(from, to);
+
+            // Absolute ranges of the search query inside this scan range.
+            // Links overlapping one of them paint the run inside their widget
+            // (see VirtualLinkWidget.highlightSearchHits); the official
+            // current-match decoration is matched against them in the hit
+            // loop below. See collectSearchHits for why the hit set is a
+            // superset of Obsidian's own matches.
+            const searchHits: Array<[number, number]> = [];
+            if (searchQuery !== null) collectSearchHits(text, searchQuery, from, searchHits);
 
             // For every glossary file and its aliases we now search the text for occurrences
             // const additions: { id: number; files: TFile[]; from: number; to: number; widget: WidgetType }[] = [];
@@ -1283,39 +1504,35 @@ class AutoLinkerPlugin implements PluginValue {
 
 
                 if (!cursorNearby && !needImeFix && !(excludeLine && additionIsInCurrentLine && !additionIsInComment)) {
-                    if (searchQuery !== null) {
-                        // Document search is open with a query: render a plain
-                        // mark instead of a replace widget. The search highlight
-                        // is itself a mark on the document text, and a replace
-                        // widget would swallow the highlighted run entirely
-                        // (issue #23, upstream Virtual Linker #88).
-                        //
-                        // The mark reuses the widget's root-span classes, so
-                        // whatever display mode the user chose (shadow chip /
-                        // color-only / alt style) - plus header/note/fuzzy tints
-                        // and bold/italic/highlight contexts - stays exactly as
-                        // usual. Only the click behaviour is absent, and it
-                        // returns as soon as the search closes or empties.
-                        // Matches hidden by the reference limit get the bare
-                        // class, matching their usual plain-text look.
-                        const classes = addition.isHiddenByReferenceLimit
-                            ? 'virtual-link-search-fallback'
-                            : 'virtual-link-search-fallback ' + addition.getRootSpanClasses().join(' ');
-                        builder.add(
-                            from,
-                            to,
-                            Decoration.mark({ class: classes })
+                    // The link always keeps its widget: a replace widget is
+                    // what swallows Obsidian's search highlight on a hit (issue
+                    // #23, upstream Virtual Linker #88), so the hit runs are
+                    // painted INSIDE the widget instead (see
+                    // VirtualLinkWidget.highlightSearchHits). Click, hover
+                    // preview and markdown formatting keep working while the
+                    // search panel is open - only the hit runs gain the
+                    // highlight box.
+                    const hitOffsets: Array<[number, number, boolean]> = [];
+                    for (const [hitFrom, hitTo] of searchHits) {
+                        const relFrom = Math.max(hitFrom, from) - from;
+                        const relTo = Math.min(hitTo, to) - from;
+                        if (relFrom >= relTo) continue;
+                        // The official current match reuses Obsidian's own
+                        // accent box; the rest get the plugin's faint hint
+                        // (see styles.css).
+                        const isCurrent = officialHits.some(
+                            ([currentFrom, currentTo]) => currentFrom < hitTo && currentTo > hitFrom
                         );
-                    } else {
-                        builder.add(
-                            from,
-                            to,
-                            Decoration.replace({
-                                // widget: addition.widget,
-                                widget: new VirtualLinkWidget(addition),
-                            })
-                        );
+                        hitOffsets.push([relFrom, relTo, isCurrent]);
                     }
+                    builder.add(
+                        from,
+                        to,
+                        Decoration.replace({
+                            // widget: addition.widget,
+                            widget: new VirtualLinkWidget(addition, hitOffsets),
+                        })
+                    );
                 }
             });
         }
