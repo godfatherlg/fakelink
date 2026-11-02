@@ -1,15 +1,15 @@
-# 1.24.21
+# 1.24.22
 
 ## 中文
 
-修复更新后的两个问题。
+修复 issue #24：在行首输入 `|` 创建表格时，后续按键被吞掉。
 
-- **「What's new」弹窗恢复**：弹窗依赖的 `WHATS_NEW_VERSION` 常量从 1.24.15 起未再同步，导致 1.24.16–1.24.20 更新后都不弹窗。已与发布版本同步，并更新为本次改动的说明（中英双语）。
-- **多窗口颜色修复**：卸载插件时会从所有窗口清除颜色变量，但此前只给当前活动窗口重新设置，导致弹出窗口（popout）更新后虚拟链接回退到默认颜色、需要再次 reload 才恢复。现在颜色变量（笔记 / 标题 / 模糊匹配）应用到所有窗口。
+- 原因：1.24.16 起，搜索跟踪把 `input` / `keydown` 监听挂在整个编辑器上，编辑器里的每次输入都会触发装饰重建并 dispatch 一个空事务，打断了 Obsidian 自己的输入处理（`|` 切换表格时最明显）。
+- 修复：这两个监听现在只响应搜索面板（`.document-search-container`）内部的输入，编辑器输入（包括表格）不再触发重建。
 
 ## English
 
-Fixes two issues that showed up after an update.
+Fixes issue #24: typing `|` at the start of a line (creating a table) swallowed every keystroke after it.
 
-- **The What's new dialog is back**: its `WHATS_NEW_VERSION` constant had not been bumped since 1.24.15, so the dialog was silently skipped for every update from 1.24.16 to 1.24.20. It is now kept in sync with the release and carries the notes for this change (English + Chinese).
-- **Colour fix for multiple windows**: unloading the plugin strips the colour variables from every window, but they were only re-applied to the active window - a popout fell back to the default link colours after an update until the plugin was reloaded again. The colour variables (note / header / fuzzy) are now applied to every window.
+- Cause: since 1.24.16 the search tracking attached its `input` / `keydown` listeners to the whole editor, so every keystroke triggered a decoration rebuild that dispatched an empty transaction - interrupting Obsidian's own input pipeline (most visible when `|` switches a line into a table).
+- Fix: those listeners now only react to input inside the search panel (`.document-search-container`), so typing in the editor - tables included - no longer triggers a rebuild.

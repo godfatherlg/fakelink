@@ -312,8 +312,9 @@ class AutoLinkerPlugin implements PluginValue {
         container: Element | null;
         rebuild: (() => void) | null;
         click: ((event: MouseEvent) => void) | null;
+        panelInput: ((event: Event) => void) | null;
     } = {
-        observer: null, container: null, rebuild: null, click: null,
+        observer: null, container: null, rebuild: null, click: null, panelInput: null,
     };
 
     constructor(view: EditorView, app: App, settings: LinkerPluginSettings, updateManager: ExternalUpdateManager, plugin: LinkerPluginType) {
@@ -393,8 +394,20 @@ class AutoLinkerPlugin implements PluginValue {
         };
         this.searchTracker.rebuild = rebuild;
 
-        container.addEventListener('input', rebuild, true);
-        container.addEventListener('keydown', rebuild, true);
+        // Typing in the EDITOR must not trigger a rebuild: rebuildFromView()
+        // dispatches an empty transaction, and doing that while Obsidian is
+        // handling the same keystroke interrupts its input pipeline - starting
+        // a table with "|" at the top of a note swallowed every keystroke
+        // after it (issue #24). Only input inside the search panel matters.
+        const onPanelKey = (event: Event) => {
+            const target = event.target as Node | null;
+            if (target?.instanceOf(HTMLElement) && target.closest('.document-search-container')) {
+                rebuild();
+            }
+        };
+        container.addEventListener('input', onPanelKey, true);
+        container.addEventListener('keydown', onPanelKey, true);
+        this.searchTracker.panelInput = onPanelKey;
         // Toggling a search option (case / regex / whole word in newer
         // Obsidian versions) changes the hit set without firing a ViewUpdate.
         // Clicks inside the panel are cheap to re-check and rebuilding is
@@ -636,9 +649,9 @@ class AutoLinkerPlugin implements PluginValue {
             this.searchTracker.observer.disconnect();
             this.searchTracker.observer = null;
         }
-        if (this.searchTracker.container && this.searchTracker.rebuild) {
-            this.searchTracker.container.removeEventListener('input', this.searchTracker.rebuild, true);
-            this.searchTracker.container.removeEventListener('keydown', this.searchTracker.rebuild, true);
+        if (this.searchTracker.container && this.searchTracker.panelInput) {
+            this.searchTracker.container.removeEventListener('input', this.searchTracker.panelInput, true);
+            this.searchTracker.container.removeEventListener('keydown', this.searchTracker.panelInput, true);
         }
         if (this.searchTracker.container && this.searchTracker.click) {
             this.searchTracker.container.removeEventListener('click', this.searchTracker.click, true);
@@ -646,6 +659,7 @@ class AutoLinkerPlugin implements PluginValue {
         this.searchTracker.container = null;
         this.searchTracker.rebuild = null;
         this.searchTracker.click = null;
+        this.searchTracker.panelInput = null;
         // Searching flags the view so styles.css can hide the formatting
         // markers; do not leave that class behind when this plugin goes away.
         this.view.dom.closest('.markdown-source-view')?.classList.remove('fakelink-search-active');

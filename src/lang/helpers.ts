@@ -302,6 +302,7 @@ const zhCN: Record<string, string> = {
 
     'Searching (Ctrl/Cmd+F) keeps virtual links interactive: click, hover preview and bold/italic/highlight formatting keep working, the current match is marked with the official accent box inside the link, and inline markers such as ** / == / ~~ stay hidden while a query is active.': '搜索（Ctrl/Cmd+F）时虚拟链接保持可用：点击、hover 预览、加粗/斜体/高亮格式都正常，当前匹配在链接内显示官方的 accent 方框，搜索期间 ** / == / ~~ 等行内标记保持隐藏。',
     'Matches inside a virtual link other than the current one get a faint outline hint, so the current match stays easy to spot.': '链接内除当前匹配外的其他命中使用淡色轮廓提示，方便一眼看出当前匹配。',
+    'Fixed: typing "|" at the start of a line (which turns the line into a table) no longer swallows the following keystrokes - the search tracking no longer rebuilds decorations on editor input.': '修复：在行首输入「|」创建表格时，后续按键不再被吞掉——搜索跟踪不再对编辑器输入触发重建。',
 };
 
 export function t(text: string): string {
