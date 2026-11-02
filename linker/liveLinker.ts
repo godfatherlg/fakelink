@@ -168,11 +168,10 @@ export class VirtualLinkWidget extends WidgetType {
             }
         }
 
-        const doc = target.ownerDocument;
         target.textContent = '';
         let last = 0;
         for (const [from, to, current] of merged) {
-            if (from > last) target.appendChild(doc.createTextNode(text.slice(last, from)));
+            if (from > last) target.appendText(text.slice(last, from));
             // createEl on an existing element (not on the Document) is safe
             // even for a detached widget: the element is appended to the
             // anchor itself, not to the document.
@@ -183,7 +182,7 @@ export class VirtualLinkWidget extends WidgetType {
             mark.className = current ? 'obsidian-search-match-highlight' : 'fakelink-search-hit';
             last = to;
         }
-        if (last < text.length) target.appendChild(doc.createTextNode(text.slice(last)));
+        if (last < text.length) target.appendText(text.slice(last));
     }
 
     // CodeMirror calls eq() to decide whether an existing widget's DOM may be
