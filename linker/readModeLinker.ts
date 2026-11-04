@@ -4,16 +4,23 @@ import { LinkerPluginSettings } from '../main';
 import { hasExcludedExtension, LinkerCache, MatchType, PrefixTree, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
 import { parseInternalLinkSyntax } from './virtualLinkMatch';
+import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
 import IntervalTree from '@flatten-js/interval-tree';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('../main').default;
+
+const EMPTY_PATH_SET: ReadonlySet<string> = new Set();
 
 export class GlossaryLinker extends MarkdownRenderChild {
     ctx: MarkdownPostProcessorContext;
     app: App;
     settings: LinkerPluginSettings;
     linkerCache: LinkerCache;
+
+    // Folder-scoped dictionaries (discussion #21), resolved once per render.
+    private scopeList: string[] = [];
+    private realLinkedPaths: ReadonlySet<string> = EMPTY_PATH_SET;
 
     /**
      * Read mode renders a note as several independent blocks, and this post
@@ -252,6 +259,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
             return;
         }
 
+        // Folder-scoped dictionaries (discussion #21): resolve once per render
+        // so the exact and the fuzzy candidate filters share one view.
+        this.scopeList = effectiveScopes(resolveScopeConfig(this.app, this.settings));
+        const scopeSource = this.app.vault.getAbstractFileByPath(this.ctx.sourcePath);
+        this.realLinkedPaths = this.scopeList.length > 0 && scopeSource instanceof TFile
+            && this.settings.scopeIncludeRealLinkTargets
+            ? realLinkTargets(this.app, scopeSource)
+            : EMPTY_PATH_SET;
+
         const tags = ['p', 'li', 'td', 'th', 'span', 'em', 'strong', 'mark', 'del', 's'];
         if (this.settings.allowLinksInHeaders) {
             tags.push('h1', 'h2', 'h3', 'h4', 'h5', 'h6');
@@ -371,7 +387,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
 
                                         // Context-aware disambiguation in read mode.
                                         let files = Array.from(node.files).filter(file => {
-                                            return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
+                                            return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
+                                                && isVisibleInScope(this.ctx.sourcePath, file.path, this.scopeList, this.realLinkedPaths);
                                         });
                                         if (files.length === 0) return;
                                         let ctxDistances: Map<string, number> | undefined;
@@ -575,7 +592,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                                     if (coveredByExact) break emitWinner;
 
                                                     const filteredFiles = mergedFiles.filter(file => {
-                                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
+                                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
+                                                            && isVisibleInScope(this.ctx.sourcePath, file.path, this.scopeList, this.realLinkedPaths);
                                                     });
                                                     if (filteredFiles.length > 0) {
                                                         const topFr = fuzzyResults[0];
@@ -674,7 +692,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                         if (startIdx === -1) break;
                                         const endIdx = text.indexOf(endSym, startIdx + startSym.length);
                                         const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
-                                        excludedIntervalTree.insert([startIdx, rangeEnd]);
+                                        // Closed interval vs. exclusive end (same fix as liveLinker).
+                                        excludedIntervalTree.insert([startIdx, rangeEnd - 1]);
                                         searchFrom = startIdx + startSym.length;
                                     }
                                 }
@@ -685,7 +704,8 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // fully replaces a partial "note" match.
                             for (const im of internalMatches) {
                                 if (!excludedIntervalTree) excludedIntervalTree = new IntervalTree();
-                                excludedIntervalTree.insert([im.from, im.to]);
+                                // Closed interval vs. exclusive end (same fix as liveLinker).
+                                if (im.to > im.from) excludedIntervalTree.insert([im.from, im.to - 1]);
                             }
 
                             // Delete additions that links to already linked files

@@ -43,6 +43,12 @@ export interface LinkerPluginSettings {
     linkerDirectories: string[];
     excludedDirectories: string[];
     excludedDirectoriesForLinking: string[];
+    // Folder-scoped dictionaries (discussion #21). Top-level folders are
+    // scopes by default; this list only carries the ones switched off.
+    folderDictionaryIsolation: boolean;
+    scopeTopLevelDisabled: string[];
+    scopeCustom: string[];
+    scopeIncludeRealLinkTargets: boolean;
     virtualLinkSuffix: string;
     virtualLinkAliasSuffix: string;
     useDefaultLinkStyleForConversion: boolean;
@@ -163,6 +169,10 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     linkerDirectories: ['Glossary'],
     excludedDirectories: [],
     excludedDirectoriesForLinking: [],
+    folderDictionaryIsolation: false,
+    scopeTopLevelDisabled: [],
+    scopeCustom: [],
+    scopeIncludeRealLinkTargets: true,
     virtualLinkSuffix: '',
     virtualLinkAliasSuffix: '',
     excludedExtensions: ['.mp4'],

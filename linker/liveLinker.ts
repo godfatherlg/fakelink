@@ -8,9 +8,14 @@ import { LinkerPluginSettings } from 'main';
 import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType, hasExcludedExtension, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu, isLinkingDisabledInNote } from './virtualLinkDom';
 import { parseInternalLinkSyntax } from './virtualLinkMatch';
+import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
+
+// Shared empty set for the folder-scope checks, so the common "no scope" path
+// does not allocate one per build.
+const EMPTY_PATH_SET: ReadonlySet<string> = new Set();
 
 function isDescendant(parent: HTMLElement, child: HTMLElement, maxDepth: number = 10) {
     let node = child.parentNode;
@@ -858,6 +863,15 @@ class AutoLinkerPlugin implements PluginValue {
                     : (this.lastRealActiveView?.file ?? this.app.workspace.getActiveFile()));
         }
 
+        // Folder-scoped dictionaries (discussion #21): a note inside a scope
+        // only matches notes of its own scope, global notes, and the files it
+        // links to with a real [[link]]. An empty scope list keeps the
+        // previous global behaviour.
+        const scopes = effectiveScopes(resolveScopeConfig(this.app, this.settings));
+        const realLinkedPaths = scopes.length > 0 && mappedFile && this.settings.scopeIncludeRealLinkTargets
+            ? realLinkTargets(this.app, mappedFile)
+            : EMPTY_PATH_SET;
+
         // Check if the file is inside excluded folders
         const excludedFolders = this.settings.excludedDirectoriesForLinking;
         if (excludedFolders.length > 0) {
@@ -966,9 +980,11 @@ class AutoLinkerPlugin implements PluginValue {
                             const aFrom = from + actualFrom;
                             const aTo = from + nTo;
 
-                            // Filter out files with excluded extensions
+                            // Filter out files with excluded extensions, and by
+                            // folder scope (discussion #21).
                             let filteredFiles = Array.from(node.files).filter(file => {
-                                return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
+                                return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
+                                    && isVisibleInScope(mappedFile?.path ?? '', file.path, scopes, realLinkedPaths);
                             });
 
                             // Context-aware disambiguation: when a heading exists in
@@ -1179,7 +1195,8 @@ class AutoLinkerPlugin implements PluginValue {
                                     if (coveredByExact) break emitWinner;
 
                                     const filteredFiles = mergedFiles.filter(file => {
-                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions);
+                                        return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
+                                            && isVisibleInScope(mappedFile?.path ?? '', file.path, scopes, realLinkedPaths);
                                     });
                                     if (filteredFiles.length > 0) {
                                         // Determine match type from the top result:
@@ -1278,6 +1295,25 @@ class AutoLinkerPlugin implements PluginValue {
 
             // We also want to exclude links to files that are already linked by a real link
             const app = this.app;
+
+            // Wiki links ([[...]] / ![[...]]) must never carry virtual links.
+            // Their exact ranges are computed by text, because the syntax tree
+            // is not reliable here: its node can reach past the closing "]]"
+            // when text follows directly ("[[Note]]word"), and that extension
+            // is what swallowed the following word. Every excluded syntax node
+            // overlapping a wiki range is clamped to the range below.
+            const wikiRanges: Array<[number, number]> = [];
+            {
+                const wikiLinkRe = /!?\[\[[^\]]*\]\]/g;
+                let wikiMatch: RegExpExecArray | null;
+                while ((wikiMatch = wikiLinkRe.exec(text)) !== null) {
+                    wikiRanges.push([
+                        from + wikiMatch.index,
+                        from + wikiMatch.index + wikiMatch[0].length,
+                    ]);
+                }
+            }
+
             // Collect format-node ranges (bold/italic/highlight/strikethrough/
             // comment/header) in this single walk, so links can read pre-computed
             // flags instead of re-walking the tree per widget — the main source of
@@ -1292,8 +1328,30 @@ class AutoLinkerPlugin implements PluginValue {
 
                     for (const excludedType of excludedTypes) {
                         if (type.includes(excludedType)) {
-                            excludedIntervalTree.insert([node.from, node.to]);
-
+                            // Wiki links: clamp the excluded range to the wiki
+                            // range it overlaps. Obsidian's node can reach past
+                            // the closing "]]" when text follows immediately
+                            // ("[[Note]]word") - with an internal-link, url or
+                            // hashtag node depending on the link content - and
+                            // the extension alone used to swallow the following
+                            // word, which could then never become a virtual
+                            // link. Nodes without a wiki range (code blocks,
+                            // headings, plain Markdown links, ...) keep their
+                            // full range.
+                            let excludedTo = node.to;
+                            const wiki = wikiRanges.find(
+                                ([wikiFrom, wikiTo]) => node.from < wikiTo && node.to > wikiFrom,
+                            );
+                            if (wiki) {
+                                excludedTo = Math.min(excludedTo, wiki[1]);
+                            }
+                            // The tree uses CLOSED intervals while `to` here is
+                            // exclusive: inserting `to` as-is made a range end
+                            // at the very character right after the link, so
+                            // "[[Note]]word" lost the first letter of "word".
+                            if (excludedTo > node.from) {
+                                excludedIntervalTree.insert([node.from, excludedTo - 1]);
+                            }
                             // Types can be combined, e.g. internal-link_link-has-alias
                             // These combined types are separated by underscores
                             const isLinkIfHavingTypes = [['string', 'url'], 'hmd-internal-link', 'internal-link'];
@@ -1327,6 +1385,15 @@ class AutoLinkerPlugin implements PluginValue {
                 },
             });
 
+            // The wiki ranges themselves are excluded as well: the syntax node
+            // may be missing entirely (frontmatter strings, unusual content),
+            // and an excluded node could start after the "[[" so the exact
+            // range still needs to be covered.
+            for (const [wikiFrom, wikiTo] of wikiRanges) {
+                // Closed interval vs. exclusive end - see the syntax walk above.
+                if (wikiTo > wikiFrom) excludedIntervalTree.insert([wikiFrom, wikiTo - 1]);
+            }
+
             // Exclude text between custom start/end symbols (e.g. { ... }) from
             // virtual linking. We insert the ranges into the same interval tree
             // used for syntax nodes, so filterOverlapping drops any match inside.
@@ -1348,7 +1415,8 @@ class AutoLinkerPlugin implements PluginValue {
                         const endIdx = text.indexOf(endSym, startIdx + startSym.length);
                         // Unclosed start symbol excludes the rest of the visible range.
                         const rangeEnd = endIdx === -1 ? text.length : endIdx + endSym.length;
-                        excludedIntervalTree.insert([from + startIdx, from + rangeEnd]);
+                        // Closed interval vs. exclusive end - see the syntax walk.
+                        excludedIntervalTree.insert([from + startIdx, from + rangeEnd - 1]);
                         searchFrom = startIdx + startSym.length;
                     }
                 }
@@ -1358,7 +1426,8 @@ class AutoLinkerPlugin implements PluginValue {
             // prefix-tree matching, so "note#heading" fully replaces a partial
             // "note" match instead of competing with it in filterOverlapping.
             for (const im of internalMatches) {
-                excludedIntervalTree.insert([im.from, im.to]);
+                // Closed interval vs. exclusive end - see the syntax walk.
+                if (im.to > im.from) excludedIntervalTree.insert([im.from, im.to - 1]);
             }
 
             // Delete additions that links to already linked files

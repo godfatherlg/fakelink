@@ -1,4 +1,4 @@
-import { App, PluginSettingTab } from 'obsidian';
+import { App, PluginSettingTab, TFolder } from 'obsidian';
 import type { SettingDefinition, SettingDefinitionGroup, SettingDefinitionItem, SettingGroupItem } from 'obsidian';
 import { t } from './lang/helpers';
 import type LinkerPlugin from '../main';
@@ -80,6 +80,12 @@ export class LinkerSettingTab extends PluginSettingTab {
             case 'filenameAffixExclusions':
                 return s.filenameAffixExclusions.join(',');
             default:
+                // One synthesized key per top-level folder (see rootScopeToggles).
+                // Top-level folders are scopes by default; only the switched-off
+                // ones are stored.
+                if (key.startsWith('scopeTopLevel:')) {
+                    return !s.scopeTopLevelDisabled.includes(key.slice('scopeTopLevel:'.length));
+                }
                 return (s as unknown as Record<string, unknown>)[key];
         }
     }
@@ -219,6 +225,15 @@ export class LinkerSettingTab extends PluginSettingTab {
                 this.plugin.applyFuzzyColors();
                 break;
             default:
+                // One synthesized key per top-level folder (see rootScopeToggles).
+                if (key.startsWith('scopeTopLevel:')) {
+                    const path = key.slice('scopeTopLevel:'.length);
+                    const next = new Set(this.s.scopeTopLevelDisabled);
+                    if (value) next.delete(path);
+                    else next.add(path);
+                    await this.plugin.updateSettings({ scopeTopLevelDisabled: Array.from(next) });
+                    break;
+                }
                 await this.plugin.updateSettings({ [key]: value });
         }
 
@@ -232,6 +247,23 @@ export class LinkerSettingTab extends PluginSettingTab {
 
     private splitLines(value: string): string[] {
         return value.split('\n').map((x) => x.trim()).filter((x) => x.length > 0);
+    }
+
+    /**
+     * One toggle per top-level folder, rebuilt for every settings render.
+     *
+     * Picking a folder gives it its own dictionary (folder dictionary
+     * isolation, discussion #21). The key carries the folder path so the
+     * generic getControlValue/setControlValue bridge maps it onto
+     * scopeTopLevel without one settings field per folder.
+     */
+    private rootScopeToggles(): SettingDef[] {
+        if (!this.s.folderDictionaryIsolation) return [];
+        return this.app.vault.getRoot().children
+            .filter((child): child is TFolder => child instanceof TFolder)
+            .map((folder) => toggleDef(folder.name, 'scopeTopLevel:' + folder.path, {
+                desc: t('Give this top-level folder its own dictionary.'),
+            }));
     }
 
     /**
@@ -471,6 +503,20 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('Directories in which the plugin will not create virtual links (separated by new lines).'),
                     placeholder: t('List of directory names (separated by new line)'),
                     visible: adv,
+                }),
+                // ---------- Folder-scoped dictionaries (discussion #21) ----------
+                toggleDef(t('Folder dictionary isolation'), 'folderDictionaryIsolation', {
+                    desc: t('Scoped dictionaries: a note inside a scope only links to notes of its own scope, global notes, and the files it links to with a real link. With this on, every top-level folder is a scope by default - switch off the ones you do not want below.'),
+                }),
+                ...this.rootScopeToggles(),
+                textAreaDef(t('Custom scope folders'), 'scopeCustom', {
+                    desc: t('Folder paths that get their own dictionary (one per line). A deeper path cancels the scope of ALL its parent folders: writing "Work/Project A" turns "Work" and every folder above it back into plain folders (unrelated top-level scopes stay).'),
+                    placeholder: t('Folder paths (separated by new line)'),
+                    visible: () => s.folderDictionaryIsolation,
+                }),
+                toggleDef(t('Scope notes may link to their real link targets'), 'scopeIncludeRealLinkTargets', {
+                    desc: t('A note inside a scope may also link to a file it references with a real [[link]], even when that file lives in another scope. Direct targets only - nothing cascades.'),
+                    visible: () => s.folderDictionaryIsolation,
                 }),
                 // The item above turns link generation off "by directory"; this
                 // group does it "per note" - both are source-side exclusions (the

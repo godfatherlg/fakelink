@@ -184,6 +184,109 @@ test('a built relative path never gains a leading slash', () => {
     assert.equal(build('', 'a', 'target.md'), './a/target.md');
 });
 
+console.log('folder scopes');
+
+const { normalizeFolderPath, effectiveScopes, scopeOf, isVisibleInScope, realLinkTargets } = await loadTs('linker/scope.ts');
+
+test('folder paths normalize across separators and stray slashes', () => {
+    assert.equal(normalizeFolderPath('Work\\Project A\\'), 'Work/Project A');
+    assert.equal(normalizeFolderPath('/Work//Project A/'), 'Work/Project A');
+    assert.equal(normalizeFolderPath('./Work/./Project A'), 'Work/Project A');
+    assert.equal(normalizeFolderPath(''), '');
+});
+
+test('the master switch keeps every note global', () => {
+    assert.deepEqual(effectiveScopes({ enabled: false, topLevel: ['Work'], custom: [] }), []);
+});
+
+test('a deeper custom path replaces its own ancestors only', () => {
+    // Discussion #21, option A: "Work" drops out, "Life" is untouched.
+    assert.deepEqual(
+        effectiveScopes({ enabled: true, topLevel: ['Work', 'Life'], custom: ['Work/Project A'] }),
+        ['Life', 'Work/Project A'],
+    );
+});
+
+test('two deeper paths replace the shared ancestor together', () => {
+    assert.deepEqual(
+        effectiveScopes({ enabled: true, topLevel: ['Work'], custom: ['Work/Project A', 'Work/Project B'] }),
+        ['Work/Project A', 'Work/Project B'],
+    );
+});
+
+test('a custom path works without a matching top-level pick', () => {
+    assert.deepEqual(
+        effectiveScopes({ enabled: true, topLevel: ['Life'], custom: ['Work/Project A'] }),
+        ['Life', 'Work/Project A'],
+    );
+});
+
+test('duplicates and empty lines are dropped', () => {
+    assert.deepEqual(
+        effectiveScopes({ enabled: true, topLevel: ['Work', 'Work'], custom: ['', 'Work'] }),
+        ['Work'],
+    );
+});
+
+test('scopeOf picks the deepest containing scope', () => {
+    const scopes = ['Work', 'Work/Project A'];
+    assert.equal(scopeOf('Work/Project A/note.md', scopes), 'Work/Project A');
+    assert.equal(scopeOf('Work/Other/note.md', scopes), 'Work');
+    assert.equal(scopeOf('Root.md', scopes), '');
+});
+
+test('scopeOf does not match a prefix that is not a folder boundary', () => {
+    // "Workplace" must not be treated as being inside "Work".
+    assert.equal(scopeOf('Workplace/note.md', ['Work']), '');
+});
+
+test('scoped sources see their scope, global notes and real link targets', () => {
+    const scopes = ['Work', 'Life'];
+    const linked = new Set(['Life/Shared.md']);
+    // Same scope.
+    assert.equal(isVisibleInScope('Work/a.md', 'Work/b.md', scopes, linked), true);
+    // Global note.
+    assert.equal(isVisibleInScope('Work/a.md', 'Templates/t.md', scopes, linked), true);
+    // Real link target that lives in another scope.
+    assert.equal(isVisibleInScope('Work/a.md', 'Life/Shared.md', scopes, linked), true);
+    // Another scope, no real link.
+    assert.equal(isVisibleInScope('Work/a.md', 'Life/x.md', scopes, linked), false);
+});
+
+test('global sources keep the previous behaviour', () => {
+    assert.equal(isVisibleInScope('Root.md', 'Work/a.md', ['Work'], new Set()), true);
+});
+
+test('real link targets cover aliases, headings, blocks and embeds', () => {
+    const fakeApp = {
+        metadataCache: {
+            getFileCache: () => ({
+                links: [
+                    { link: 'Plain' },
+                    // Obsidian keeps the alias in displayText, not in link.link.
+                    { link: 'Aliased', displayText: 'shown text' },
+                    { link: 'WithHeading#Some heading' },
+                    { link: 'WithBlock#^abc123' },
+                    { link: '#LocalHeading' },
+                ],
+                embeds: [{ link: 'Embedded' }],
+            }),
+            getFirstLinkpathDest: (linkpath) => {
+                const known = ['Plain', 'Aliased', 'WithHeading', 'WithBlock', 'Embedded'];
+                return known.includes(linkpath) ? { path: 'Life/' + linkpath + '.md' } : null;
+            },
+        },
+    };
+    const targets = realLinkTargets(fakeApp, { path: 'Work/source.md' });
+    assert.deepEqual([...targets].sort(), [
+        'Life/Aliased.md',
+        'Life/Embedded.md',
+        'Life/Plain.md',
+        'Life/WithBlock.md',
+        'Life/WithHeading.md',
+    ]);
+});
+
 console.log('');
 console.log(`${passed} passed, ${failures.length} failed`);
 if (failures.length > 0) process.exit(1);

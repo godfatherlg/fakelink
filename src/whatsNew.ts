@@ -12,14 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.22';
+export const WHATS_NEW_VERSION = '1.24.23';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fixed: typing "|" at the start of a line (which turns the line into a table) no longer swallows the following keystrokes - the search tracking no longer rebuilds decorations on editor input.',
+    'New: folder dictionary isolation (Settings -> Files). Every top-level folder gets its own dictionary by default and can be switched off; a custom path such as "Work/Project A" replaces the scope of all its parent folders. A note inside a scope may also link to the files it references with a real [[link]] - aliases, headings, blocks and embeds count - and that can be turned off.',
+    'Fixed: text typed directly after a [[link]] (with no separator) can become a virtual link again - the exclusion range no longer swallowed the first character after "]]".',
 ];
 
 export class WhatsNewModal extends Modal {

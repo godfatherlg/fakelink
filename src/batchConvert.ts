@@ -2,8 +2,11 @@ import { App, MarkdownView, Modal, Notice, Setting, TFile, FuzzySuggestModal } f
 import { LinkerPluginSettings } from '../main';
 import { LinkerCache, PrefixTree, MatchType, hasExcludedExtension, scoreFuzzyWindow } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
+import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from '../linker/scope';
 import IntervalTree from '@flatten-js/interval-tree';
 import { t } from './lang/helpers';
+
+const EMPTY_PATH_SET: ReadonlySet<string> = new Set();
 
 type LinkerPluginType = import('../main').default;
 
@@ -61,6 +64,14 @@ export function scanVirtualLinks(
     // so a scan could list links the editor never shows.
     const sourceNote = app.vault.getAbstractFileByPath(sourcePath) as TFile | null;
     const ownNote = settings.excludeLinksToOwnNote ? sourceNote : null;
+
+    // Folder-scoped dictionaries (discussion #21): same visibility rule as the
+    // editor and read mode, so conversion never offers a target the editor
+    // would not link to.
+    const scopeList = effectiveScopes(resolveScopeConfig(app, settings));
+    const realLinkedPaths = scopeList.length > 0 && sourceNote && settings.scopeIncludeRealLinkTargets
+        ? realLinkTargets(app, sourceNote)
+        : EMPTY_PATH_SET;
 
     cache.reset();
     // Pre-build the regions to skip so a match is rejected with one interval
@@ -126,7 +137,8 @@ export function scanVirtualLinks(
                 }
 
                 const filteredFiles = Array.from(node.files).filter((file: TFile) => {
-                    return !hasExcludedExtension(file.path, excludedExtensions);
+                    return !hasExcludedExtension(file.path, excludedExtensions)
+                        && isVisibleInScope(sourcePath, file.path, scopeList, realLinkedPaths);
                 });
 
                 if (filteredFiles.length === 0) continue;
@@ -239,7 +251,8 @@ export function scanVirtualLinks(
                             const fName = text.slice(fFrom, fTo);
 
                             const filteredFiles = mergedFiles.filter((file: TFile) => {
-                                return !hasExcludedExtension(file.path, excludedExtensions);
+                                return !hasExcludedExtension(file.path, excludedExtensions)
+                                    && isVisibleInScope(sourcePath, file.path, scopeList, realLinkedPaths);
                             });
                             if (filteredFiles.length > 0) {
                                 const topFr = fuzzyResults[0];
@@ -422,7 +435,11 @@ function getLineRange(text: string, index: number): [number, number] {
 function buildExcludedIntervals(text: string): IntervalTree {
     const tree = new IntervalTree();
     const n = text.length;
-    const add = (from: number, to: number) => { if (to > from) tree.insert([from, to]); };
+    // The tree uses CLOSED intervals while every `to` here is exclusive;
+    // inserting `to` as-is made a range cover the first character after it,
+    // so a match starting right after "[[...]]" (with no separator) was
+    // skipped as "inside a link". Same fix as liveLinker.
+    const add = (from: number, to: number) => { if (to > from) tree.insert([from, to - 1]); };
 
     // Frontmatter: a leading "---" ... "---" (or "...") block. Both YAML
     // terminators are handled; the old code only found "---", so a "..."-closed
