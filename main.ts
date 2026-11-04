@@ -171,7 +171,9 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludedDirectories: [],
     excludedDirectoriesForLinking: [],
     folderDictionaryIsolation: false,
-    scopeTopLevelAsScopes: true,
+    // Off by default: enabling the master switch must not silently turn every
+    // top-level folder into a range - the user lists the ones they want.
+    scopeTopLevelAsScopes: false,
     scopeCustom: [],
     scopeIncludeRealLinkTargets: true,
     virtualLinkSuffix: '',

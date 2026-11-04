@@ -314,6 +314,7 @@ const zhCN: Record<string, string> = {
     'Matches inside a virtual link other than the current one get a faint outline hint, so the current match stays easy to spot.': '链接内除当前匹配外的其他命中使用淡色轮廓提示，方便一眼看出当前匹配。',
     'Fixed: typing "|" at the start of a line (which turns the line into a table) no longer swallows the following keystrokes - the search tracking no longer rebuilds decorations on editor input.': '修复：在行首输入「|」创建表格时，后续按键不再被吞掉——搜索跟踪不再对编辑器输入触发重建。',
     'Simplified the folder range settings: one switch for "top-level folders have their own range by default", and the folders to limit are listed in "Custom range folders". The long per-folder toggle list is gone.': '简化了文件夹范围设置：只保留「一级文件夹默认有独立范围」开关，要限定的文件夹写在「自定义范围文件夹」里。逐个文件夹的长列表已移除。',
+    'The "top-level folders have their own range by default" switch now defaults to off, so enabling the master switch no longer turns every top-level folder into a range at once. List the folders you want under "Custom range folders".': '「一级文件夹默认有独立范围」开关的默认值改为关：打开总开关后，不会自动把所有一级文件夹变成范围；要限定哪个文件夹，请在「自定义范围文件夹」里写。',
 };
 
 export function t(text: string): string {

@@ -1,15 +1,15 @@
-# 1.24.24
+# 1.24.25
 
 ## 中文
 
-简化「按文件夹限定词库」的设置，并调整措辞。
+调整「一级文件夹默认有独立范围」的默认值。
 
-- **去掉逐个一级文件夹的开关列表**：设置页只保留「一级文件夹默认有独立范围」一个开关。开启时所有一级文件夹各自成为一个范围；关闭时一级文件夹都没有范围，要限定哪个文件夹，把它写在「自定义范围文件夹」里。
-- **措辞调整**：「隔离」改为「限定 / 范围」，更贴合实际语义——它限定的是虚拟链接的匹配范围，而不是物理隔离文件夹。
+- 该开关现在**默认关闭**：打开「按文件夹限定词库」总开关后，**不会**自动把所有一级文件夹变成范围，避免新用户一开开关就发现所有文件夹都被限定了。
+- 要限定某个文件夹，在「自定义范围文件夹」里写它的路径即可；需要所有一级文件夹各自成为一个范围时，再打开这个开关。
 
 ## English
 
-Simplifies the "limit dictionary by folder" settings and adjusts the wording.
+Changes the default of the "top-level folders have their own range by default" switch.
 
-- **The per-folder toggle list is gone**: the settings page keeps one switch, "top-level folders have their own range by default". When on, every top-level folder is its own range; when off, no top-level folder has one - list the folders to limit under "Custom range folders" instead.
-- **Wording**: "isolation" is now "limit / range", which matches what the feature actually does - it limits the matching range of virtual links rather than isolating folders.
+- The switch is now **off by default**: enabling the master switch no longer turns every top-level folder into a range, so a new user does not suddenly find everything limited.
+- List the folders you want under "Custom range folders"; turn the switch on only when every top-level folder should be its own range.

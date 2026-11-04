@@ -12,14 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.24';
+export const WHATS_NEW_VERSION = '1.24.25';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Simplified the folder range settings: one switch for "top-level folders have their own range by default", and the folders to limit are listed in "Custom range folders". The long per-folder toggle list is gone.',
+    'The "top-level folders have their own range by default" switch now defaults to off, so enabling the master switch no longer turns every top-level folder into a range at once. List the folders you want under "Custom range folders".',
 ];
 
 export class WhatsNewModal extends Modal {
