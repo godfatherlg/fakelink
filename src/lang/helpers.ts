@@ -300,20 +300,20 @@ const zhCN: Record<string, string> = {
     'Done. Converted {n} virtual links across {files} notes.': '已完成。在 {files} 个笔记中固化了 {n} 个虚拟链接。',
     'Added: {path} ({n} total)': '已添加：{path}（共 {n} 个）',
 
-    'Folder dictionary isolation': '文件夹词库隔离',
-    'Scoped dictionaries: a note inside a scope only links to notes of its own scope, global notes, and the files it links to with a real link. With this on, every top-level folder is a scope by default - switch off the ones you do not want below.': '按文件夹隔离词库：scope 内的笔记只链接同 scope 的笔记、全局笔记，以及它用真实链接引用过的文件。开启后，所有一级文件夹默认都是独立 scope，可以在下方逐个关闭。',
-    'Give this top-level folder its own dictionary.': '让这个一级文件夹使用独立词库。',
-    'Custom scope folders': '自定义隔离文件夹',
-    'Folder paths that get their own dictionary (one per line). A deeper path cancels the scope of ALL its parent folders: writing "Work/Project A" turns "Work" and every folder above it back into plain folders (unrelated top-level scopes stay).': '使用独立词库的文件夹路径（每行一个）。更深的路径会取消它所有父级文件夹的 scope：写了「工作/项目A」，「工作」及其所有上级都恢复为普通文件夹（不相关的一级 scope 不受影响）。',
+    'Limit dictionary by folder': '按文件夹限定词库',
+    'Notes inside a folder range only link to notes of the same range, global notes, and the files they reference with a real link.': '同一范围内的笔记只链接同范围的笔记、全局笔记，以及它用真实链接引用过的文件。',
+    'Top-level folders have their own range by default': '一级文件夹默认有独立范围',
+    'When on, every top-level folder is its own range. When off, no top-level folder has one - list the folders you want under "Custom range folders" below.': '开启时，所有一级文件夹各自成为一个范围；关闭时，一级文件夹都没有范围——要限定哪个文件夹，请写在下面的「自定义范围文件夹」里。',
+    'Custom range folders': '自定义范围文件夹',
+    'Folder paths that get their own dictionary range (one per line). A deeper path cancels the range of ALL its parent folders: writing "Work/Project A" turns "Work" and every folder above it back into plain folders (unrelated top-level ranges stay).': '使用独立词库范围的文件夹路径（每行一个）。更深的路径会取消它所有父级文件夹的范围：写了「工作/项目A」，「工作」及其所有上级都恢复为普通文件夹（不相关的一级范围不受影响）。',
     'Folder paths (separated by new line)': '文件夹路径（每行一个）',
-    'Scope notes may link to their real link targets': 'scope 内的笔记可以链接到真实链接目标',
-    'A note inside a scope may also link to a file it references with a real [[link]], even when that file lives in another scope. Direct targets only - nothing cascades.': 'scope 内的笔记也可以链接到它用真实链接（[[...]]）引用过的文件，即使那个文件在另一个 scope。只放行直接引用的目标，不会级联扩散。',
+    'Notes in a range may link to their real link targets': '范围内的笔记可以链接到真实链接目标',
+    'A note inside a range may also link to a file it references with a real [[link]], even when that file lives in another range. Direct targets only - nothing cascades.': '范围内的笔记也可以链接到它用真实链接（[[...]]）引用过的文件，即使那个文件在另一个范围。只放行直接引用的目标，不会级联扩散。',
 
     'Searching (Ctrl/Cmd+F) keeps virtual links interactive: click, hover preview and bold/italic/highlight formatting keep working, the current match is marked with the official accent box inside the link, and inline markers such as ** / == / ~~ stay hidden while a query is active.': '搜索（Ctrl/Cmd+F）时虚拟链接保持可用：点击、hover 预览、加粗/斜体/高亮格式都正常，当前匹配在链接内显示官方的 accent 方框，搜索期间 ** / == / ~~ 等行内标记保持隐藏。',
     'Matches inside a virtual link other than the current one get a faint outline hint, so the current match stays easy to spot.': '链接内除当前匹配外的其他命中使用淡色轮廓提示，方便一眼看出当前匹配。',
     'Fixed: typing "|" at the start of a line (which turns the line into a table) no longer swallows the following keystrokes - the search tracking no longer rebuilds decorations on editor input.': '修复：在行首输入「|」创建表格时，后续按键不再被吞掉——搜索跟踪不再对编辑器输入触发重建。',
-    'New: folder dictionary isolation (Settings -> Files). Every top-level folder gets its own dictionary by default and can be switched off; a custom path such as "Work/Project A" replaces the scope of all its parent folders. A note inside a scope may also link to the files it references with a real [[link]] - aliases, headings, blocks and embeds count - and that can be turned off.': '新增：文件夹词库隔离（设置 → Files）。所有一级文件夹默认各自成为一个独立词库，可以逐个关闭；自定义路径（如「工作/项目A」）会取消它所有父级文件夹的 scope。scope 内的笔记还可以链接到它用真实链接引用过的文件（别名、标题、块、嵌入都算），该行为可关闭。',
-    'Fixed: text typed directly after a [[link]] (with no separator) can become a virtual link again - the exclusion range no longer swallowed the first character after "]]".': '修复：紧跟在 [[链接]] 后面的文字（中间没有分隔符）可以重新变成虚拟链接——排除区间不再吞掉「]]」后的第一个字符。',
+    'Simplified the folder range settings: one switch for "top-level folders have their own range by default", and the folders to limit are listed in "Custom range folders". The long per-folder toggle list is gone.': '简化了文件夹范围设置：只保留「一级文件夹默认有独立范围」开关，要限定的文件夹写在「自定义范围文件夹」里。逐个文件夹的长列表已移除。',
 };
 
 export function t(text: string): string {

@@ -186,7 +186,7 @@ test('a built relative path never gains a leading slash', () => {
 
 console.log('folder scopes');
 
-const { normalizeFolderPath, effectiveScopes, scopeOf, isVisibleInScope, realLinkTargets } = await loadTs('linker/scope.ts');
+const { normalizeFolderPath, effectiveScopes, scopeOf, isVisibleInScope, realLinkTargets, effectiveTopLevel } = await loadTs('linker/scope.ts');
 
 test('folder paths normalize across separators and stray slashes', () => {
     assert.equal(normalizeFolderPath('Work\\Project A\\'), 'Work/Project A');
@@ -255,6 +255,20 @@ test('scoped sources see their scope, global notes and real link targets', () =>
 
 test('global sources keep the previous behaviour', () => {
     assert.equal(isVisibleInScope('Root.md', 'Work/a.md', ['Work'], new Set()), true);
+});
+
+test('top-level folders are scopes by default', () => {
+    assert.deepEqual(
+        effectiveTopLevel(['Work', 'Life', 'Inbox'], { scopeTopLevelAsScopes: true }),
+        ['Work', 'Life', 'Inbox'],
+    );
+});
+
+test('with the default off, no top-level folder is a scope', () => {
+    assert.deepEqual(
+        effectiveTopLevel(['Work', 'Life'], { scopeTopLevelAsScopes: false }),
+        [],
+    );
 });
 
 test('real link targets cover aliases, headings, blocks and embeds', () => {

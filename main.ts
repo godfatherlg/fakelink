@@ -43,10 +43,11 @@ export interface LinkerPluginSettings {
     linkerDirectories: string[];
     excludedDirectories: string[];
     excludedDirectoriesForLinking: string[];
-    // Folder-scoped dictionaries (discussion #21). Top-level folders are
-    // scopes by default; this list only carries the ones switched off.
+    // Folder-scoped dictionaries (discussion #21). With
+    // scopeTopLevelAsScopes on, every top-level folder is a scope; with it
+    // off, none is and scopeCustom lists the folders to isolate.
     folderDictionaryIsolation: boolean;
-    scopeTopLevelDisabled: string[];
+    scopeTopLevelAsScopes: boolean;
     scopeCustom: string[];
     scopeIncludeRealLinkTargets: boolean;
     virtualLinkSuffix: string;
@@ -170,7 +171,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     excludedDirectories: [],
     excludedDirectoriesForLinking: [],
     folderDictionaryIsolation: false,
-    scopeTopLevelDisabled: [],
+    scopeTopLevelAsScopes: true,
     scopeCustom: [],
     scopeIncludeRealLinkTargets: true,
     virtualLinkSuffix: '',

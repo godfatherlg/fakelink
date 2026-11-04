@@ -12,15 +12,14 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.23';
+export const WHATS_NEW_VERSION = '1.24.24';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'New: folder dictionary isolation (Settings -> Files). Every top-level folder gets its own dictionary by default and can be switched off; a custom path such as "Work/Project A" replaces the scope of all its parent folders. A note inside a scope may also link to the files it references with a real [[link]] - aliases, headings, blocks and embeds count - and that can be turned off.',
-    'Fixed: text typed directly after a [[link]] (with no separator) can become a virtual link again - the exclusion range no longer swallowed the first character after "]]".',
+    'Simplified the folder range settings: one switch for "top-level folders have their own range by default", and the folders to limit are listed in "Custom range folders". The long per-folder toggle list is gone.',
 ];
 
 export class WhatsNewModal extends Modal {

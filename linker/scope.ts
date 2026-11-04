@@ -36,20 +36,33 @@ export function topLevelFolders(app: App): string[] {
 }
 
 /**
+ * The top-level folders that are scopes.
+ *
+ * One simple switch: on means every top-level folder is its own dictionary;
+ * off means none is, and the user lists the folders to isolate in
+ * "Custom scope folders" instead.
+ */
+export function effectiveTopLevel(
+    allTopLevel: string[],
+    settings: { scopeTopLevelAsScopes: boolean },
+): string[] {
+    return settings.scopeTopLevelAsScopes ? allTopLevel : [];
+}
+
+/**
  * Resolve the stored settings into a ScopeConfig.
  *
- * Top-level folders are scopes BY DEFAULT once the master switch is on: the
- * setting only lists the ones the user switched OFF. Custom paths only ever
- * add scopes on top.
+ * Custom paths are only used in the "off" mode, where they are the sole
+ * source of scopes.
  */
 export function resolveScopeConfig(app: App, settings: {
     folderDictionaryIsolation: boolean;
-    scopeTopLevelDisabled: string[];
+    scopeTopLevelAsScopes: boolean;
     scopeCustom: string[];
 }): ScopeConfig {
     return {
         enabled: settings.folderDictionaryIsolation,
-        topLevel: topLevelFolders(app).filter((path) => !settings.scopeTopLevelDisabled.includes(path)),
+        topLevel: effectiveTopLevel(topLevelFolders(app), settings),
         custom: settings.scopeCustom,
     };
 }
