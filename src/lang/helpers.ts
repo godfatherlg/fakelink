@@ -315,6 +315,8 @@ const zhCN: Record<string, string> = {
     'Fixed: typing "|" at the start of a line (which turns the line into a table) no longer swallows the following keystrokes - the search tracking no longer rebuilds decorations on editor input.': '修复：在行首输入「|」创建表格时，后续按键不再被吞掉——搜索跟踪不再对编辑器输入触发重建。',
     'Simplified the folder range settings: one switch for "top-level folders have their own range by default", and the folders to limit are listed in "Custom range folders". The long per-folder toggle list is gone.': '简化了文件夹范围设置：只保留「一级文件夹默认有独立范围」开关，要限定的文件夹写在「自定义范围文件夹」里。逐个文件夹的长列表已移除。',
     'The "top-level folders have their own range by default" switch now defaults to off, so enabling the master switch no longer turns every top-level folder into a range at once. List the folders you want under "Custom range folders".': '「一级文件夹默认有独立范围」开关的默认值改为关：打开总开关后，不会自动把所有一级文件夹变成范围；要限定哪个文件夹，请在「自定义范围文件夹」里写。',
+    'Faster edits and mode switches: the folder-range check no longer walks the vault tree on every rebuild, and the link targets of a note are cached until the note changes.': '编辑与模式切换更快：文件夹范围检查不再在每次重建时遍历整个库，笔记的真实链接目标也会缓存到笔记修改为止。',
+    'If you noticed cursor or typing delays after updating Obsidian, reinstall Obsidian 1.15.0 once - that rules out problems coming from the Obsidian update itself.': '如果更新 Obsidian 后感觉光标或输入延迟，建议用 Obsidian 1.15.0 重新安装一次，以排除 Obsidian 更新本身带来的问题。',
 };
 
 export function t(text: string): string {

@@ -60,14 +60,24 @@ export function resolveScopeConfig(app: App, settings: {
     scopeTopLevelAsScopes: boolean;
     scopeCustom: string[];
 }): ScopeConfig {
+    // Fast path: the feature is off. Do not walk the vault tree at all - this
+    // runs on every decoration rebuild.
+    if (!settings.folderDictionaryIsolation) {
+        return { enabled: false, topLevel: [], custom: [] };
+    }
     return {
-        enabled: settings.folderDictionaryIsolation,
+        enabled: true,
         topLevel: effectiveTopLevel(topLevelFolders(app), settings),
         custom: settings.scopeCustom,
     };
 }
 
 const EMPTY_TARGETS: ReadonlySet<string> = new Set();
+
+// Resolved link targets per note, keyed by path and invalidated by the file's
+// mtime. buildDecorations runs on every cursor move / scroll / mode switch, and
+// re-resolving every link each time was measurable on link-heavy notes.
+const realLinkTargetCache = new Map<string, { mtime: number; targets: ReadonlySet<string> }>();
 
 /**
  * Paths `file` links to with a real [[link]] (direct targets only).
@@ -83,9 +93,16 @@ const EMPTY_TARGETS: ReadonlySet<string> = new Set();
  * file called "Note#Heading".
  */
 export function realLinkTargets(app: App, file: TFile): ReadonlySet<string> {
+    const mtime = file.stat?.mtime ?? 0;
+    const cached = realLinkTargetCache.get(file.path);
+    if (cached && cached.mtime === mtime) return cached.targets;
+
     const cache = app.metadataCache.getFileCache(file);
     const refs = [...(cache?.links ?? []), ...(cache?.embeds ?? [])];
-    if (refs.length === 0) return EMPTY_TARGETS;
+    if (refs.length === 0) {
+        realLinkTargetCache.set(file.path, { mtime, targets: EMPTY_TARGETS });
+        return EMPTY_TARGETS;
+    }
     const targets = new Set<string>();
     for (const ref of refs) {
         // [[#Heading]] points at this very note - nothing to add.
@@ -94,6 +111,7 @@ export function realLinkTargets(app: App, file: TFile): ReadonlySet<string> {
         const dest = app.metadataCache.getFirstLinkpathDest(linkpath, file.path);
         if (dest) targets.add(dest.path);
     }
+    realLinkTargetCache.set(file.path, { mtime, targets });
     return targets;
 }
 

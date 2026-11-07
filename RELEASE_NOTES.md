@@ -1,15 +1,17 @@
-# 1.24.25
+# 1.24.26
 
 ## 中文
 
-调整「一级文件夹默认有独立范围」的默认值。
+性能修复：编辑与模式切换更快，并给出排除 Obsidian 更新问题的建议。
 
-- 该开关现在**默认关闭**：打开「按文件夹限定词库」总开关后，**不会**自动把所有一级文件夹变成范围，避免新用户一开开关就发现所有文件夹都被限定了。
-- 要限定某个文件夹，在「自定义范围文件夹」里写它的路径即可；需要所有一级文件夹各自成为一个范围时，再打开这个开关。
+- **不再每次重建都遍历库**：文件夹范围检查在功能关闭时直接跳过（之前即使没开也会遍历一次库根目录）。
+- **缓存真实链接目标**：笔记的真实链接引用只在笔记内容变化后重新解析，之前每次重建（光标移动 / 滚动 / 切换模式）都会重新读取并解析一遍。
+- **建议**：如果更新 Obsidian 后感觉光标或输入延迟，建议用 **Obsidian 1.15.0 重新安装一次**，以排除 Obsidian 更新本身带来的问题。
 
 ## English
 
-Changes the default of the "top-level folders have their own range by default" switch.
+Performance fix: faster edits and mode switches, plus advice for ruling out problems from the Obsidian update.
 
-- The switch is now **off by default**: enabling the master switch no longer turns every top-level folder into a range, so a new user does not suddenly find everything limited.
-- List the folders you want under "Custom range folders"; turn the switch on only when every top-level folder should be its own range.
+- **No vault walk per rebuild**: the folder-range check is skipped entirely while the feature is off (it used to walk the vault root even then).
+- **Cached link targets**: a note's real link references are only re-resolved after the note changes; every rebuild (cursor move / scroll / mode switch) used to read and resolve them again.
+- **Advice**: if you noticed cursor or typing delays after updating Obsidian, reinstall **Obsidian 1.15.0** once - that rules out problems coming from the Obsidian update itself.

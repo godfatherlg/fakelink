@@ -12,14 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.25';
+export const WHATS_NEW_VERSION = '1.24.26';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'The "top-level folders have their own range by default" switch now defaults to off, so enabling the master switch no longer turns every top-level folder into a range at once. List the folders you want under "Custom range folders".',
+    'Faster edits and mode switches: the folder-range check no longer walks the vault tree on every rebuild, and the link targets of a note are cached until the note changes.',
+    'If you noticed cursor or typing delays after updating Obsidian, reinstall Obsidian 1.15.0 once - that rules out problems coming from the Obsidian update itself.',
 ];
 
 export class WhatsNewModal extends Modal {
