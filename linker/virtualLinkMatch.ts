@@ -21,20 +21,24 @@ import {
 type LinkerPluginType = import('main').default;
 
 // ---------------------------------------------------------------------------
-// Why the elements built here use `activeDocument.createElement` rather than
-// Obsidian's `createEl` helper (which `obsidianmd/prefer-create-el` flags):
+// Why the elements built here go through `createDetached` below
 //
 // They are DETACHED on purpose - a virtual-link span is handed to CodeMirror
 // after being built (and the numbered [1|2|3] anchors are appended to that
-// still-detached span). `createEl` appends the new element to its receiver
-// immediately, so it would place the element in the document before CodeMirror
-// could; and plugins that replace that helper (Media Extended) make the call
-// throw "HierarchyRequestError: Only one element on document allowed".
-//
-// `activeDocument` rather than `document` for the same reason the rest of the
-// plugin uses it: a hover preview can live in a second window, and an element
-// forged on the wrong document does not belong to the DOM it is inserted into.
+// still-detached span). Obsidian's `createEl` helper appends the new element to
+// its receiver immediately, and a Document receiver would append it to the
+// document itself ("HierarchyRequestError: Only one element on document
+// allowed"), so the receiver is a throwaway DocumentFragment taken from the
+// active document: the element is forged on the document that will own it (a
+// hover preview can live in a second window), nothing is attached, and the
+// fragment is discarded. `createElement` is rejected by the community review
+// and disabling that rule is not allowed either, which leaves exactly this
+// form.
 // ---------------------------------------------------------------------------
+
+function createDetached<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
+    return activeDocument.createDocumentFragment().createEl(tag);
+}
 
 /**
  * A bare internal-link token found by parseInternalLinkSyntax, ready to be
@@ -370,8 +374,7 @@ export class VirtualMatch {
         // Hide the link entirely when the total number of matches exceeds the
         // configured threshold (too noisy to be useful).
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
-            // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-            const emptySpan = activeDocument.createElement('span');
+            const emptySpan = createDetached('span');
             emptySpan.textContent = this.originText;
             // The term DID match — there are simply too many targets, so no link is
             // rendered. Keep the line visually quiet (that is the point of the
@@ -467,8 +470,7 @@ export class VirtualMatch {
 
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
-        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-        const link = activeDocument.createElement('a');
+        const link = createDetached('a');
 
         let headerIdToUse: string | undefined;
         if (file) {
@@ -707,10 +709,9 @@ export class VirtualMatch {
     }
 
     // NOTE: the span / anchor / sup elements below are created DETACHED - they
-    // are appended by CodeMirror afterwards - so they must be built with
-    // createElement, not with Obsidian's createEl helper. Some plugins (Media
-    // Extended) replace that helper, and when it is called on a Document the
-    // element ends up appended to the document itself, which throws
+    // are appended by CodeMirror afterwards - so they go through createDetached,
+    // which hands Obsidian's createEl a throwaway fragment instead of the
+    // document: appending to the document itself throws
     // "HierarchyRequestError: Only one element on document allowed".
     /**
      * The CSS classes of a virtual link's root span. Every display mode
@@ -750,8 +751,7 @@ export class VirtualMatch {
     }
 
     getLinkRootSpan(inTableCellEditor = false) {
-        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-        const span = activeDocument.createElement('span');
+        const span = createDetached('span');
         span.classList.add(...this.getRootSpanClasses());
 
         // Restore the lock when this link is being right-click-locked (menu open).
@@ -840,8 +840,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesSpan(files?: TFile[], overflowCount: number = 0) {
-        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-        const spanReferences = activeDocument.createElement('span');
+        const spanReferences = createDetached('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
         }
@@ -854,8 +853,7 @@ export class VirtualMatch {
 
         fileList.forEach((file, index) => {
             if (index === 0) {
-                // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-                const bracket = activeDocument.createElement('span');
+                const bracket = createDetached('span');
                 bracket.textContent = '[';
                 spanReferences.appendChild(bracket);
             }
@@ -872,14 +870,12 @@ export class VirtualMatch {
 
             if (index === fileList.length - 1) {
                 if (overflowCount > 0) {
-                    // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-                    const overflow = activeDocument.createElement('span');
+                    const overflow = createDetached('span');
                     overflow.textContent = '|...';
                     overflow.setAttribute('title', t('{count} more reference(s)').replace('{count}', String(overflowCount)));
                     spanReferences.appendChild(overflow);
                 }
-                // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-                const bracket = activeDocument.createElement('span');
+                const bracket = createDetached('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
             }
@@ -889,16 +885,14 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesIndicatorSpan() {
-        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-        const spanIndicator = activeDocument.createElement('span');
+        const spanIndicator = createDetached('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
         return spanIndicator;
     }
 
     getOverflowIndicatorSpan(hiddenCount: number) {
-        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-        const spanIndicator = activeDocument.createElement('span');
+        const spanIndicator = createDetached('span');
         spanIndicator.textContent = ' [...]';
         // Reuse the same class as the reference list so it shows/hides together
         // (visible on hover, or always visible when alwaysShowMultipleReferences
@@ -913,8 +907,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
-            // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
-            const icon = activeDocument.createElement('sup');
+            const icon = createDetached('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
             return icon;

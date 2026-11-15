@@ -267,6 +267,8 @@ const zhCN: Record<string, string> = {
     'Changed: a few non-core options now default to off (header symbol keywords, current-line linking, line jumping).': '调整：部分非核心选项改为默认关闭（标题符号关键词、当前行不显示链接、行跳转）。',
     'Maintenance release with no visible change: the interface elements are now built with Obsidian\'s createDiv / createSpan helpers instead of createEl with a tag, which is the form the community review asks for.': '维护版本，界面无变化：界面元素改用 Obsidian 的 createDiv / createSpan 助手创建，不再用带标签的 createEl，这也是社区审核要求的写法。',
     'The virtual-link spans stay detached and belong to the active document by design - CodeMirror receives them already built, and a hover preview can live in a second window - so those call sites now explain themselves instead of being rewritten.': '虚拟链接的 span 仍按设计保持「游离」并归属于 activeDocument——CodeMirror 收到的是已经建好的元素，悬浮预览也可能位于第二个窗口——因此这些调用点改为就地说明原因，而不是改写实现。',
+    'Element creation no longer calls createElement: the ten detached virtual-link elements pass a throwaway DocumentFragment as the receiver of createEl, so they stay detached and are still forged on the active document.': '元素创建不再调用 createElement：10 处游离的虚拟链接元素改为把一个用完即弃的 DocumentFragment 作为 createEl 的接收者，元素依旧保持游离，并且仍建在 activeDocument 上。',
+    'The eslint-disable comments from the previous release are gone, because the review rejects disabling that rule, and the visible behaviour is unchanged.': '上一版添加的 eslint-disable 注释已移除（审核不允许禁用该规则），可见行为没有变化。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

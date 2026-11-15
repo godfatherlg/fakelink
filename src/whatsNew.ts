@@ -12,15 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.27';
+export const WHATS_NEW_VERSION = '1.24.28';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Maintenance release with no visible change: the interface elements are now built with Obsidian\'s createDiv / createSpan helpers instead of createEl with a tag, which is the form the community review asks for.',
-    'The virtual-link spans stay detached and belong to the active document by design - CodeMirror receives them already built, and a hover preview can live in a second window - so those call sites now explain themselves instead of being rewritten.',
+    'Element creation no longer calls createElement: the ten detached virtual-link elements pass a throwaway DocumentFragment as the receiver of createEl, so they stay detached and are still forged on the active document.',
+    'The eslint-disable comments from the previous release are gone, because the review rejects disabling that rule, and the visible behaviour is unchanged.',
 ];
 
 export class WhatsNewModal extends Modal {
