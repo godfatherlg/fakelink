@@ -25,19 +25,18 @@ type LinkerPluginType = import('main').default;
 //
 // They are DETACHED on purpose - a virtual-link span is handed to CodeMirror
 // after being built (and the numbered [1|2|3] anchors are appended to that
-// still-detached span). Obsidian's `createEl` helper appends the new element to
-// its receiver immediately, and a Document receiver would append it to the
-// document itself ("HierarchyRequestError: Only one element on document
-// allowed"), so the receiver is a throwaway DocumentFragment taken from the
-// active document: the element is forged on the document that will own it (a
-// hover preview can live in a second window), nothing is attached, and the
-// fragment is discarded. `createElement` is rejected by the community review
-// and disabling that rule is not allowed either, which leaves exactly this
-// form.
+// still-detached span), so nothing may be in the DOM yet. Obsidian's `createEl`
+// helper appends the new element to its receiver immediately, and a Document
+// receiver would append it to the document itself ("HierarchyRequestError:
+// Only one element on document allowed"), so the receiver is a throwaway
+// DocumentFragment from `createFragment()`: the element is built, the fragment
+// is discarded, and neither `createElement` nor a create* call on the document
+// - the two things `obsidianmd/prefer-create-el` rejects - is involved.
 // ---------------------------------------------------------------------------
 
 function createDetached<K extends keyof HTMLElementTagNameMap>(tag: K): HTMLElementTagNameMap[K] {
-    return activeDocument.createDocumentFragment().createEl(tag);
+    const host = createFragment();
+    return host.createEl(tag);
 }
 
 /**

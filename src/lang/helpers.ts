@@ -269,6 +269,8 @@ const zhCN: Record<string, string> = {
     'The virtual-link spans stay detached and belong to the active document by design - CodeMirror receives them already built, and a hover preview can live in a second window - so those call sites now explain themselves instead of being rewritten.': '虚拟链接的 span 仍按设计保持「游离」并归属于 activeDocument——CodeMirror 收到的是已经建好的元素，悬浮预览也可能位于第二个窗口——因此这些调用点改为就地说明原因，而不是改写实现。',
     'Element creation no longer calls createElement: the ten detached virtual-link elements pass a throwaway DocumentFragment as the receiver of createEl, so they stay detached and are still forged on the active document.': '元素创建不再调用 createElement：10 处游离的虚拟链接元素改为把一个用完即弃的 DocumentFragment 作为 createEl 的接收者，元素依旧保持游离，并且仍建在 activeDocument 上。',
     'The eslint-disable comments from the previous release are gone, because the review rejects disabling that rule, and the visible behaviour is unchanged.': '上一版添加的 eslint-disable 注释已移除（审核不允许禁用该规则），可见行为没有变化。',
+    'Element creation no longer touches the document: the detached virtual-link elements take their throwaway DocumentFragment from Obsidian\'s createFragment helper, which clears the last prefer-create-el warning.': '元素创建不再触碰 document：游离的虚拟链接元素改为用 Obsidian 的 createFragment 助手取得那个用完即弃的 DocumentFragment，最后一条 prefer-create-el 警告随之消除。',
+    'Nothing changes on screen - the elements stay detached, no createElement call remains and no lint rule is disabled.': '界面没有变化：元素依旧游离，源码里不再有 createElement 调用，也没有禁用任何 lint 规则。',
 
     'Open a Markdown note first, then run this command.': '请先打开一个 Markdown 笔记，再运行此命令。',
 

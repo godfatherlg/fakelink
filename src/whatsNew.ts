@@ -12,15 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.28';
+export const WHATS_NEW_VERSION = '1.24.29';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Element creation no longer calls createElement: the ten detached virtual-link elements pass a throwaway DocumentFragment as the receiver of createEl, so they stay detached and are still forged on the active document.',
-    'The eslint-disable comments from the previous release are gone, because the review rejects disabling that rule, and the visible behaviour is unchanged.',
+    'Element creation no longer touches the document: the detached virtual-link elements take their throwaway DocumentFragment from Obsidian\'s createFragment helper, which clears the last prefer-create-el warning.',
+    'Nothing changes on screen - the elements stay detached, no createElement call remains and no lint rule is disabled.',
 ];
 
 export class WhatsNewModal extends Modal {
