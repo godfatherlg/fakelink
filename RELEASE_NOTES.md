@@ -1,17 +1,17 @@
-# 1.24.27
+# 1.24.28
 
 ## 中文
 
-维护版本：界面没有任何变化，只把代码整理成社区审核要求的形式。
+维护版本：界面无变化，只把元素创建方式调整成社区审核可以接受的形式。
 
-- **元素创建改用专用助手**：5 处 `createEl('div', …)` 改为 `createDiv(…)`，1 处 `createEl('span', …)` 改为 `createSpan(…)`。两者在 Obsidian API 中就是对应标签的简写，返回值类型更精确，行为不变。
-- **虚拟链接的 span 保留原写法，并就地注明原因**：10 处 `activeDocument.createElement(...)` 必须保持「游离」（由 CodeMirror 接收后再挂载），并且必须建于 `activeDocument`（悬浮预览可能位于第二个窗口）。若改用 `createEl`，元素会被立即插入到接收者；而部分插件（如 Media Extended）替换了该助手，会抛出 `HierarchyRequestError: Only one element on document allowed`。这些调用点已加注释说明，供审核复核。
-- **无行为变化**：`main.js` 的界面逻辑与 1.24.26 完全一致。
+- **元素创建不再调用 `createElement`**：10 处游离的虚拟链接元素（根 span、`<a>` 锚、`<sup>` 图标）改为把一个用完即弃的 `DocumentFragment` 作为 `createEl` 的接收者。元素仍然保持游离（由 CodeMirror 接收后再挂载），仍然建在 `activeDocument` 上，同时避开了「Document 接收者」导致的 `HierarchyRequestError: Only one element on document allowed`。
+- **移除 `eslint-disable` 注释**：审核明确禁止禁用 `obsidianmd/prefer-create-el`（"Disabling 'obsidianmd/prefer-create-el' is not allowed"），上一版添加的 10 条注释已全部删除，规则本身不再被触发。
+- **无行为变化**：界面逻辑与 1.24.27 一致。
 
 ## English
 
-Maintenance release: nothing changes on screen, the code is only brought into the shape the community review asks for.
+Maintenance release: nothing changes on screen, only the way elements are created is moved into a form the community review accepts.
 
-- **Element creation uses the dedicated helpers**: 5 `createEl('div', …)` calls became `createDiv(…)` and 1 `createEl('span', …)` became `createSpan(…)`. They are the documented shorthands for those two tags, with narrower return types and no behaviour change.
-- **The virtual-link spans keep their current form, now documented in place**: 10 `activeDocument.createElement(...)` calls must stay detached (CodeMirror receives them built, then appends them) and must be forged on `activeDocument` (a hover preview can live in a second window). Using `createEl` there would append the element to the receiver immediately, and plugins that replace that helper (Media Extended) throw `HierarchyRequestError: Only one element on document allowed`. Those call sites now carry that reasoning inline for the review.
-- **No behavioural change**: the interface logic in `main.js` is identical to 1.24.26.
+- **Element creation no longer calls `createElement`**: the ten detached virtual-link elements (root span, `<a>` anchor, `<sup>` icon) now pass a throwaway `DocumentFragment` as the receiver of `createEl`. The elements stay detached (CodeMirror receives them built and appends them afterwards) and are still forged on `activeDocument`, while the "Document receiver" case that throws `HierarchyRequestError: Only one element on document allowed` is avoided.
+- **The `eslint-disable` comments are gone**: the review rejects disabling `obsidianmd/prefer-create-el` ("Disabling 'obsidianmd/prefer-create-el' is not allowed"), so the ten comments from the previous release are removed and the rule is no longer triggered at all.
+- **No behaviour change**: the on-screen logic is the same as 1.24.27.
