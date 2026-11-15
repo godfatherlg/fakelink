@@ -1,17 +1,17 @@
-# 1.24.26
+# 1.24.27
 
 ## 中文
 
-性能修复：编辑与模式切换更快，并给出排除 Obsidian 更新问题的建议。
+维护版本：界面没有任何变化，只把代码整理成社区审核要求的形式。
 
-- **不再每次重建都遍历库**：文件夹范围检查在功能关闭时直接跳过（之前即使没开也会遍历一次库根目录）。
-- **缓存真实链接目标**：笔记的真实链接引用只在笔记内容变化后重新解析，之前每次重建（光标移动 / 滚动 / 切换模式）都会重新读取并解析一遍。
-- **建议**：如果更新 Obsidian 后感觉光标或输入延迟，建议用 **Obsidian 1.15.0 重新安装一次**，以排除 Obsidian 更新本身带来的问题。
+- **元素创建改用专用助手**：5 处 `createEl('div', …)` 改为 `createDiv(…)`，1 处 `createEl('span', …)` 改为 `createSpan(…)`。两者在 Obsidian API 中就是对应标签的简写，返回值类型更精确，行为不变。
+- **虚拟链接的 span 保留原写法，并就地注明原因**：10 处 `activeDocument.createElement(...)` 必须保持「游离」（由 CodeMirror 接收后再挂载），并且必须建于 `activeDocument`（悬浮预览可能位于第二个窗口）。若改用 `createEl`，元素会被立即插入到接收者；而部分插件（如 Media Extended）替换了该助手，会抛出 `HierarchyRequestError: Only one element on document allowed`。这些调用点已加注释说明，供审核复核。
+- **无行为变化**：`main.js` 的界面逻辑与 1.24.26 完全一致。
 
 ## English
 
-Performance fix: faster edits and mode switches, plus advice for ruling out problems from the Obsidian update.
+Maintenance release: nothing changes on screen, the code is only brought into the shape the community review asks for.
 
-- **No vault walk per rebuild**: the folder-range check is skipped entirely while the feature is off (it used to walk the vault root even then).
-- **Cached link targets**: a note's real link references are only re-resolved after the note changes; every rebuild (cursor move / scroll / mode switch) used to read and resolve them again.
-- **Advice**: if you noticed cursor or typing delays after updating Obsidian, reinstall **Obsidian 1.15.0** once - that rules out problems coming from the Obsidian update itself.
+- **Element creation uses the dedicated helpers**: 5 `createEl('div', …)` calls became `createDiv(…)` and 1 `createEl('span', …)` became `createSpan(…)`. They are the documented shorthands for those two tags, with narrower return types and no behaviour change.
+- **The virtual-link spans keep their current form, now documented in place**: 10 `activeDocument.createElement(...)` calls must stay detached (CodeMirror receives them built, then appends them) and must be forged on `activeDocument` (a hover preview can live in a second window). Using `createEl` there would append the element to the receiver immediately, and plugins that replace that helper (Media Extended) throw `HierarchyRequestError: Only one element on document allowed`. Those call sites now carry that reasoning inline for the review.
+- **No behavioural change**: the interface logic in `main.js` is identical to 1.24.26.
