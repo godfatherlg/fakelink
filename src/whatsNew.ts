@@ -12,15 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.26';
+export const WHATS_NEW_VERSION = '1.24.27';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Faster edits and mode switches: the folder-range check no longer walks the vault tree on every rebuild, and the link targets of a note are cached until the note changes.',
-    'If you noticed cursor or typing delays after updating Obsidian, reinstall Obsidian 1.15.0 once - that rules out problems coming from the Obsidian update itself.',
+    'Maintenance release with no visible change: the interface elements are now built with Obsidian\'s createDiv / createSpan helpers instead of createEl with a tag, which is the form the community review asks for.',
+    'The virtual-link spans stay detached and belong to the active document by design - CodeMirror receives them already built, and a hover preview can live in a second window - so those call sites now explain themselves instead of being rewritten.',
 ];
 
 export class WhatsNewModal extends Modal {

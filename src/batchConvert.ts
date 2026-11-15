@@ -685,10 +685,10 @@ export class BatchConvertModal extends Modal {
             return;
         }
 
-        const listEl = contentEl.createEl('div', { cls: 'batch-convert-list' });
+        const listEl = contentEl.createDiv({ cls: 'batch-convert-list' });
 
         this.items.forEach((item, idx) => {
-            const row = listEl.createEl('div', { cls: 'batch-convert-row' });
+            const row = listEl.createDiv({ cls: 'batch-convert-row' });
 
             const toggle = new Setting(row)
                 .setName(item.displayText)
@@ -706,7 +706,7 @@ export class BatchConvertModal extends Modal {
             this.enabled[idx] = defaultOn;
         });
 
-        const buttonBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
+        const buttonBar = contentEl.createDiv({ cls: 'batch-convert-buttons' });
 
         const convertBtn = buttonBar.createEl('button', { text: t('Convert'), cls: 'mod-cta' });
         convertBtn.onclick = () => this.convert();
@@ -772,7 +772,7 @@ export class BatchConvertFilesModal extends Modal {
             text: t('Steps: 1) click "Choose notes..."; 2) click each note to process in the search box (you can pick several - the chosen ones are listed below); 3) click "Scan and convert" to convert every virtual link in each note (links inside tables are not processed).'),
         });
 
-        const pickerBar = contentEl.createEl('div', { cls: 'batch-convert-buttons' });
+        const pickerBar = contentEl.createDiv({ cls: 'batch-convert-buttons' });
 
         const pickBtn = pickerBar.createEl('button', { text: t('Choose notes...'), cls: 'mod-cta' });
         pickBtn.onclick = () => {
@@ -792,7 +792,7 @@ export class BatchConvertFilesModal extends Modal {
         const existing = contentEl.querySelector('.batch-selected-files');
         if (existing) existing.remove();
 
-        const box = contentEl.createEl('div', { cls: 'batch-selected-files' });
+        const box = contentEl.createDiv({ cls: 'batch-selected-files' });
         box.createEl('p', { text: t('Selected {n} notes:').replace('{n}', String(this.selectedFiles.length)) });
         const list = box.createEl('ul');
         for (const f of this.selectedFiles) {

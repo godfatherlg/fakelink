@@ -180,7 +180,7 @@ export class VirtualLinkWidget extends WidgetType {
             // createEl on an existing element (not on the Document) is safe
             // even for a detached widget: the element is appended to the
             // anchor itself, not to the document.
-            const mark = target.createEl('span', { text: text.slice(from, to) });
+            const mark = target.createSpan({ text: text.slice(from, to) });
             // The current match reuses Obsidian's own highlight class, so it
             // gets the exact accent box the official search paints; the other
             // hits get the plugin's faint hint (see styles.css).

@@ -370,6 +370,7 @@ export class VirtualMatch {
         // Hide the link entirely when the total number of matches exceeds the
         // configured threshold (too noisy to be useful).
         if (this.settings.maxReferencesToHideLink > 0 && this.files.length > this.settings.maxReferencesToHideLink) {
+            // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
             const emptySpan = activeDocument.createElement('span');
             emptySpan.textContent = this.originText;
             // The term DID match — there are simply too many targets, so no link is
@@ -466,6 +467,7 @@ export class VirtualMatch {
 
 
     getLinkAnchorElement(linkText: string, href: string, file?: TFile) {
+        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
         const link = activeDocument.createElement('a');
 
         let headerIdToUse: string | undefined;
@@ -748,6 +750,7 @@ export class VirtualMatch {
     }
 
     getLinkRootSpan(inTableCellEditor = false) {
+        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
         const span = activeDocument.createElement('span');
         span.classList.add(...this.getRootSpanClasses());
 
@@ -837,6 +840,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesSpan(files?: TFile[], overflowCount: number = 0) {
+        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
         const spanReferences = activeDocument.createElement('span');
         if (!this.settings.alwaysShowMultipleReferences) {
             spanReferences.classList.add('multiple-files-references');
@@ -850,6 +854,7 @@ export class VirtualMatch {
 
         fileList.forEach((file, index) => {
             if (index === 0) {
+                // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
                 const bracket = activeDocument.createElement('span');
                 bracket.textContent = '[';
                 spanReferences.appendChild(bracket);
@@ -867,11 +872,13 @@ export class VirtualMatch {
 
             if (index === fileList.length - 1) {
                 if (overflowCount > 0) {
+                    // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
                     const overflow = activeDocument.createElement('span');
                     overflow.textContent = '|...';
                     overflow.setAttribute('title', t('{count} more reference(s)').replace('{count}', String(overflowCount)));
                     spanReferences.appendChild(overflow);
                 }
+                // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
                 const bracket = activeDocument.createElement('span');
                 bracket.textContent = ']';
                 spanReferences.appendChild(bracket);
@@ -882,6 +889,7 @@ export class VirtualMatch {
     }
 
     getMultipleReferencesIndicatorSpan() {
+        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
         const spanIndicator = activeDocument.createElement('span');
         spanIndicator.textContent = ' [...]';
         spanIndicator.classList.add('multiple-files-indicator');
@@ -889,6 +897,7 @@ export class VirtualMatch {
     }
 
     getOverflowIndicatorSpan(hiddenCount: number) {
+        // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
         const spanIndicator = activeDocument.createElement('span');
         spanIndicator.textContent = ' [...]';
         // Reuse the same class as the reference list so it shows/hides together
@@ -904,6 +913,7 @@ export class VirtualMatch {
     getIconSpan() {
         const suffix = this.isAlias ? this.settings.virtualLinkAliasSuffix : this.settings.virtualLinkSuffix;
         if ((suffix?.length ?? 0) > 0) {
+            // eslint-disable-next-line obsidianmd/prefer-create-el -- must stay detached and owned by activeDocument; see the note at the top of this file
             const icon = activeDocument.createElement('sup');
             icon.textContent = suffix;
             icon.classList.add('linker-suffix-icon');
