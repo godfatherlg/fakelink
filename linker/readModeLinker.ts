@@ -390,6 +390,15 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
                                                 && isVisibleInScope(this.ctx.sourcePath, file.path, this.scopeList, this.realLinkedPaths);
                                         });
+                                        // Mirror liveLinker: a heading must never
+                                        // link to its own note. The cache keeps that
+                                        // target when same-note header links are
+                                        // enabled, so the heading line is guarded
+                                        // here, exactly like the edit view does.
+                                        if (this.settings.allowSameNoteHeaderLinks
+                                            && item.closest('h1,h2,h3,h4,h5,h6')) {
+                                            files = files.filter(file => file.path !== this.ctx.sourcePath);
+                                        }
                                         if (files.length === 0) return;
                                         let ctxDistances: Map<string, number> | undefined;
                                         if (

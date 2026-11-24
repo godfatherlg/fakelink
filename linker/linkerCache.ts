@@ -781,7 +781,8 @@ export class PrefixTree {
             }
 
             if (matchNode.files.size > 0) {
-                // Never allow headers to link to their own file.
+                // A heading must not link to its own file, unless the user
+                // opts in to same-note header links (issue #25).
                 //
                 // "Their own file" means the note being RENDERED, not the one
                 // the workspace has focused. Previewing note B while note A is
@@ -794,11 +795,11 @@ export class PrefixTree {
                     const ownFile = renderedFile === undefined
                         ? this.app.workspace.getActiveFile()
                         : renderedFile;
-                    if (ownFile) {
-                        matchNode.files = new Set(
-                            Array.from(matchNode.files).filter(f => f.path !== ownFile.path)
-                        );
-                    }
+                    matchNode.files = removeOwnHeaderTargets(
+                        matchNode.files,
+                        ownFile?.path,
+                        this.settings.allowSameNoteHeaderLinks
+                    );
                 }
                 if (matchNode.files.size > 0) {
                     // Fill headerId for heading matches from mapFileHeaderIds
@@ -1932,6 +1933,28 @@ function normalizeExtensionSuffix(ext: string): string {
 export function hasExcludedExtension(path: string, extensions: string[]): boolean {
     const lower = path.toLowerCase();
     return extensions.some((ext) => lower.endsWith(normalizeExtensionSuffix(ext)));
+}
+
+/**
+ * Drop the note being rendered from a HEADER match's targets.
+ *
+ * The original rule was unconditional: a heading keyword never linked to the
+ * note it belongs to, because in edit mode the decoration replaces the heading
+ * text and the heading disappears. That is only true for the heading line
+ * itself, and `liveLinker` / `readModeLinker` guard that line separately, so
+ * the whole-note filter is now opt-out: `allowSameNoteHeaderLinks` keeps body
+ * text able to link to its own note's headings (issue #25).
+ *
+ * `ownPath` is undefined when the caller has no render context (header-id
+ * lookups); nothing is filtered then.
+ */
+export function removeOwnHeaderTargets<T extends { path: string }>(
+    files: Set<T>,
+    ownPath: string | undefined,
+    allowSameNoteHeaderLinks: boolean
+): Set<T> {
+    if (allowSameNoteHeaderLinks || !ownPath) return files;
+    return new Set(Array.from(files).filter((file) => file.path !== ownPath));
 }
 
 export class LinkerCache {

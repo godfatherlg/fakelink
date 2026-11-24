@@ -12,15 +12,16 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.29';
+export const WHATS_NEW_VERSION = '1.24.30';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Element creation no longer touches the document: the detached virtual-link elements take their throwaway DocumentFragment from Obsidian\'s createFragment helper, which clears the last prefer-create-el warning.',
-    'Nothing changes on screen - the elements stay detached, no createElement call remains and no lint rule is disabled.',
+    'New toggle "Allow links to headers in the current note": body text can now link to a heading of the note it is written in, while a heading line still never links to itself. It needs "Include headers" on and has no effect while "Exclude self-links to the current note" is on.',
+    'Links no longer vanish for about 150 ms when the viewport jumps (dragging the scrollbar, following a link, switching notes): the rebuild now happens in the same update instead of after a 150 ms debounce.',
+    'Changing a matching setting now refreshes the open note immediately - the rebuilt links used to wait for the next keystroke.',
 ];
 
 export class WhatsNewModal extends Modal {

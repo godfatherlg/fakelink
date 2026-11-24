@@ -73,6 +73,12 @@ export interface LinkerPluginSettings {
     tagToExcludeFile: string;
     tagToIncludeFile: string;
     excludeLinksToOwnNote: boolean;
+    /**
+     * Let body text link to the headings of the note it is written in. Off by
+     * default: the heading line itself still never links to its own note (the
+     * decoration would replace the heading text and the heading would vanish).
+     */
+    allowSameNoteHeaderLinks: boolean;
     fixIMEProblem: boolean;
     excludeLinksInCurrentLine: boolean;
     /**
@@ -200,6 +206,7 @@ const DEFAULT_SETTINGS: LinkerPluginSettings = {
     tagToExcludeFile: 'linker-exclude',
     tagToIncludeFile: 'linker-include',
     excludeLinksToOwnNote: false,
+    allowSameNoteHeaderLinks: false,
     fixIMEProblem: true,
     excludeLinksInCurrentLine: false,
     tableLinkSuppression: true,
@@ -278,7 +285,7 @@ export default class LinkerPlugin extends Plugin {
         'linkerActivated', 'includeAllFiles', 'linkerDirectories',
         'excludedDirectories', 'excludedDirectoriesForLinking', 'excludedExtensions',
         'matchAnyPartsOfWords', 'matchEndOfWords', 'matchBeginningOfWords',
-        'includeHeaders', 'headerMatchSymbols', 'headerMatchOnlyBetweenSymbols',
+        'includeHeaders', 'allowSameNoteHeaderLinks', 'headerMatchSymbols', 'headerMatchOnlyBetweenSymbols',
         'headerMatchStartSymbol', 'headerMatchEndSymbol',
         'matchCaseSensitive', 'capitalLetterProportionForAutomaticMatchCase',
         'tagToIgnoreCase', 'tagToMatchCase', 'propertyNameToMatchCase', 'propertyNameToIgnoreCase',

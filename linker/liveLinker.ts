@@ -272,11 +272,6 @@ class AutoLinkerPlugin implements PluginValue {
     // can rebuild even before the first ViewUpdate arrives (right after a reload
     // the index becomes ready before the editor fires its first update).
     private view: EditorView;
-    // Debounce state for pure scrolling: hold off rebuilding until scrolling stops,
-    // so links appear "a bit later" once instead of being rebuilt on every scroll
-    // tick (which is what caused the jitter).
-    private scrollDebounceTimer: number | null = null;
-    private pendingScrollBuild: { view: EditorView; viewIsActive: boolean } | null = null;
 
     // Cache the active Markdown view so we don't call getActiveViewOfType()
     // on every cursor move. Invalidated on active-leaf-change.
@@ -368,6 +363,12 @@ class AutoLinkerPlugin implements PluginValue {
         this.unsubscribeUpdate = updateManager.registerCallback(() => {
             if (this.lastViewUpdate) {
                 this.update(this.lastViewUpdate, true);
+                // CodeMirror only re-reads plugin decorations on a transaction,
+                // so a rebuilt set alone stays invisible until the user types:
+                // a settings change (issue #25's new toggle among them) looked
+                // like it did nothing. The empty dispatch is the same trick the
+                // scroll path and the on-ready refresh above use.
+                this.view.dispatch({});
             } else {
                 // No ViewUpdate has reached this plugin yet (the index can become
                 // ready before the editor fires its first update). Build straight
@@ -581,41 +582,16 @@ class AutoLinkerPlugin implements PluginValue {
                 this.lastViewUpdate = update;
                 return;
             }
-            // Pure scroll (viewport change with no doc/cursor/file change): debounce
-            // so the rebuild happens once after scrolling stops, not on every tick.
-            // Links then appear "a bit later" but without the per-tick DOM churn that
-            // read as jitter.
-            const isPureScroll = update.viewportChanged && !update.docChanged && !fileChanged && !force
-                && !cursorMoved && !searchStep;
-            if (isPureScroll) {
-                this.pendingScrollBuild = { view: update.view, viewIsActive: updateIsOnActiveView };
-                this.lastViewUpdate = update;
-                if (this.scrollDebounceTimer !== null) {
-                    window.clearTimeout(this.scrollDebounceTimer);
-                }
-                this.scrollDebounceTimer = window.setTimeout(() => {
-                    this.scrollDebounceTimer = null;
-                    const pending = this.pendingScrollBuild;
-                    this.pendingScrollBuild = null;
-                    if (pending) {
-                        this.linkerCache.updateCache(force);
-                        this.decorations = this.buildDecorations(pending.view, pending.viewIsActive);
-                        // Dispatch an empty transaction so CodeMirror re-reads the
-                        // decorations. requestMeasure() alone does NOT recalc plugin
-                        // decorations, which is why the new links needed a cursor
-                        // click (a real update) before they appeared.
-                        pending.view.dispatch({});
-                    }
-                }, 150);
-                return;
-            }
-
-            // Non-scroll change: cancel any pending scroll build, then rebuild now.
-            if (this.scrollDebounceTimer !== null) {
-                window.clearTimeout(this.scrollDebounceTimer);
-                this.scrollDebounceTimer = null;
-                this.pendingScrollBuild = null;
-            }
+            // Scrolling used to be debounced by 150ms so links were rebuilt once
+            // after scrolling stopped. That delay was visible: CodeMirror swaps the
+            // viewport at once, so the old links left the DOM immediately and the
+            // rebuilt ones arrived ~120ms later - the links blinked out on every
+            // scroll (measured in the OB vault and in the test vault).
+            //
+            // Rebuilding in the same update lets CodeMirror paint the new viewport
+            // and the new links in one frame. widget eq() keeps the DOM of links
+            // that did not change, so the per-tick cost is a rebuilt range set,
+            // not a repaint of every link.
             this.linkerCache.updateCache(force);
             this.decorations = this.buildDecorations(update.view, updateIsOnActiveView);
             this.lastActiveFile = activeFile ?? '';
@@ -639,11 +615,6 @@ class AutoLinkerPlugin implements PluginValue {
 
     destroy() {
         this.destroyed = true;
-        if (this.scrollDebounceTimer !== null) {
-            window.clearTimeout(this.scrollDebounceTimer);
-            this.scrollDebounceTimer = null;
-            this.pendingScrollBuild = null;
-        }
         this.unsubscribeUpdate?.();
         this.unsubscribeUpdate = null;
         if (this.activeLeafChangeRef) {

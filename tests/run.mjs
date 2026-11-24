@@ -19,7 +19,7 @@ function test(name, fn) {
 const { stem, isStemmingSupported } = await loadTs('linker/stemmer.ts');
 // stripHeadingNumber / checkWordBoundary live on PrefixTree, not LinkerCache
 // (LinkerCache only carries getInstance plus its instance methods).
-const { PrefixTree } = await loadTs('linker/linkerCache.ts');
+const { PrefixTree, removeOwnHeaderTargets } = await loadTs('linker/linkerCache.ts');
 
 console.log('stemmer');
 
@@ -299,6 +299,26 @@ test('real link targets cover aliases, headings, blocks and embeds', () => {
         'Life/WithBlock.md',
         'Life/WithHeading.md',
     ]);
+});
+
+console.log('');
+console.log('same-note header links (issue #25)');
+
+test('by default a header match drops the note being rendered', () => {
+    const files = new Set([{ path: 'Glossary.md' }, { path: 'Other.md' }]);
+    const kept = removeOwnHeaderTargets(files, 'Glossary.md', false);
+    assert.deepEqual([...kept].map((f) => f.path), ['Other.md']);
+});
+
+test('with the option on the own note stays a target', () => {
+    const files = new Set([{ path: 'Glossary.md' }, { path: 'Other.md' }]);
+    const kept = removeOwnHeaderTargets(files, 'Glossary.md', true);
+    assert.deepEqual([...kept].map((f) => f.path), ['Glossary.md', 'Other.md']);
+});
+
+test('no render context means no filtering at all', () => {
+    const files = new Set([{ path: 'Glossary.md' }]);
+    assert.equal(removeOwnHeaderTargets(files, undefined, false), files);
 });
 
 console.log('');

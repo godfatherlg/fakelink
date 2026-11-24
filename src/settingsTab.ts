@@ -332,7 +332,7 @@ export class LinkerSettingTab extends PluginSettingTab {
                     visible: adv,
                 }),
                 toggleDef(t('Exclude self-links to the current note'), 'excludeLinksToOwnNote', {
-                    desc: t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically.'),
+                    desc: t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically. While it is on, "Allow links to headers in the current note" has no effect.'),
                     visible: adv,
                 }),
                 toggleDef(t('Fix ime typing issues'), 'fixIMEProblem', {
@@ -349,6 +349,10 @@ export class LinkerSettingTab extends PluginSettingTab {
             groupDef(t('Headers'), [
                 toggleDef(t('Include headers'), 'includeHeaders', {
                     desc: t('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.'),
+                }),
+                toggleDef(t('Allow links to headers in the current note'), 'allowSameNoteHeaderLinks', {
+                    desc: t('When enabled, body text can link to the headings of the note it is written in. A heading line still never links to its own note. Requires "Include headers", and has no effect while "Exclude self-links to the current note" is on.'),
+                    disabled: () => !this.s.includeHeaders || this.s.excludeLinksToOwnNote,
                 }),
                 toggleDef(t('Allow virtual links in headers'), 'allowLinksInHeaders', {
                     desc: t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'),
