@@ -20,6 +20,7 @@ const { stem, isStemmingSupported } = await loadTs('linker/stemmer.ts');
 // stripHeadingNumber / checkWordBoundary live on PrefixTree, not LinkerCache
 // (LinkerCache only carries getInstance plus its instance methods).
 const { PrefixTree, removeOwnHeaderTargets } = await loadTs('linker/linkerCache.ts');
+const { targetKeyOf } = await loadTs('linker/targetKey.ts');
 
 console.log('stemmer');
 
@@ -319,6 +320,22 @@ test('with the option on the own note stays a target', () => {
 test('no render context means no filtering at all', () => {
     const files = new Set([{ path: 'Glossary.md' }]);
     assert.equal(removeOwnHeaderTargets(files, undefined, false), files);
+});
+
+console.log('');
+console.log('only link once counts targets, not files');
+
+test('a heading is a target of its own', () => {
+    assert.equal(targetKeyOf('Glossary.md'), 'Glossary.md');
+    assert.equal(targetKeyOf('Glossary.md', 'Alpha'), 'Glossary.md#Alpha');
+});
+
+test('different headings of one note are different targets', () => {
+    assert.notEqual(targetKeyOf('Glossary.md', 'Alpha'), targetKeyOf('Glossary.md', 'Beta'));
+});
+
+test('two matches to one heading still share a target', () => {
+    assert.equal(targetKeyOf('Glossary.md', 'Alpha'), targetKeyOf('Glossary.md', 'Alpha'));
 });
 
 console.log('');

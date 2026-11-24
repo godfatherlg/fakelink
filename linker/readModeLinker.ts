@@ -3,7 +3,7 @@ import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, TF
 import { LinkerPluginSettings } from '../main';
 import { hasExcludedExtension, LinkerCache, MatchType, PrefixTree, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
-import { parseInternalLinkSyntax } from './virtualLinkMatch';
+import { getVirtualLinkRawPath, parseInternalLinkSyntax } from './virtualLinkMatch';
 import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
 import IntervalTree from '@flatten-js/interval-tree';
 
@@ -280,6 +280,18 @@ export class GlossaryLinker extends MarkdownRenderChild {
         const shared = this.sharedFor(this.ctx.sourcePath);
         const linkedFiles = shared.linkedFiles;
         const explicitlyLinkedFiles = shared.explicitlyLinkedFiles;
+        // Targets already linked elsewhere in this note, read from the DOM:
+        // earlier sections of the same render are already in the preview, so
+        // no cross-block bookkeeping is needed - and a rebuilt preview can
+        // never inherit a stale "already linked" entry, which used to make the
+        // whole note render without any link (onlyLinkOnce + read view).
+        const linkedTargets = new Set<string>();
+        this.containerEl.closest('.markdown-preview-view')
+            ?.querySelectorAll('.virtual-link a')
+            .forEach((anchor) => {
+                const raw = getVirtualLinkRawPath(anchor);
+                if (raw) linkedTargets.add(raw);
+            });
 
         // Collect files already linked by real [[...]] links so excludeLinksToRealLinkedFiles
         // works in read mode. Live mode parses these from the syntax tree; read mode parses
@@ -390,13 +402,12 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                             return !hasExcludedExtension(file.path, this.settings.excludedExtensions)
                                                 && isVisibleInScope(this.ctx.sourcePath, file.path, this.scopeList, this.realLinkedPaths);
                                         });
-                                        // Mirror liveLinker: a heading must never
-                                        // link to its own note. The cache keeps that
-                                        // target when same-note header links are
-                                        // enabled, so the heading line is guarded
-                                        // here, exactly like the edit view does.
-                                        if (this.settings.allowSameNoteHeaderLinks
-                                            && item.closest('h1,h2,h3,h4,h5,h6')) {
+                                        // Mirror liveLinker: a heading line must
+                                        // never link to its own note, whatever the
+                                        // same-note header option says. The cache
+                                        // keeps that target on purpose, so the guard
+                                        // lives here, exactly like the edit view.
+                                        if (item.closest('h1,h2,h3,h4,h5,h6')) {
                                             files = files.filter(file => file.path !== this.ctx.sourcePath);
                                         }
                                         if (files.length === 0) return;
@@ -722,9 +733,26 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 matches = VirtualMatch.filterAlreadyLinked(matches, explicitlyLinkedFiles);
                             }
 
-                            // Delete additions that links to already linked files
+                            // Same as liveLinker: a heading line must not link to
+                            // its own note, and such a match must not claim the
+                            // target before onlyLinkOnce runs - it would be
+                            // dropped at render time and the body occurrence
+                            // would stay unlinked.
+                            if (item.closest('h1,h2,h3,h4,h5,h6')) {
+                                const own = this.ctx.sourcePath;
+                                matches = matches.filter((match) => {
+                                    match.files = match.files.filter((file) => file.path !== own);
+                                    return match.files.length > 0;
+                                });
+                            }
+
+                            // Delete additions whose targets were already linked
+                            // in an earlier block. Targets, not files: with one
+                            // link per heading, a glossary written as headings in
+                            // a single note keeps one link per entry.
                             if (this.settings.onlyLinkOnce) {
-                                matches = VirtualMatch.filterAlreadyLinked(matches, linkedFiles);
+                                matches = matches.filter((match) =>
+                                    !match.targetKeys().every((key) => linkedTargets.has(key)));
                             }
                             // Delete additions that overlap
                             // Additions are sorted by from position and after that by length, we want to keep longer additions

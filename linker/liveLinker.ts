@@ -1413,6 +1413,18 @@ class AutoLinkerPlugin implements PluginValue {
             // and deleted nothing.
 
 
+            // A heading line is never rendered as a link when it would link to
+            // its own note (see the guard further down), so drop those matches
+            // BEFORE the onlyLinkOnce bookkeeping: otherwise the heading match
+            // claims the target and the body occurrence is deleted as "already
+            // linked", leaving the note with no link at all.
+            matches = matches.filter((addition) => {
+                const line = view.state.doc.lineAt(addition.from);
+                if (!/^#{1,6}\s/.test(line.text)) return true;
+                if (!this.settings.allowLinksInHeaders) return false;
+                return !(mappedFile && addition.files.some((f) => f.path === mappedFile.path));
+            });
+
             // Delete additions that overlap
             // Additions are sorted by from position and after that by length, we want to keep longer additions
             matches = VirtualMatch.filterOverlapping(matches, this.settings.onlyLinkOnce, excludedIntervalTree);

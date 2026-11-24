@@ -2,6 +2,7 @@ import IntervalTree from '@flatten-js/interval-tree';
 import { LinkerPluginSettings } from 'main';
 import { App, MarkdownView, TFile, getLinkpath } from 'obsidian';
 import { MatchType, PrefixTree } from './linkerCache';
+import { targetKeyOf } from './targetKey';
 import { t } from '../src/lang/helpers';
 import {
     attachTableCellContextMenu,
@@ -224,6 +225,15 @@ export class VirtualMatch {
 
     getFileHeaderId(file: TFile): string | undefined {
         return this.fileHeaderIds.get(file.path);
+    }
+
+    /**
+     * Identities of the targets this match links to. A heading is its own
+     * target: a glossary of ten headings in one note has to keep ten links
+     * with "Only link once" on, even though they all live in the same file.
+     */
+    targetKeys(): string[] {
+        return this.files.map((file) => targetKeyOf(file.path, this.getFileHeaderId(file)));
     }
 
     get isAlias(): boolean {
@@ -1011,7 +1021,7 @@ export class VirtualMatch {
             // scan exactly: a match is deleted when an EARLIER surviving match
             // already covers every file it links to, never the other way round.
             if (onlyLinkOnce) {
-                const paths = addition.files.map((f) => f.path);
+                const paths = addition.files.map((f) => targetKeyOf(f.path, addition.getFileHeaderId(f)));
                 let covered = false;
                 if (paths.length > 0) {
                     const survivorSets = paths.map((p) => survivorIdsByFile.get(p));

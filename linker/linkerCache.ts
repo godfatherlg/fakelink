@@ -689,18 +689,28 @@ export class PrefixTree {
             const matchNode = new MatchNode();
             matchNode.length = node.node.depth + node.formattingDelta;
             matchNode.start = index - matchNode.length;
+            // When this node came from a stemmed keyword, resolve the real
+            // keyword/heading so the link points to the correct note.
+            const resolvedKeyword = node.node.canonicalKeyword ?? valueString;
+
             // If a specific file is specified, only include that file
             if (specificFile) {
                 matchNode.files = new Set(Array.from(node.node.files).filter((file) => file.path === specificFile.path));
             } else {
-                matchNode.files = new Set(Array.from(node.node.files).filter((file) => !excludedNote || file.path !== excludedNote.path));
+                // Drop the own note here, but keep it when it has a heading
+                // matching this keyword and same-note header links are on:
+                // removing it first would hide that heading target and the
+                // header type could not be detected at all. Whether the
+                // exclusion finally applies depends on the type below.
+                const keepOwnForHeader = !!excludedNote
+                    && this.settings.allowSameNoteHeaderLinks
+                    && this.findHeadingMatchInFile(excludedNote, resolvedKeyword) !== null;
+                matchNode.files = new Set(Array.from(node.node.files).filter((file) =>
+                    !excludedNote || file.path !== excludedNote.path || keepOwnForHeader));
             }
             matchNode.value = valueString;
             matchNode.requiresCaseMatch = node.node.requiresCaseMatch;
 
-            // When this node came from a stemmed keyword, resolve the real
-            // keyword/heading so the link points to the correct note.
-            const resolvedKeyword = node.node.canonicalKeyword ?? valueString;
             matchNode.canonicalKeyword = node.node.canonicalKeyword;
             matchNode.canonicalHeaderId = node.node.canonicalHeaderId;
 
@@ -712,51 +722,9 @@ export class PrefixTree {
                 matchNode.type = MatchType.Note;  // Matches note name
             } else {
                 // Check ALL files for heading match (not just the first one)
-                let headingMatch = null;
+                let headingMatch: { heading: string } | null = null;
                 for (const file of matchNode.files) {
-                    const metadata = this.app.metadataCache.getFileCache(file);
-                    if (metadata?.headings) {
-                        if (this.settings.headerMatchSymbols && this.settings.headerMatchStartSymbol && this.settings.headerMatchEndSymbol && this.settings.headerMatchStartSymbol !== this.settings.headerMatchEndSymbol) {
-                            // Try matching keywords between symbols first
-                            for (const h of metadata.headings) {
-                                const headingText = h.heading;
-                                const startSymbol = this.settings.headerMatchStartSymbol;
-                                const endSymbol = this.settings.headerMatchEndSymbol;
-                                let searchStartIndex = 0;
-                                
-                                while (searchStartIndex < headingText.length) {
-                                    const startIndex = headingText.indexOf(startSymbol, searchStartIndex);
-                                    if (startIndex === -1) break;
-                                    
-                                    const afterStartIndex = startIndex + startSymbol.length;
-                                    const endIndex = headingText.indexOf(endSymbol, afterStartIndex);
-                                    if (endIndex === -1) break;
-                                    
-                                    if (startIndex < endIndex) {
-                                        const keyword = headingText.substring(startIndex + startSymbol.length, endIndex).trim();
-                                        if (keyword.toLowerCase() === nodeValue.toLowerCase()) {
-                                            headingMatch = h;
-                                            break;
-                                        }
-                                        searchStartIndex = endIndex + endSymbol.length;
-                                    } else {
-                                        searchStartIndex = afterStartIndex;
-                                    }
-                                }
-                                if (headingMatch) break;
-                            }
-                            // If not restricted, also try plain header match
-                            if (!headingMatch && !this.settings.headerMatchOnlyBetweenSymbols) {
-                                headingMatch = metadata.headings.find(h => 
-                                    this.headingKeyword(h.heading).toLowerCase() === nodeValue.toLowerCase()
-                                );
-                            }
-                        } else {
-                            headingMatch = metadata.headings.find(h => 
-                                this.headingKeyword(h.heading).toLowerCase() === nodeValue.toLowerCase()
-                            );
-                        }
-                    }
+                    headingMatch = this.findHeadingMatchInFile(file, nodeValue);
                     if (headingMatch) break;
                 }
                 
@@ -781,6 +749,14 @@ export class PrefixTree {
             }
 
             if (matchNode.files.size > 0) {
+                // "Exclude self-links to the current note" now governs the
+                // note's own name/alias targets only: headings are a separate
+                // axis (allowSameNoteHeaderLinks), so neither option silently
+                // overrides the other any more.
+                if (!specificFile && excludedNote && matchNode.type !== MatchType.Header) {
+                    const ownPath = excludedNote.path;
+                    matchNode.files = new Set(Array.from(matchNode.files).filter((file) => file.path !== ownPath));
+                }
                 // A heading must not link to its own file, unless the user
                 // opts in to same-note header links (issue #25).
                 //
@@ -821,6 +797,48 @@ export class PrefixTree {
         matchNodes.sort((a, b) => b.length - a.length);
 
         return matchNodes;
+    }
+
+    /**
+     * Heading of `file` whose keyword equals `nodeValue`, using the same rules
+     * as the match-type detection in getCurrentMatchNodes (symbol keywords,
+     * heading numbers). Extracted so that "keep the own note because it has a
+     * matching heading" and the type detection cannot drift apart.
+     */
+    private findHeadingMatchInFile(file: TFile, nodeValue: string): { heading: string } | null {
+        const headings = this.app.metadataCache.getFileCache(file)?.headings;
+        if (!headings) return null;
+        const {
+            headerMatchSymbols,
+            headerMatchStartSymbol,
+            headerMatchEndSymbol,
+            headerMatchOnlyBetweenSymbols,
+        } = this.settings;
+        const lower = nodeValue.toLowerCase();
+        if (headerMatchSymbols && headerMatchStartSymbol && headerMatchEndSymbol && headerMatchStartSymbol !== headerMatchEndSymbol) {
+            // Try matching keywords between symbols first
+            for (const h of headings) {
+                const headingText = h.heading;
+                let searchStartIndex = 0;
+                while (searchStartIndex < headingText.length) {
+                    const startIndex = headingText.indexOf(headerMatchStartSymbol, searchStartIndex);
+                    if (startIndex === -1) break;
+                    const afterStartIndex = startIndex + headerMatchStartSymbol.length;
+                    const endIndex = headingText.indexOf(headerMatchEndSymbol, afterStartIndex);
+                    if (endIndex === -1) break;
+                    if (startIndex < endIndex) {
+                        const keyword = headingText.substring(startIndex + headerMatchStartSymbol.length, endIndex).trim();
+                        if (keyword.toLowerCase() === lower) return h;
+                        searchStartIndex = endIndex + headerMatchEndSymbol.length;
+                    } else {
+                        searchStartIndex = afterStartIndex;
+                    }
+                }
+            }
+            // If not restricted, also try the plain heading match
+            if (headerMatchOnlyBetweenSymbols) return null;
+        }
+        return headings.find((h) => this.headingKeyword(h.heading).toLowerCase() === lower) ?? null;
     }
 
     /** True when this keyword only exists because something was normalized away

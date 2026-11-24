@@ -129,15 +129,6 @@ export class LinkerSettingTab extends PluginSettingTab {
                         .filter((x) => x.length > 0),
                 });
                 break;
-            case 'allowLinksInHeaders':
-                // Enabling header links auto-enables excluding self-links.
-                await this.plugin.updateSettings({
-                    allowLinksInHeaders: value as boolean,
-                    ...(value ? { excludeLinksToOwnNote: true } : {}),
-                });
-                // excludeLinksToOwnNote's value changed too, so fully re-render.
-                needsFullUpdate = true;
-                break;
             case 'autoToggleByMode':
                 await this.plugin.updateSettings({ autoToggleByMode: value as boolean });
                 void this.plugin.handleLayoutChange();
@@ -332,11 +323,11 @@ export class LinkerSettingTab extends PluginSettingTab {
                     visible: adv,
                 }),
                 toggleDef(t('Exclude self-links to the current note'), 'excludeLinksToOwnNote', {
-                    desc: t('If toggled, links to the note itself are excluded from the linker. Enabling "Allow virtual links in headers" also turns this on automatically. While it is on, "Allow links to headers in the current note" has no effect.'),
+                    desc: t('If toggled, links to the note itself are excluded from the linker: its own name and aliases. Headings are a separate option, "Allow links to headers in the current note" in the Headers group.'),
                     visible: adv,
                 }),
                 toggleDef(t('Fix ime typing issues'), 'fixIMEProblem', {
-                    desc: t('This option is recommended when using ime for typing non-latin scripts such as chinese, japanese, or korean and prevents virtual linking from interfering with ime composition at the start of lines.'),
+                    desc: t('Recommended when typing non-latin scripts such as Chinese, Japanese or Korean with an IME: it keeps virtual linking from interfering with IME composition at the beginning of lines. Languages written without spaces (Chinese, Japanese, Korean) have no word boundaries, so the "match any part of a word" / beginning / end options do not apply to them - this option is the one that matters there and should stay on.'),
                     visible: adv,
                 }),
                 toggleDef(t('Avoid linking in current line'), 'excludeLinksInCurrentLine', {
@@ -351,8 +342,8 @@ export class LinkerSettingTab extends PluginSettingTab {
                     desc: t('When enabled, Markdown headings (lines starting with #) will also be included for virtual linking.'),
                 }),
                 toggleDef(t('Allow links to headers in the current note'), 'allowSameNoteHeaderLinks', {
-                    desc: t('When enabled, body text can link to the headings of the note it is written in. A heading line still never links to its own note. Requires "Include headers", and has no effect while "Exclude self-links to the current note" is on.'),
-                    disabled: () => !this.s.includeHeaders || this.s.excludeLinksToOwnNote,
+                    desc: t('When enabled, body text can link to the headings of the note it is written in, independently of "Exclude self-links to the current note". A heading line still never links to its own note. Requires "Include headers".'),
+                    disabled: () => !this.s.includeHeaders,
                 }),
                 toggleDef(t('Allow virtual links in headers'), 'allowLinksInHeaders', {
                     desc: t('When enabled, virtual links will be displayed inside Markdown headings. Tip: use with Quick Switcher++ for header navigation.'),

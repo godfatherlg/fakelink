@@ -1,23 +1,23 @@
-# 1.24.30
+# 1.24.31
 
 ## 中文
 
-新增功能与两处修复。
+按 1.24.30 的反馈调整了两个开关的职责，并修复「只链一次」在几个场景下的问题。
 
-- **新增开关「允许链接到当前笔记的标题」**（设置 → 标题组，默认关闭）：正文里的词可以链接到本篇笔记自身的标题。此前这条规则是写死的，任何设置都关不掉，因此「笔记里写 `## 术语`、正文再提到该术语」永远不生成链接（issue #25）。
-  - 生效前提：需开启「包含标题」；**「排除指向自身的链接」开启时本开关不生效**（该开关会先把本篇整篇剔出候选，优先级更高）。两个前提不满足时开关自动置灰并注明原因。
-  - 标题行本身仍然不会链接到自己（否则标题文字会被替换、标题消失），编辑视图与阅读视图都保留这一保护。
-  - 只影响「标题」这一类：笔记名、别名的自链接仍由「排除指向自身的链接」控制。
-- **修复：视口大跳时链接短暂消失**。拖动滚动条、点链接跳转、切换笔记这类视口大跳，此前会先清空链接、约 150ms 后（防抖结束）才补画，肉眼看到的是「闪一下」。现在重建与视口更新在同一次 update 内完成，空窗消失；实测 131KB / 59 个链接的笔记连续快速滚动 3 秒：60fps、无长任务、无掉帧。
-- **修复：改匹配设置后已打开的笔记不刷新**。重建后的 decorations 没有随之 dispatch，CodeMirror 不会重读，表现为「改了设置没反应，得先动一下文档」。现在设置变更后立即生效。
+- **两个开关解耦**：「排除指向自身的链接」现在只排除本篇笔记的**笔记名与别名**；指向本篇**标题**的链接由「允许链接到当前笔记的标题」单独控制。两者不再互相覆盖，「允许链接到当前笔记的标题」也不会因为老开关开着而变灰。
+- **取消自动联动**：开启「允许在标题中显示虚拟链接」不再自动打开「排除指向自身的链接」（此前会自动打开且关闭时不还原，导致开关看起来"卡在灰态"）。
+- **「只链一次」按目标计**：目标从「笔记」细化为「笔记 + 标题」。把词汇表写成标题、放在同一篇笔记里时，每个词条各链一次，而不是整篇只链一个。
+- **修复：阅读视图 + 「只链一次」会清空全部链接**。此前的「已链接」记账跨渲染残留，重渲染后把整篇笔记判成已链接，一个链接都不生成（1.24.30 即存在）。
+- **修复：标题行的匹配抢占「只链一次」目标**，导致正文里本该出现的链接被删掉、整篇为空。
+- **说明补充**：「修复输入法问题」现在写明——中文/日文/韩文不以空格分词、没有词边界，所以「匹配单词的任意部分 / 开头 / 结尾」对它们不适用，而这几个语言真正需要的是这个开关，应保持开启。
 
 ## English
 
-One new option and two fixes.
+Reworks the two self-link options based on the 1.24.30 feedback and fixes "Only link once" in several cases.
 
-- **New toggle "Allow links to headers in the current note"** (Settings -> Headers, off by default): a word in the body can link to a heading of the note it is written in. The rule used to be hard-coded and could not be turned off, so `## Term` plus a body mention of `Term` never produced a link (issue #25).
-  - Requirements: "Include headers" must be on; the toggle has **no effect while "Exclude self-links to the current note" is on**, because that option drops the whole note from the candidates first. The toggle is greyed out with an explanation when either requirement is missing.
-  - A heading line still never links to itself (the decoration would replace the heading text and the heading would vanish); the guard is kept in both the edit and the reading view.
-  - Only header matches are affected - note-name and alias self-links are still controlled by "Exclude self-links to the current note".
-- **Fix: links no longer vanish when the viewport jumps.** Dragging the scrollbar, following a link or switching notes used to clear the links and repaint them about 150 ms later (after the scroll debounce), which read as a blink. The rebuild now happens in the same update as the viewport change. Measured on a 131 KB note with 59 links, three seconds of continuous fast scrolling: 60 fps, no long tasks, no dropped frames.
-- **Fix: changing a matching setting did not refresh the open note.** The rebuilt decorations were not dispatched, so CodeMirror kept the old set until the next keystroke. Settings now take effect immediately.
+- **The two options are decoupled**: "Exclude self-links to the current note" now only excludes the note's own **name and aliases**; links to its **headings** are controlled by "Allow links to headers in the current note" alone. Neither overrides the other any more, and the newer option is no longer greyed out just because the older one is on.
+- **No more hidden coupling**: enabling "Allow virtual links in headers" no longer turns "Exclude self-links" on by itself (it used to, and turning it off again never reverted it, which made the other option look stuck in a disabled state).
+- **"Only link once" counts targets**: the target is now "note + heading" instead of "note". A glossary written as headings inside one note keeps one link per entry instead of a single link for the whole note.
+- **Fix: reading view + "Only link once" removed every link.** The "already linked" bookkeeping outlived a re-render, so the rebuilt note was treated as fully linked and produced no links at all (present in 1.24.30).
+- **Fix: a heading-line match claimed the "Only link once" target**, which deleted the body link that should have been shown and left the note empty.
+- **Docs**: the "Fix ime typing issues" description now states that Chinese/Japanese/Korean are written without spaces and have no word boundaries, so the "match any part of a word / beginning / end" options do not apply to them - this option is the one that matters there and should stay on.

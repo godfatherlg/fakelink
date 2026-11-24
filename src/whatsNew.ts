@@ -12,16 +12,17 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.30';
+export const WHATS_NEW_VERSION = '1.24.31';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'New toggle "Allow links to headers in the current note": body text can now link to a heading of the note it is written in, while a heading line still never links to itself. It needs "Include headers" on and has no effect while "Exclude self-links to the current note" is on.',
-    'Links no longer vanish for about 150 ms when the viewport jumps (dragging the scrollbar, following a link, switching notes): the rebuild now happens in the same update instead of after a 150 ms debounce.',
-    'Changing a matching setting now refreshes the open note immediately - the rebuilt links used to wait for the next keystroke.',
+    '"Exclude self-links to the current note" now only governs the note name and its aliases: links to its headings are controlled by "Allow links to headers in the current note" alone, so the two options no longer override each other. Enabling "Allow virtual links in headers" no longer switches the other option on behind your back.',
+    '"Only link once" now counts a note plus its heading as one target, so a glossary written as headings inside a single note keeps one link per entry instead of one per note.',
+    'Fixed: with "Only link once" on, the reading view dropped every link (its bookkeeping survived a re-render and marked the whole note as already linked).',
+    'The "Fix ime typing issues" description now explains why the word-boundary options do not apply to Chinese/Japanese/Korean and why this option has to stay on for them.',
 ];
 
 export class WhatsNewModal extends Modal {
