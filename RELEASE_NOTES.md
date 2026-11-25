@@ -1,23 +1,21 @@
-# 1.24.31
+# 1.24.32
 
 ## 中文
 
-按 1.24.30 的反馈调整了两个开关的职责，并修复「只链一次」在几个场景下的问题。
+「只链一次」原来按"当前这一屏算出来的内容"判断，因此会出现：同一篇笔记里隔几屏的两处都被链上、滚动时链接时有时无、callout 里重复全链、callout 之后正文又重新开始。这个版本改成**按整篇笔记判断**。
 
-- **两个开关解耦**：「排除指向自身的链接」现在只排除本篇笔记的**笔记名与别名**；指向本篇**标题**的链接由「允许链接到当前笔记的标题」单独控制。两者不再互相覆盖，「允许链接到当前笔记的标题」也不会因为老开关开着而变灰。
-- **取消自动联动**：开启「允许在标题中显示虚拟链接」不再自动打开「排除指向自身的链接」（此前会自动打开且关闭时不还原，导致开关看起来"卡在灰态"）。
-- **「只链一次」按目标计**：目标从「笔记」细化为「笔记 + 标题」。把词汇表写成标题、放在同一篇笔记里时，每个词条各链一次，而不是整篇只链一个。
-- **修复：阅读视图 + 「只链一次」会清空全部链接**。此前的「已链接」记账跨渲染残留，重渲染后把整篇笔记判成已链接，一个链接都不生成（1.24.30 即存在）。
-- **修复：标题行的匹配抢占「只链一次」目标**，导致正文里本该出现的链接被删掉、整篇为空。
-- **说明补充**：「修复输入法问题」现在写明——中文/日文/韩文不以空格分词、没有词边界，所以「匹配单词的任意部分 / 开头 / 结尾」对它们不适用，而这几个语言真正需要的是这个开关，应保持开启。
+- **整篇只链一次**：开启后，只有"该关键词在全文中的第一次出现"会变成链接，其余一律不链。判断依据是笔记文本本身，不再是每次渲染的临时记录，所以滚动、切换视图、重新渲染都不会改变结果。
+- **callout 与正文一致**：实时预览里的 callout 走的是阅读视图渲染路径，过去自己记一套账（callout 内重复全链、callout 之后正文重新算）。现在它和正文用同一条"全文第一次出现"规则。
+- **标题行不再算作"第一次出现"**：标题行本身永远不会链回自己的笔记，过去它却会被当作已出现，导致正文里真正的第一次出现被吞掉、整篇没有链接。
+- **性能**：全文判定只在打开该开关时计算，并按文档文本缓存，文本不变就不重算；131KB 笔记实测滚动 p95 17ms、无掉帧。
+- 阅读视图保持整篇一次性渲染，行为不变。
 
 ## English
 
-Reworks the two self-link options based on the 1.24.30 feedback and fixes "Only link once" in several cases.
+"Only link once" used to be decided from the content produced by the current render pass, which showed up as: two occurrences a few screens apart both linked, links appearing and disappearing while scrolling, every duplicate inside a callout linked, and the body starting over after a callout. It is now decided from the note as a whole.
 
-- **The two options are decoupled**: "Exclude self-links to the current note" now only excludes the note's own **name and aliases**; links to its **headings** are controlled by "Allow links to headers in the current note" alone. Neither overrides the other any more, and the newer option is no longer greyed out just because the older one is on.
-- **No more hidden coupling**: enabling "Allow virtual links in headers" no longer turns "Exclude self-links" on by itself (it used to, and turning it off again never reverted it, which made the other option look stuck in a disabled state).
-- **"Only link once" counts targets**: the target is now "note + heading" instead of "note". A glossary written as headings inside one note keeps one link per entry instead of a single link for the whole note.
-- **Fix: reading view + "Only link once" removed every link.** The "already linked" bookkeeping outlived a re-render, so the rebuilt note was treated as fully linked and produced no links at all (present in 1.24.30).
-- **Fix: a heading-line match claimed the "Only link once" target**, which deleted the body link that should have been shown and left the note empty.
-- **Docs**: the "Fix ime typing issues" description now states that Chinese/Japanese/Korean are written without spaces and have no word boundaries, so the "match any part of a word / beginning / end" options do not apply to them - this option is the one that matters there and should stay on.
+- **One link per note**: with the option on, only the first occurrence of a keyword in the document becomes a link. The decision is based on the note text, not on a per-render ledger, so scrolling, switching views and re-rendering no longer change the result.
+- **Callouts agree with the body**: a callout in Live Preview is rendered through the reading-view path and used to keep its own small ledger (duplicates inside it all linked, the body restarting afterwards). It now follows the same document-wide rule.
+- **A heading line no longer counts as the "first occurrence"**: it never links to its own note, so counting it used to swallow the first real body link and leave the note unlinked.
+- **Performance**: the document is analysed only while the option is on and cached per text version; measured 17 ms p95 and no dropped frames while scrolling a 131 KB note.
+- The reading view still renders the whole note at once and keeps its existing behaviour.

@@ -9,6 +9,8 @@ import { ExternalUpdateManager, LinkerCache, PrefixTree, MatchType, hasExcludedE
 import { VirtualMatch, isInTableCellEditor, attachTableCellContextMenu, isLinkingDisabledInNote } from './virtualLinkDom';
 import { parseInternalLinkSyntax } from './virtualLinkMatch';
 import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
+import { buildFirstOccurrenceContext, isFirstOccurrence } from './firstOccurrence';
+import type { FirstOccurrenceContext } from './firstOccurrence';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('main').default;
@@ -272,6 +274,10 @@ class AutoLinkerPlugin implements PluginValue {
     // can rebuild even before the first ViewUpdate arrives (right after a reload
     // the index becomes ready before the editor fires its first update).
     private view: EditorView;
+
+    // Document-wide "only link once" context. Keyed by the Text object of the
+    // document, so it is rebuilt exactly when the document changes.
+    private firstOccurrenceCache: { doc: unknown; ctx: FirstOccurrenceContext } | null = null;
 
     // Cache the active Markdown view so we don't call getActiveViewOfType()
     // on every cursor move. Invalidated on active-leaf-change.
@@ -1412,6 +1418,24 @@ class AutoLinkerPlugin implements PluginValue {
             // it is populated in the loop further down - so the call was dead
             // and deleted nothing.
 
+
+            // "Only link once" is decided from the document, not from this
+            // render pass. Per-render counting made "once" mean "once per
+            // screenful": two occurrences a few screens apart were both linked,
+            // and scrolling made links appear and disappear.
+            if (this.settings.onlyLinkOnce) {
+                const doc = view.state.doc;
+                if (!this.firstOccurrenceCache || this.firstOccurrenceCache.doc !== doc) {
+                    this.firstOccurrenceCache = {
+                        doc,
+                        ctx: buildFirstOccurrenceContext(doc.toString(), this.settings),
+                    };
+                }
+                const firstOccurrence = this.firstOccurrenceCache.ctx;
+                matches = matches.filter((addition) =>
+                    isFirstOccurrence(firstOccurrence, addition.from, view.state.sliceDoc(addition.from, addition.to))
+                );
+            }
 
             // A heading line is never rendered as a link when it would link to
             // its own note (see the guard further down), so drop those matches

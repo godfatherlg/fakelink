@@ -6,6 +6,8 @@ import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
 import { getVirtualLinkRawPath, parseInternalLinkSyntax } from './virtualLinkMatch';
 import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
 import IntervalTree from '@flatten-js/interval-tree';
+import { buildFirstOccurrenceContext, isFirstOccurrence } from './firstOccurrence';
+import type { FirstOccurrenceContext } from './firstOccurrence';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
 type LinkerPluginType = import('../main').default;
@@ -35,6 +37,11 @@ export class GlossaryLinker extends MarkdownRenderChild {
      * "already linked" entry would keep new links from ever appearing.
      */
     private static readonly sharedTtlMs = 250;
+
+    // Document-wide first-occurrence context for callouts rendered inside the
+    // editor, keyed by the note text.
+    private static firstOccurrenceCache: { text: string; ctx: FirstOccurrenceContext } | null = null;
+
     private static sharedSets = new Map<string, {
         at: number;
         linkedFiles: Set<TFile>;
@@ -731,6 +738,40 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // Delete additions that links to already linked files
                             if (this.settings.excludeLinksToRealLinkedFiles) {
                                 matches = VirtualMatch.filterAlreadyLinked(matches, explicitlyLinkedFiles);
+                            }
+
+
+                            // A callout in Live Preview goes through this
+                            // path and has its own small ledger. Decide it from
+                            // the note text instead, so a duplicate inside a
+                            // callout is not linked merely because the callout
+                            // does not see the body. Only blockquote ("^> ")
+                            // lines are handled here: reading-view paragraphs
+                            // render the whole note and keep their own ledger.
+                            if (this.settings.onlyLinkOnce) {
+                                const owner = this.app.workspace.getLeavesOfType('markdown')
+                                    .map((leaf) => leaf.view as unknown as {
+                                        file?: { path: string };
+                                        editor?: {
+                                            getValue(): string;
+                                        };
+                                    })
+                                    .find((view) => view.file?.path === this.ctx.sourcePath);
+                                if (owner?.editor) {
+                                    const text = owner.editor.getValue();
+                                    const probe = (childNode.textContent || '').trim().slice(0, 30);
+                                    const at = probe.length >= 4 ? text.indexOf(probe) : -1;
+                                    const lineStart = at > 0 ? text.lastIndexOf('\n', at - 1) + 1 : 0;
+                                    if (at >= 0 && /^\s*>\s?/.test(text.slice(lineStart, at + 40))) {
+                                        const cache = GlossaryLinker.firstOccurrenceCache;
+                                        const ctx = cache && cache.text === text
+                                            ? cache.ctx
+                                            : buildFirstOccurrenceContext(text, this.settings);
+                                        GlossaryLinker.firstOccurrenceCache = { text, ctx };
+                                        matches = matches.filter((match) =>
+                                            isFirstOccurrence(ctx, at + match.from, match.originText));
+                                    }
+                                }
                             }
 
                             // Same as liveLinker: a heading line must not link to

@@ -21,6 +21,7 @@ const { stem, isStemmingSupported } = await loadTs('linker/stemmer.ts');
 // (LinkerCache only carries getInstance plus its instance methods).
 const { PrefixTree, removeOwnHeaderTargets } = await loadTs('linker/linkerCache.ts');
 const { targetKeyOf } = await loadTs('linker/targetKey.ts');
+const { buildFirstOccurrenceContext, isFirstOccurrence } = await loadTs('linker/firstOccurrence.ts');
 
 console.log('stemmer');
 
@@ -336,6 +337,34 @@ test('different headings of one note are different targets', () => {
 
 test('two matches to one heading still share a target', () => {
     assert.equal(targetKeyOf('Glossary.md', 'Alpha'), targetKeyOf('Glossary.md', 'Alpha'));
+});
+
+console.log('');
+console.log('only link once is decided from the whole document');
+
+const occurrenceSettings = {
+    matchAnyPartsOfWords: true,
+    matchBeginningOfWords: false,
+    matchEndOfWords: false,
+    matchCaseSensitive: false,
+    allowLinksInHeaders: false,
+};
+
+test('the first occurrence wins, later ones are not first', () => {
+    const ctx = buildFirstOccurrenceContext('Alpha x Alpha', occurrenceSettings);
+    assert.equal(isFirstOccurrence(ctx, 0, 'Alpha'), true);
+    assert.equal(isFirstOccurrence(ctx, 8, 'Alpha'), false);
+});
+
+test('an occurrence inside code does not count', () => {
+    const text = '`Alpha` then Alpha';
+    const ctx = buildFirstOccurrenceContext(text, occurrenceSettings);
+    assert.equal(isFirstOccurrence(ctx, text.indexOf('Alpha', 1), 'Alpha'), true);
+});
+
+test('matching is case-insensitive when the setting says so', () => {
+    const ctx = buildFirstOccurrenceContext('alpha ALPHA', occurrenceSettings);
+    assert.equal(isFirstOccurrence(ctx, 6, 'ALPHA'), false);
 });
 
 console.log('');

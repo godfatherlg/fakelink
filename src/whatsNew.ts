@@ -12,17 +12,17 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.31';
+export const WHATS_NEW_VERSION = '1.24.32';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    '"Exclude self-links to the current note" now only governs the note name and its aliases: links to its headings are controlled by "Allow links to headers in the current note" alone, so the two options no longer override each other. Enabling "Allow virtual links in headers" no longer switches the other option on behind your back.',
-    '"Only link once" now counts a note plus its heading as one target, so a glossary written as headings inside a single note keeps one link per entry instead of one per note.',
-    'Fixed: with "Only link once" on, the reading view dropped every link (its bookkeeping survived a re-render and marked the whole note as already linked).',
-    'The "Fix ime typing issues" description now explains why the word-boundary options do not apply to Chinese/Japanese/Korean and why this option has to stay on for them.',
+    '"Only link once" is now decided from the whole note instead of the current screen: an occurrence is kept only when no earlier occurrence of the same keyword exists in the document, so scrolling no longer makes links appear and disappear, and two occurrences a few screens apart are not both linked.',
+    'Callouts in Live Preview follow the same rule now: a duplicate inside a callout is no longer linked just because the callout keeps its own small ledger, and the body keeps counting after the callout.',
+    'A heading line is no longer counted as the "first occurrence": its own link is never rendered, so counting it used to swallow the first real body link.',
+    'Faster: the duplicate check no longer rebuilds a ledger per block; it reads the note once and reuses that until the text changes.',
 ];
 
 export class WhatsNewModal extends Modal {
