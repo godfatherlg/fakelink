@@ -1,19 +1,21 @@
-# 1.24.34
+# 1.24.35
 
 ## 中文
 
-维护版本：界面无变化，清掉社区审核剩下的两条警告和一条建议。
+维护版本：界面无变化，清掉社区审核最后两条 `no-unsafe-*` 警告。
 
-- **不再有 any 类型**：阅读视图里查找所属编辑器时，原来用 `as unknown as {...}` 强转，"unsafe call / unsafe member access" 两条警告就来自这里。现在改成 `instanceof MarkdownView` 收窄类型，`editor.getValue()` 是完整类型。
-- **删除未使用的导入**：`src/batchConvert.ts` 里残留的 `IntervalTree`（把排除区间扫描抽到 `linker/excludedIntervals.ts` 之后不再使用）。
-- **删除废弃的设置标志**：`settingsTab` 里的 `needsFullUpdate` 在取消自动联动后已无赋值点，改为直接刷新可见/禁用状态。
+- **根因是 `String.prototype.trimStart`**：它声明在 `lib.es2019.string.d.ts`，而插件模板的 `lib` 是 `DOM / ES5 / ES6 / ES7`，没有 ES2019。审核环境按这套声明做类型检查，`trimStart` 在那里是 `error` 类型，于是同一行同时报"unsafe member access"和"unsafe call"。本地没暴露，是因为 `@types/node` 顺带引入了更后面的 lib。
+- **改为正则计数**：`nodeText.match(/^\s*/)?.[0].length ?? 0`，语义与原写法一致（`\s` 含全角空格 U+3000），不再依赖 ES2019。
+- **没有放宽 tsconfig**：没有往 `lib` 里加 ES2019——那只会掩盖本地问题，审核环境仍按自己的声明运行。
+- 全库扫描过 `trimEnd / flat / flatMap / Object.fromEntries / padStart / replaceAll / matchAll / at`，没有其它超出范围的使用。
 - 无行为变化：`npx eslint .` 0 错误 0 警告，45 条单元测试通过，callout 与只链一次的运行时用例复测一致。
 
 ## English
 
-Maintenance release: nothing changes on screen; the last two warnings from the community review and one recommendation are cleared.
+Maintenance release: nothing changes on screen; the last two `no-unsafe-*` warnings from the community review are cleared.
 
-- **No any-typed values** in the reading-view path: it used to locate the owning editor through an `as unknown as {...}` cast, which is where the "unsafe call / unsafe member access" warnings came from. It now narrows with `instanceof MarkdownView`, so `editor.getValue()` is fully typed.
-- **Removed an unused import**: the leftover `IntervalTree` in `src/batchConvert.ts` (no longer used after the exclusion scan moved to `linker/excludedIntervals.ts`).
-- **Removed a dead settings flag**: `needsFullUpdate` in `settingsTab` had no assignment left after the automatic coupling was dropped; the visible/disabled state is refreshed directly now.
+- **The cause was `String.prototype.trimStart`**: it is declared in `lib.es2019.string.d.ts`, while the plugin template's `lib` is `DOM / ES5 / ES6 / ES7` - no ES2019. The review type-checks against that lib, so `trimStart` is an `error` type there and the same line reports both "unsafe member access" and "unsafe call". It stayed invisible locally because `@types/node` pulls in later libs as a side effect.
+- **Replaced by a regex count**: `nodeText.match(/^\s*/)?.[0].length ?? 0`, same meaning as before (`\s` covers the ideographic space U+3000) without depending on ES2019.
+- **The tsconfig was not widened**: adding ES2019 to `lib` would only hide the problem locally; the review still runs against its own declarations.
+- The codebase was scanned for `trimEnd / flat / flatMap / Object.fromEntries / padStart / replaceAll / matchAll / at` - no other out-of-range usage.
 - No behaviour change: `npx eslint .` reports 0 errors and 0 warnings, 45 unit tests pass, and the callout / only-link-once runtime cases were re-checked.

@@ -12,15 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.34';
+export const WHATS_NEW_VERSION = '1.24.35';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Maintenance release: nothing changes on screen. The two remaining warnings from the community review are cleared - the reading-view path now narrows its editor view with instanceof instead of a type cast, so nothing in it is any-typed any more.',
-    'A leftover unused import and a dead settings flag were removed along the way.',
+    'Maintenance release: nothing changes on screen. One callout helper used String.prototype.trimStart, which the review environment does not declare in its lib - there it resolves to an error type and produced the two remaining no-unsafe-* warnings. It is replaced by a regex that counts the same leading whitespace.',
+    'Behaviour is unchanged: the same whitespace (including the ideographic space) is skipped.',
 ];
 
 export class WhatsNewModal extends Modal {

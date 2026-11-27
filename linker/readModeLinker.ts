@@ -815,7 +815,12 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                         // `located` points at the trimmed probe; the
                                         // match offsets are relative to the untrimmed
                                         // text node.
-                                        const leading = nodeText.length - nodeText.trimStart().length;
+                                        // Not trimStart(): the type environment the
+                                        // review runs in has no ES2019 lib, where that
+                                        // method is declared - it resolves to an
+                                        // "error" type there and trips
+                                        // no-unsafe-call / no-unsafe-member-access.
+                                        const leading = nodeText.match(/^\s*/)?.[0].length ?? 0;
                                         const base = located - leading;
                                         matches = matches.filter((match) =>
                                             isFirstOccurrence(ctx, base + match.from, match.originText));
