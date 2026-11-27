@@ -12,17 +12,17 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.32';
+export const WHATS_NEW_VERSION = '1.24.33';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    '"Only link once" is now decided from the whole note instead of the current screen: an occurrence is kept only when no earlier occurrence of the same keyword exists in the document, so scrolling no longer makes links appear and disappear, and two occurrences a few screens apart are not both linked.',
-    'Callouts in Live Preview follow the same rule now: a duplicate inside a callout is no longer linked just because the callout keeps its own small ledger, and the body keeps counting after the callout.',
-    'A heading line is no longer counted as the "first occurrence": its own link is never rendered, so counting it used to swallow the first real body link.',
-    'Faster: the duplicate check no longer rebuilds a ledger per block; it reads the note once and reuses that until the text changes.',
+    'Callouts: a short keyword (three characters, common in Japanese) was linked on every line instead of once - the lookup skipped anything shorter than four characters.',
+    'Callouts: a line starting with a space lost its link, because the position was computed from the trimmed text while the match offset was not.',
+    'Callouts: identical lines all pointed at the first of them, so a link could move to another line after the callout was rendered.',
+    'Callout text is now located in the note by searching forward from the previous line, so short words, leading spaces and repeated lines behave exactly like body text.',
 ];
 
 export class WhatsNewModal extends Modal {

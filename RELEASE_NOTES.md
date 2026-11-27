@@ -1,21 +1,23 @@
-# 1.24.32
+# 1.24.33
 
 ## 中文
 
-「只链一次」原来按"当前这一屏算出来的内容"判断，因此会出现：同一篇笔记里隔几屏的两处都被链上、滚动时链接时有时无、callout 里重复全链、callout 之后正文又重新开始。这个版本改成**按整篇笔记判断**。
+修 callout 里「只链一次」的四个问题，全部由"把 callout 文本映射回笔记位置"这一步不准引起。
 
-- **整篇只链一次**：开启后，只有"该关键词在全文中的第一次出现"会变成链接，其余一律不链。判断依据是笔记文本本身，不再是每次渲染的临时记录，所以滚动、切换视图、重新渲染都不会改变结果。
-- **callout 与正文一致**：实时预览里的 callout 走的是阅读视图渲染路径，过去自己记一套账（callout 内重复全链、callout 之后正文重新算）。现在它和正文用同一条"全文第一次出现"规则。
-- **标题行不再算作"第一次出现"**：标题行本身永远不会链回自己的笔记，过去它却会被当作已出现，导致正文里真正的第一次出现被吞掉、整篇没有链接。
-- **性能**：全文判定只在打开该开关时计算，并按文档文本缓存，文本不变就不重算；131KB 笔记实测滚动 p95 17ms、无掉帧。
-- 阅读视图保持整篇一次性渲染，行为不变。
+- **短词不再每行都链**：查找时跳过了少于 4 个字的内容，日文里常见的三字关键词因此没做判断，callout 里每一行都链上了。现在不再有长度门槛。
+- **行首空白不再丢链接**：定位用的是去掉空白后的文本，而匹配位置是按原始文本算的，两者相差前导空格的字符数，导致"第一次出现"被判成"之前已出现过"。现在按未去空白的节点计算。
+- **重复行不再错位**：相同的行都从笔记开头查找，全部映射到第一处，渲染完成后链接可能跳到另一行。现在从上一处的位置继续往后找，每行对应自己的位置。
+- **映射不到时不再"全部链接"**：以前找不到位置就跳过判断，等于 callout 里所有重复词都链；现在找不到只影响该处，不会连带整块。
+
+实测（只链一次打开）：正文已出现过的三字关键词在 callout 里 0 个链接；行首全角空格的词正常链接；同一 callout 内重复行只链第一处；编辑态与渲染完成态链接位置一致；关闭开关后 callout 恢复全部链接。131KB 笔记滚动 p95 17ms。
 
 ## English
 
-"Only link once" used to be decided from the content produced by the current render pass, which showed up as: two occurrences a few screens apart both linked, links appearing and disappearing while scrolling, every duplicate inside a callout linked, and the body starting over after a callout. It is now decided from the note as a whole.
+Fixes four "Only link once" problems inside callouts, all caused by the step that maps callout text back to a position in the note.
 
-- **One link per note**: with the option on, only the first occurrence of a keyword in the document becomes a link. The decision is based on the note text, not on a per-render ledger, so scrolling, switching views and re-rendering no longer change the result.
-- **Callouts agree with the body**: a callout in Live Preview is rendered through the reading-view path and used to keep its own small ledger (duplicates inside it all linked, the body restarting afterwards). It now follows the same document-wide rule.
-- **A heading line no longer counts as the "first occurrence"**: it never links to its own note, so counting it used to swallow the first real body link and leave the note unlinked.
-- **Performance**: the document is analysed only while the option is on and cached per text version; measured 17 ms p95 and no dropped frames while scrolling a 131 KB note.
-- The reading view still renders the whole note at once and keeps its existing behaviour.
+- **Short keywords are no longer linked on every line**: the lookup skipped anything shorter than four characters, so a three-character Japanese keyword was never checked and every callout line got a link. There is no length threshold any more.
+- **A leading space no longer loses the link**: the lookup used trimmed text while the match offset was not trimmed, shifting the position by the number of leading spaces and making the first occurrence look like an earlier one. Offsets are now computed from the untrimmed node.
+- **Identical lines no longer collapse onto the first one**: every identical line was searched from the start of the note, so all of them pointed at the first occurrence and the link could jump to another line after rendering. The search now continues from the previous match, so each line maps to its own position.
+- **A failed lookup no longer links everything**: previously an unmapped block skipped the check entirely, which linked every duplicate inside the callout; now only that occurrence is affected.
+
+Verified with "Only link once" on: a three-character keyword already linked in the body produces 0 callout links; a line starting with an ideographic space links normally; repeated lines inside one callout link only the first; the edit and finished states agree; with the option off the callout links everything again. Scrolling a 131 KB note: p95 17 ms.

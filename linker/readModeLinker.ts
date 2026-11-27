@@ -42,6 +42,19 @@ export class GlossaryLinker extends MarkdownRenderChild {
     // editor, keyed by the note text.
     private static firstOccurrenceCache: { text: string; ctx: FirstOccurrenceContext } | null = null;
 
+    /**
+     * Where the callout renderer has got to in the note text.
+     *
+     * A callout is rendered from a detached fragment, so neither
+     * getSectionInfo nor posAtDOM can say where its text sits in the note. The
+     * rendered text is nevertheless a faithful copy of the source (the "^> "
+     * prefixes aside), so each text node is located by searching forward from
+     * the previous one. That keeps the offset correct when the same line
+     * repeats, and it is reset as soon as the note text changes or the render
+     * pauses long enough to be a new one.
+     */
+    private static calloutScan = new Map<string, { text: string; cursor: number; at: number }>();
+
     private static sharedSets = new Map<string, {
         at: number;
         linkedFiles: Set<TFile>;
@@ -68,6 +81,31 @@ export class GlossaryLinker extends MarkdownRenderChild {
         // Still inside the same render: keep going and extend the window.
         existing.at = now;
         return existing;
+    }
+
+    /**
+     * Offset of the next rendered callout text `probe` in the note, or null
+     * when it cannot be found on a blockquote line after the previous node.
+     */
+    private static locateCalloutText(text: string, sourcePath: string, probe: string): number | null {
+        const now = Date.now();
+        let state = GlossaryLinker.calloutScan.get(sourcePath);
+        if (!state || state.text !== text || now - state.at > 400) {
+            state = { text, cursor: 0, at: now };
+            GlossaryLinker.calloutScan.set(sourcePath, state);
+        }
+        state.at = now;
+        let index = text.indexOf(probe, state.cursor);
+        while (index !== -1) {
+            const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+            // Only blockquote lines belong to a callout.
+            if (/^\s*>/.test(text.slice(lineStart, index + 1))) {
+                state.cursor = index + probe.length;
+                return index;
+            }
+            index = text.indexOf(probe, index + 1);
+        }
+        return null;
     }
 
     private clearExistingLinks() {
@@ -748,28 +786,40 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // does not see the body. Only blockquote ("^> ")
                             // lines are handled here: reading-view paragraphs
                             // render the whole note and keep their own ledger.
+                            // A callout in Live Preview renders from a detached
+                            // fragment: no section info, no DOM position, so the
+                            // text has to be mapped back to the note by hand.
+                            // Every text node is located by searching forward from
+                            // the previous one - repeating lines therefore map to
+                            // their own occurrence, and leading whitespace is kept
+                            // so the keyword does not shift by one character.
                             if (this.settings.onlyLinkOnce) {
+                                const nodeText = childNode.textContent || '';
+                                // Any length: a three-character Japanese keyword is
+                                // as valid as a long English one.
+                                const probe = nodeText.trim().slice(0, 40);
                                 const owner = this.app.workspace.getLeavesOfType('markdown')
                                     .map((leaf) => leaf.view as unknown as {
                                         file?: { path: string };
-                                        editor?: {
-                                            getValue(): string;
-                                        };
+                                        editor?: { getValue(): string };
                                     })
                                     .find((view) => view.file?.path === this.ctx.sourcePath);
-                                if (owner?.editor) {
+                                if (probe.length > 0 && owner?.editor) {
                                     const text = owner.editor.getValue();
-                                    const probe = (childNode.textContent || '').trim().slice(0, 30);
-                                    const at = probe.length >= 4 ? text.indexOf(probe) : -1;
-                                    const lineStart = at > 0 ? text.lastIndexOf('\n', at - 1) + 1 : 0;
-                                    if (at >= 0 && /^\s*>\s?/.test(text.slice(lineStart, at + 40))) {
+                                    const located = GlossaryLinker.locateCalloutText(text, this.ctx.sourcePath, probe);
+                                    if (located !== null) {
                                         const cache = GlossaryLinker.firstOccurrenceCache;
                                         const ctx = cache && cache.text === text
                                             ? cache.ctx
                                             : buildFirstOccurrenceContext(text, this.settings);
                                         GlossaryLinker.firstOccurrenceCache = { text, ctx };
+                                        // `located` points at the trimmed probe; the
+                                        // match offsets are relative to the untrimmed
+                                        // text node.
+                                        const leading = nodeText.length - nodeText.trimStart().length;
+                                        const base = located - leading;
                                         matches = matches.filter((match) =>
-                                            isFirstOccurrence(ctx, at + match.from, match.originText));
+                                            isFirstOccurrence(ctx, base + match.from, match.originText));
                                     }
                                 }
                             }
