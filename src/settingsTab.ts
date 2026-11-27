@@ -85,7 +85,6 @@ export class LinkerSettingTab extends PluginSettingTab {
     }
 
     async setControlValue(key: string, value: unknown): Promise<void> {
-        let needsFullUpdate = false;
         switch (key) {
             case 'useWikilinks':
                 await this.plugin.updateSettings({ useMarkdownLinks: !(value as boolean) });
@@ -213,12 +212,9 @@ export class LinkerSettingTab extends PluginSettingTab {
                 await this.plugin.updateSettings({ [key]: value });
         }
 
-        if (needsFullUpdate) {
-            this.update();
-        } else {
-            // Re-evaluate visible/disabled predicates that depend on other settings.
-            this.refreshDomState();
-        }
+        // Re-evaluate visible/disabled predicates that depend on other
+        // settings (a control can become available or greyed out).
+        this.refreshDomState();
     }
 
     private splitLines(value: string): string[] {

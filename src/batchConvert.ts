@@ -3,7 +3,6 @@ import { LinkerPluginSettings } from '../main';
 import { LinkerCache, PrefixTree, MatchType, hasExcludedExtension, scoreFuzzyWindow } from '../linker/linkerCache';
 import { VirtualMatch } from '../linker/virtualLinkDom';
 import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from '../linker/scope';
-import IntervalTree from '@flatten-js/interval-tree';
 import { t } from './lang/helpers';
 import { buildExcludedIntervals } from '../linker/excludedIntervals';
 

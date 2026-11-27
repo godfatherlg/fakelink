@@ -1,4 +1,4 @@
-import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, TFile } from 'obsidian';
+import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownView, TFile } from 'obsidian';
 
 import { LinkerPluginSettings } from '../main';
 import { hasExcludedExtension, LinkerCache, MatchType, PrefixTree, scoreFuzzyWindow } from './linkerCache';
@@ -794,17 +794,16 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             // their own occurrence, and leading whitespace is kept
                             // so the keyword does not shift by one character.
                             if (this.settings.onlyLinkOnce) {
-                                const nodeText = childNode.textContent || '';
+                                const nodeText: string = childNode.textContent ?? '';
                                 // Any length: a three-character Japanese keyword is
                                 // as valid as a long English one.
                                 const probe = nodeText.trim().slice(0, 40);
                                 const owner = this.app.workspace.getLeavesOfType('markdown')
-                                    .map((leaf) => leaf.view as unknown as {
-                                        file?: { path: string };
-                                        editor?: { getValue(): string };
-                                    })
-                                    .find((view) => view.file?.path === this.ctx.sourcePath);
-                                if (probe.length > 0 && owner?.editor) {
+                                    .map((leaf) => leaf.view)
+                                    .find((view): view is MarkdownView =>
+                                        view instanceof MarkdownView
+                                        && view.file?.path === this.ctx.sourcePath);
+                                if (probe.length > 0 && owner) {
                                     const text = owner.editor.getValue();
                                     const located = GlossaryLinker.locateCalloutText(text, this.ctx.sourcePath, probe);
                                     if (located !== null) {

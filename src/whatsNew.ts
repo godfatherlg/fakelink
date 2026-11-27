@@ -12,17 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.33';
+export const WHATS_NEW_VERSION = '1.24.34';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Callouts: a short keyword (three characters, common in Japanese) was linked on every line instead of once - the lookup skipped anything shorter than four characters.',
-    'Callouts: a line starting with a space lost its link, because the position was computed from the trimmed text while the match offset was not.',
-    'Callouts: identical lines all pointed at the first of them, so a link could move to another line after the callout was rendered.',
-    'Callout text is now located in the note by searching forward from the previous line, so short words, leading spaces and repeated lines behave exactly like body text.',
+    'Maintenance release: nothing changes on screen. The two remaining warnings from the community review are cleared - the reading-view path now narrows its editor view with instanceof instead of a type cast, so nothing in it is any-typed any more.',
+    'A leftover unused import and a dead settings flag were removed along the way.',
 ];
 
 export class WhatsNewModal extends Modal {
