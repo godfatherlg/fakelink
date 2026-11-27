@@ -1,21 +1,19 @@
-# 1.24.35
+# 1.24.36
 
 ## 中文
 
-维护版本：界面无变化，清掉社区审核最后两条 `no-unsafe-*` 警告。
+修复 1.24.33 引入的一处回归：**callout 里加粗列表项中的关键词，即使正文已经链过，也会再链一次**。
 
-- **根因是 `String.prototype.trimStart`**：它声明在 `lib.es2019.string.d.ts`，而插件模板的 `lib` 是 `DOM / ES5 / ES6 / ES7`，没有 ES2019。审核环境按这套声明做类型检查，`trimStart` 在那里是 `error` 类型，于是同一行同时报"unsafe member access"和"unsafe call"。本地没暴露，是因为 `@types/node` 顺带引入了更后面的 lib。
-- **改为正则计数**：`nodeText.match(/^\s*/)?.[0].length ?? 0`，语义与原写法一致（`\s` 含全角空格 U+3000），不再依赖 ES2019。
-- **没有放宽 tsconfig**：没有往 `lib` 里加 ES2019——那只会掩盖本地问题，审核环境仍按自己的声明运行。
-- 全库扫描过 `trimEnd / flat / flatMap / Object.fromEntries / padStart / replaceAll / matchAll / at`，没有其它超出范围的使用。
-- 无行为变化：`npx eslint .` 0 错误 0 警告，45 条单元测试通过，callout 与只链一次的运行时用例复测一致。
+- **原因**：阅读视图按标签分批处理 callout（先是段落，再是列表项，最后才是加粗这类内联标签），而 1.24.33 的定位方式改成"从上一处继续往后找"。轮到加粗内容时，查找位置已经越过它，找不到就跳过了判断，于是照常链接。
+- **修复**：往后找不到时，**退回笔记开头再找一次**。这样加粗内容仍能定位到它在全文中的真实位置，"正文已经出现过"会被正确识别；游标保持单调，不会往回退，重复行仍按顺序对应各自的出现位置。
+- 之前修好的四项（三字词、行首全角空格、重复行、编辑态与渲染态一致）复测无回退；关闭「只链一次」时 callout 仍全部链接。
+- 无其它行为变化，`npx eslint .` 0 错误 0 警告，45 条单元测试通过。
 
 ## English
 
-Maintenance release: nothing changes on screen; the last two `no-unsafe-*` warnings from the community review are cleared.
+Fixes a regression introduced in 1.24.33: **a keyword already linked in the body was linked again inside a bold bullet of a callout**.
 
-- **The cause was `String.prototype.trimStart`**: it is declared in `lib.es2019.string.d.ts`, while the plugin template's `lib` is `DOM / ES5 / ES6 / ES7` - no ES2019. The review type-checks against that lib, so `trimStart` is an `error` type there and the same line reports both "unsafe member access" and "unsafe call". It stayed invisible locally because `@types/node` pulls in later libs as a side effect.
-- **Replaced by a regex count**: `nodeText.match(/^\s*/)?.[0].length ?? 0`, same meaning as before (`\s` covers the ideographic space U+3000) without depending on ES2019.
-- **The tsconfig was not widened**: adding ES2019 to `lib` would only hide the problem locally; the review still runs against its own declarations.
-- The codebase was scanned for `trimEnd / flat / flatMap / Object.fromEntries / padStart / replaceAll / matchAll / at` - no other out-of-range usage.
-- No behaviour change: `npx eslint .` reports 0 errors and 0 warnings, 45 unit tests pass, and the callout / only-link-once runtime cases were re-checked.
+- **Cause**: the reading view processes a callout by tag (paragraphs, then list items, then inline tags such as bold), while 1.24.33 switched the lookup to "continue from the previous match". By the time bold text was handled the cursor had already passed it, the lookup failed, and the check was skipped - so the duplicate was linked.
+- **Fix**: when the forward search misses, **retry from the start of the note**. Bold text can then be located at its real position, so "already appeared in the body" is recognised again. The cursor stays monotonic (it never moves backwards), so repeated lines still map to their own occurrences.
+- The earlier fixes (short keywords, leading spaces, repeated lines, edit/render consistency) were re-checked and still hold; with "Only link once" off, callouts link everything as before.
+- No other behaviour change; `npx eslint .` reports 0 errors and 0 warnings, 45 unit tests pass.

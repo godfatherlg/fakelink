@@ -12,15 +12,15 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.35';
+export const WHATS_NEW_VERSION = '1.24.36';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Maintenance release: nothing changes on screen. One callout helper used String.prototype.trimStart, which the review environment does not declare in its lib - there it resolves to an error type and produced the two remaining no-unsafe-* warnings. It is replaced by a regex that counts the same leading whitespace.',
-    'Behaviour is unchanged: the same whitespace (including the ideographic space) is skipped.',
+    'Fixed a regression from 1.24.33: a keyword already linked in the body was linked again inside a bold bullet of a callout (Live Preview). Bold text is rendered after the list items, so the forward lookup had already passed it and gave up - it now falls back to the start of the note.',
+    'Nothing else changes: the earlier callout fixes (short keywords, leading spaces, repeated lines) still hold.',
 ];
 
 export class WhatsNewModal extends Modal {

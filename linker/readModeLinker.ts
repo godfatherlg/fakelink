@@ -95,17 +95,26 @@ export class GlossaryLinker extends MarkdownRenderChild {
             GlossaryLinker.calloutScan.set(sourcePath, state);
         }
         state.at = now;
-        let index = text.indexOf(probe, state.cursor);
-        while (index !== -1) {
-            const lineStart = text.lastIndexOf('\n', index - 1) + 1;
-            // Only blockquote lines belong to a callout.
-            if (/^\s*>/.test(text.slice(lineStart, index + 1))) {
-                state.cursor = index + probe.length;
-                return index;
+        const findFrom = (from: number): number | null => {
+            let index = text.indexOf(probe, from);
+            while (index !== -1) {
+                const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+                // Only blockquote lines belong to a callout.
+                if (/^\s*>/.test(text.slice(lineStart, index + 1))) return index;
+                index = text.indexOf(probe, index + 1);
             }
-            index = text.indexOf(probe, index + 1);
-        }
-        return null;
+            return null;
+        };
+        // Reading view processes the container by tag (p, li, then the inline
+        // tags), not in document order: bold text is handled after the list
+        // items, and by then the cursor sits at the end of the callout, so the
+        // forward search misses it. Falling back to the start of the note finds
+        // the real (earlier) occurrence, which is what the check needs.
+        const index = findFrom(state.cursor) ?? findFrom(0);
+        if (index === null) return null;
+        // Keep the cursor monotonic; a fallback match is behind it.
+        state.cursor = Math.max(state.cursor, index + probe.length);
+        return index;
     }
 
     private clearExistingLinks() {
