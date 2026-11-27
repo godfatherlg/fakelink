@@ -12,15 +12,16 @@ import { t } from './lang/helpers';
  * Update WHATS_NEW_VERSION and WHATS_NEW together when cutting a release; the
  * text mirrors RELEASE_NOTES.md.
  */
-export const WHATS_NEW_VERSION = '1.24.36';
+export const WHATS_NEW_VERSION = '1.24.37';
 
 /**
  * Each entry is the English original - t() turns it into Chinese when the UI
  * language is Chinese, so there is nothing to keep in sync by hand.
  */
 const WHATS_NEW: string[] = [
-    'Fixed a regression from 1.24.33: a keyword already linked in the body was linked again inside a bold bullet of a callout (Live Preview). Bold text is rendered after the list items, so the forward lookup had already passed it and gave up - it now falls back to the start of the note.',
-    'Nothing else changes: the earlier callout fixes (short keywords, leading spaces, repeated lines) still hold.',
+    '"Only link once" now behaves the same in the reading view and the editor: the reading view decides from the note text as well, so a keyword repeated in a later paragraph, a callout, a short word or a line starting with a space is linked exactly where the editor links it.',
+    'The reading view no longer keeps its own "already linked" ledger. That bookkeeping is what occasionally made a whole note render without any link, so it is gone.',
+    'Nothing changes in the editor, and callouts in Live Preview keep their text-based lookup.',
 ];
 
 export class WhatsNewModal extends Modal {

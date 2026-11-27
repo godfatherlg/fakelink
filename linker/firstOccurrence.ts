@@ -70,6 +70,60 @@ export function isFirstOccurrence(ctx: FirstOccurrenceContext, from: number, key
     return true;
 }
 
+/**
+ * Start offset of `line` (0-based) in `text`, cached per text.
+ *
+ * Reading view reports a section as a line range, so this is what turns
+ * "before this section" into an offset the checker understands.
+ */
+const lineOffsets = new Map<string, number[]>();
+
+export function lineStartOffset(text: string, line: number): number {
+    let offsets = lineOffsets.get(text);
+    if (!offsets) {
+        if (lineOffsets.size > 8) lineOffsets.clear();
+        offsets = [0];
+        for (let i = 0; i < text.length; i++) {
+            if (text.charCodeAt(i) === 10) offsets.push(i + 1);
+        }
+        lineOffsets.set(text, offsets);
+    }
+    const index = Math.max(0, Math.min(line, offsets.length - 1));
+    return offsets[index];
+}
+
+/**
+ * True when `keyword` already appears in an already-rendered text prefix.
+ *
+ * Used for repeats inside one section: the rendered text no longer contains
+ * markdown markers, so exclusion rules cannot be applied there - only the word
+ * boundary rules, which is enough for the "second occurrence in the same
+ * paragraph" case.
+ */
+export function containsAcceptedOccurrence(
+    text: string,
+    keyword: string,
+    settings: FirstOccurrenceContext['settings']
+): boolean {
+    if (keyword.length === 0 || text.length === 0) return false;
+    const caseSensitive = settings.matchCaseSensitive;
+    const haystack = caseSensitive ? text : text.toLowerCase();
+    const needle = caseSensitive ? keyword : keyword.toLowerCase();
+    let index = haystack.indexOf(needle);
+    while (index !== -1) {
+        const end = index + needle.length;
+        const before = index === 0 ? '' : text[index - 1];
+        const after = end >= text.length ? '' : text[end];
+        const startsAtWordBoundary = index === 0 || PrefixTree.checkWordBoundary(before);
+        const endsAtWordBoundary = end >= text.length || PrefixTree.checkWordBoundary(after);
+        if (PrefixTree.shouldAcceptWordMatch(settings, needle, startsAtWordBoundary, endsAtWordBoundary)) {
+            return true;
+        }
+        index = haystack.indexOf(needle, index + 1);
+    }
+    return false;
+}
+
 function isExcluded(ctx: FirstOccurrenceContext, from: number, to: number): boolean {
     // Intervals are stored closed, so an occurrence spans [from, to - 1].
     return ctx.excluded.search([from, Math.max(from, to - 1)]).length > 0;

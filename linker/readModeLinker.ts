@@ -3,10 +3,15 @@ import { App, getLinkpath, MarkdownPostProcessorContext, MarkdownRenderChild, Ma
 import { LinkerPluginSettings } from '../main';
 import { hasExcludedExtension, LinkerCache, MatchType, PrefixTree, scoreFuzzyWindow } from './linkerCache';
 import { VirtualMatch, isLinkingDisabledInNote } from './virtualLinkDom';
-import { getVirtualLinkRawPath, parseInternalLinkSyntax } from './virtualLinkMatch';
+import { parseInternalLinkSyntax } from './virtualLinkMatch';
 import { effectiveScopes, isVisibleInScope, realLinkTargets, resolveScopeConfig } from './scope';
 import IntervalTree from '@flatten-js/interval-tree';
-import { buildFirstOccurrenceContext, isFirstOccurrence } from './firstOccurrence';
+import {
+    buildFirstOccurrenceContext,
+    containsAcceptedOccurrence,
+    isFirstOccurrence,
+    lineStartOffset,
+} from './firstOccurrence';
 import type { FirstOccurrenceContext } from './firstOccurrence';
 
 // Import LinkerPlugin type - using require to avoid circular dependency
@@ -87,6 +92,21 @@ export class GlossaryLinker extends MarkdownRenderChild {
      * Offset of the next rendered callout text `probe` in the note, or null
      * when it cannot be found on a blockquote line after the previous node.
      */
+    /**
+     * Section info for this container, taken from the nearest ancestor
+     * Obsidian recognizes. A preview section reports the whole note text plus
+     * its own first line; a Live Preview callout is detached and reports
+     * nothing, which is what the caller uses to pick the fallback.
+     */
+    private resolveSectionInfo(): { info: { text: string; lineStart: number; lineEnd: number }; root: HTMLElement } | null {
+        let el: HTMLElement | null = this.containerEl;
+        for (let depth = 0; depth < 4 && el; depth++, el = el.parentElement) {
+            const info = this.ctx.getSectionInfo(el);
+            if (info) return { info, root: el };
+        }
+        return null;
+    }
+
     private static locateCalloutText(text: string, sourcePath: string, probe: string): number | null {
         const now = Date.now();
         let state = GlossaryLinker.calloutScan.get(sourcePath);
@@ -334,19 +354,6 @@ export class GlossaryLinker extends MarkdownRenderChild {
         const shared = this.sharedFor(this.ctx.sourcePath);
         const linkedFiles = shared.linkedFiles;
         const explicitlyLinkedFiles = shared.explicitlyLinkedFiles;
-        // Targets already linked elsewhere in this note, read from the DOM:
-        // earlier sections of the same render are already in the preview, so
-        // no cross-block bookkeeping is needed - and a rebuilt preview can
-        // never inherit a stale "already linked" entry, which used to make the
-        // whole note render without any link (onlyLinkOnce + read view).
-        const linkedTargets = new Set<string>();
-        this.containerEl.closest('.markdown-preview-view')
-            ?.querySelectorAll('.virtual-link a')
-            .forEach((anchor) => {
-                const raw = getVirtualLinkRawPath(anchor);
-                if (raw) linkedTargets.add(raw);
-            });
-
         // Collect files already linked by real [[...]] links so excludeLinksToRealLinkedFiles
         // works in read mode. Live mode parses these from the syntax tree; read mode parses
         // the rendered <a class="internal-link"> elements instead (before we insert any
@@ -788,21 +795,22 @@ export class GlossaryLinker extends MarkdownRenderChild {
                             }
 
 
-                            // A callout in Live Preview goes through this
-                            // path and has its own small ledger. Decide it from
-                            // the note text instead, so a duplicate inside a
-                            // callout is not linked merely because the callout
-                            // does not see the body. Only blockquote ("^> ")
-                            // lines are handled here: reading-view paragraphs
-                            // render the whole note and keep their own ledger.
+                            // "Only link once" is decided from the note text,
+                            // exactly like the editor does. A reading-view section
+                            // reports the WHOLE note text plus its first line, so
+                            // "already linked earlier" is an exact check and no
+                            // cross-block bookkeeping is needed.
+                            const section = this.settings.onlyLinkOnce
+                                ? this.resolveSectionInfo()
+                                : null;
+
                             // A callout in Live Preview renders from a detached
-                            // fragment: no section info, no DOM position, so the
-                            // text has to be mapped back to the note by hand.
-                            // Every text node is located by searching forward from
-                            // the previous one - repeating lines therefore map to
-                            // their own occurrence, and leading whitespace is kept
-                            // so the keyword does not shift by one character.
-                            if (this.settings.onlyLinkOnce) {
+                            // fragment: no section info, no DOM position, so its
+                            // text is mapped back to the note by hand. Every text
+                            // node is located by searching forward from the
+                            // previous one - repeating lines map to their own
+                            // occurrence and leading whitespace is kept.
+                            if (this.settings.onlyLinkOnce && !section) {
                                 const nodeText: string = childNode.textContent ?? '';
                                 // Any length: a three-character Japanese keyword is
                                 // as valid as a long English one.
@@ -850,13 +858,26 @@ export class GlossaryLinker extends MarkdownRenderChild {
                                 });
                             }
 
-                            // Delete additions whose targets were already linked
-                            // in an earlier block. Targets, not files: with one
-                            // link per heading, a glossary written as headings in
-                            // a single note keeps one link per entry.
-                            if (this.settings.onlyLinkOnce) {
-                                matches = matches.filter((match) =>
-                                    !match.targetKeys().every((key) => linkedTargets.has(key)));
+                            // Section text rule (reading view): the same check the
+                            // editor runs, fed with the section's absolute start
+                            // offset instead of a CodeMirror position.
+                            if (this.settings.onlyLinkOnce && section) {
+                                const text = section.info.text;
+                                const cache = GlossaryLinker.firstOccurrenceCache;
+                                const ctx = cache && cache.text === text
+                                    ? cache.ctx
+                                    : buildFirstOccurrenceContext(text, this.settings);
+                                GlossaryLinker.firstOccurrenceCache = { text, ctx };
+                                const sectionStart = lineStartOffset(text, section.info.lineStart);
+                                const nodeText: string = childNode.textContent ?? '';
+                                const prefixBefore = this.getTextBeforeNode(section.root, childNode, 0);
+                                matches = matches.filter((match) => {
+                                    // An accepted occurrence earlier in the note?
+                                    if (!isFirstOccurrence(ctx, sectionStart, match.originText)) return false;
+                                    // An occurrence earlier in this same section?
+                                    const prefix = prefixBefore + nodeText.slice(0, match.from);
+                                    return !containsAcceptedOccurrence(prefix, match.originText, this.settings);
+                                });
                             }
                             // Delete additions that overlap
                             // Additions are sorted by from position and after that by length, we want to keep longer additions

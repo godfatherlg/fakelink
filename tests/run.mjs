@@ -21,7 +21,12 @@ const { stem, isStemmingSupported } = await loadTs('linker/stemmer.ts');
 // (LinkerCache only carries getInstance plus its instance methods).
 const { PrefixTree, removeOwnHeaderTargets } = await loadTs('linker/linkerCache.ts');
 const { targetKeyOf } = await loadTs('linker/targetKey.ts');
-const { buildFirstOccurrenceContext, isFirstOccurrence } = await loadTs('linker/firstOccurrence.ts');
+const {
+    buildFirstOccurrenceContext,
+    containsAcceptedOccurrence,
+    isFirstOccurrence,
+    lineStartOffset,
+} = await loadTs('linker/firstOccurrence.ts');
 
 console.log('stemmer');
 
@@ -365,6 +370,20 @@ test('an occurrence inside code does not count', () => {
 test('matching is case-insensitive when the setting says so', () => {
     const ctx = buildFirstOccurrenceContext('alpha ALPHA', occurrenceSettings);
     assert.equal(isFirstOccurrence(ctx, 6, 'ALPHA'), false);
+});
+
+test('line starts are measured from the note text', () => {
+    const text = 'a\nbb\nccc';
+    assert.equal(lineStartOffset(text, 0), 0);
+    assert.equal(lineStartOffset(text, 1), 2);
+    assert.equal(lineStartOffset(text, 2), 5);
+    assert.equal(lineStartOffset(text, 99), 5);
+});
+
+test('a rendered prefix tells whether the keyword was already there', () => {
+    assert.equal(containsAcceptedOccurrence('Alpha then ', 'Alpha', occurrenceSettings), true);
+    assert.equal(containsAcceptedOccurrence('nothing yet ', 'Alpha', occurrenceSettings), false);
+    assert.equal(containsAcceptedOccurrence('ALPHA ', 'Alpha', occurrenceSettings), true);
 });
 
 console.log('');
