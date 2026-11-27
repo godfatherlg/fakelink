@@ -27,3 +27,6 @@ obsidian-releases-new/
 
 # Build logs
 build.log
+
+# chromium crashpad log written by the Obsidian process
+debug.log
